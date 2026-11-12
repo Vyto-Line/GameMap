@@ -151,10 +151,12 @@ class MapRenderer(private val car: Boolean = false) {
         }
 
         // ---- theme overlays ----
-        if (theme.grid) drawGrid(c, area, d)
-        if (theme.scanlines) drawScanlines(c, area, d, theme)
-        if (theme.paper) drawPaper(c, area)
-        if (theme.sunGlow) drawSunGlow(c, area)
+        // style overlays cover the whole screen, like the map (no hard edge where buttons start)
+        val full = Rect(0, 0, w, h)
+        if (theme.grid) drawGrid(c, full, d)
+        if (theme.scanlines) drawScanlines(c, full, d, theme)
+        if (theme.paper) drawPaper(c, full)
+        if (theme.sunGlow) drawSunGlow(c, full)
         if (theme.radar) drawRadarFrame(c, cx, cy, radius, bearing, d)
 
         // player: centred when following, otherwise wherever it is on the map
@@ -170,9 +172,11 @@ class MapRenderer(private val car: Boolean = false) {
         drawSpeed(c, area, d, theme)
         if (car && hud) drawCarEta(c, area, d, theme)
         carHits.clear()
-        if (car && hud && carButtons && !NavEngine.planning) drawCarButtons(c, area, d, theme)
+        if (car && hud && carButtons && !NavEngine.planning && NavEngine.lastTrip == null) drawCarButtons(c, area, d, theme)
         bannerBottom = area.top.toFloat()
-        if (hud && !NavEngine.planning && NavEngine.offer == null) drawBanner(c, area, d, theme)
+        val carTrip = car && carButtons && NavEngine.lastTrip != null
+        if (hud && !NavEngine.planning && NavEngine.offer == null && !carTrip) drawBanner(c, area, d, theme)
+        if (carTrip) drawCarTrip(c, area, d, theme)
         drawJamChip(c, area, d, theme, hud)
         drawDiscovery(c, area, d, theme)
         if (hud && (MapState.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
@@ -955,6 +959,51 @@ class MapRenderer(private val car: Boolean = false) {
             }
         }
         text.typeface = t.typeface
+    }
+
+    /** Car: the arrival card with trip stats, XP, and Parking / Done buttons. */
+    private fun drawCarTrip(c: Canvas, a: Rect, d: Float, t: Theme) {
+        val trip = NavEngine.lastTrip ?: return
+        carHits.clear()
+        val w = minOf(460 * d, a.width() - 28f * d)
+        val h = 236 * d
+        val box = RectF(a.left + 14 * d, a.top + 14 * d, a.left + 14 * d + w, a.top + 14 * d + h)
+        panel(c, box, d, t, outline = true)
+        val ink = Ui.ink(t)
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 13 * d; text.color = Ui.onPanel(t, t.route, 3.0)
+        c.drawText(Explorer.completeTitle(t).uppercase(), box.left + 18 * d, box.top + 28 * d, text)
+        text.typeface = t.typeface; text.textSize = 24 * d; text.color = ink
+        c.drawText(ellipsize(trip.place, w - 36 * d), box.left + 18 * d, box.top + 60 * d, text)
+        val stats = listOf(
+            NavEngine.formatDuration(trip.seconds.toDouble()) to "journey",
+            NavEngine.formatDistance(trip.meters) to "travelled",
+            "+${trip.xp} XP" to "level ${Explorer.level}",
+        )
+        val col = (w - 36 * d) / 3
+        stats.forEachIndexed { i, (big, small) ->
+            val x = box.left + 18 * d + i * col
+            text.typeface = t.typeface; text.textSize = 22 * d; text.color = ink
+            c.drawText(big, x, box.top + 104 * d, text)
+            text.typeface = Typeface.DEFAULT; text.textSize = 13 * d; text.color = Ui.dim(t, 190)
+            c.drawText(small, x, box.top + 124 * d, text)
+        }
+        // buttons
+        val by = box.bottom - 18 * d - 56 * d
+        val half = (w - 36 * d - 12 * d) / 2
+        val park = RectF(box.left + 18 * d, by, box.left + 18 * d + half, by + 56 * d)
+        val done = RectF(park.right + 12 * d, by, park.right + 12 * d + half, by + 56 * d)
+        glassButton(c, park, d, t)
+        glassButton(c, done, d, t, withAlpha(t.route, 240))
+        text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 18 * d; text.textAlign = Paint.Align.CENTER
+        text.color = Color.WHITE
+        c.drawText("Parking", park.centerX(), park.centerY() + 6.5f * d, text)
+        text.color = if (Ui.contrast(Color.WHITE, t.route) >= 3) Color.WHITE else Color.BLACK
+        c.drawText("Done", done.centerX(), done.centerY() + 6.5f * d, text)
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = t.typeface
+        carHits += park to "parking"
+        carHits += done to "done"
     }
 
     /** Car: "17 min · 18:02 · 4.5 km" next to the speed box, in the theme's see-through panel. */

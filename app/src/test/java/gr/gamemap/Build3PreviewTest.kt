@@ -63,6 +63,17 @@ class Build3PreviewTest {
         shot("ui3_arrival_parchment")
         MapState.setLightMode(MapState.LightMode.DARK); MapState.setTheme(Theme.NEON_NOIR)
         shot("ui3_arrival_neon_noir")
+        for (th in listOf(Theme.NEON_NOIR, Theme.LOOKOUT)) {
+            MapState.setTheme(th)
+            val w = 1920; val h = 720
+            val rr = MapRenderer(car = true).apply { carButtons = true }
+            val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+            val c = android.graphics.Canvas(bmp)
+            val area = android.graphics.Rect(0, 90, w, h)
+            repeat(50) { rr.draw(c, w, h, area, 1.6f, hud = true); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(60) }
+            rr.draw(c, w, h, area, 1.6f, hud = true)
+            File(out, "ui3_car_arrival_${th.name.lowercase()}.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        }
         MapState.setLightMode(MapState.LightMode.LIGHT); MapState.setTheme(Theme.RETRO)
         shot("ui3_arrival_retro")
     }

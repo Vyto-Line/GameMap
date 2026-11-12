@@ -317,6 +317,8 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             "end" -> NavEngine.stop()
             "search" -> screenManager.push(SearchScreen(carContext))
             "home", "work" -> Places.saved(id)?.let { NavEngine.plan(carContext, it) }
+            "done" -> { NavEngine.stop(); NavEngine.dismissTrip() }
+            "parking" -> { NavEngine.stop(); NavEngine.dismissTrip(); screenManager.push(NearbyScreen(carContext, "Parking nearby", listOf("parking"))) }
         }
         surface.redraw()
     }
@@ -636,7 +638,13 @@ class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
             if (text != null) r.addText(text)
             list.addItem(r.build())
         }
-        if (NavEngine.active) row("End navigation", NavEngine.destinationName) { NavEngine.stop(); screenManager.pop() }
+        if (NavEngine.lastTrip != null) {
+            row("Done", NavEngine.lastTrip?.place) { NavEngine.stop(); NavEngine.dismissTrip(); screenManager.pop() }
+            row("Parking nearby") {
+                NavEngine.stop(); NavEngine.dismissTrip(); screenManager.pop()
+                screenManager.push(NearbyScreen(carContext, "Parking nearby", listOf("parking")))
+            }
+        } else if (NavEngine.active) row("End navigation", NavEngine.destinationName) { NavEngine.stop(); screenManager.pop() }
         else row("Search") { screenManager.pop(); screenManager.push(SearchScreen(carContext)) }
         if (!MapState.following || MapState.userBearing != null) row("Recenter") { MapState.recenter(); screenManager.pop() }
         row("Map style", (MapState.carTheme ?: MapState.theme).title) { MapState.nextCarTheme(); invalidate() }
@@ -644,5 +652,37 @@ class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
         row("Spoken directions", if (Voice.muted) "Off" else "On") { Voice.muted = !Voice.muted; invalidate() }
         row("Report") { screenManager.pop(); screenManager.push(ReportScreen(carContext)) }
         return ListTemplate.Builder().setTitle("GameMap").setHeaderAction(Action.BACK).setSingleList(list.build()).build()
+    }
+}
+
+/** Places of one kind around you (e.g. parking after arriving): pick one to go there. */
+class NearbyScreen(carContext: CarContext, private val title: String, private val types: List<String>) : Screen(carContext) {
+    private var results: List<Place>? = null
+    private var failed = false
+
+    init {
+        val near = LocationTracker.position
+        if (near == null) failed = true
+        else Executors.newSingleThreadExecutor().execute {
+            val r = try { Places.nearby(types, near) } catch (e: Exception) { null }
+            Handler(Looper.getMainLooper()).post { results = r ?: emptyList(); failed = r == null; invalidate() }
+        }
+    }
+
+    override fun onGetTemplate(): Template {
+        val b = ListTemplate.Builder().setTitle(title).setHeaderAction(Action.BACK)
+        val r = results
+        if (r == null && !failed) return b.setLoading(true).build()
+        val list = ItemList.Builder().setNoItemsMessage(if (failed) "Couldn't search: no location or internet" else "Nothing found nearby")
+        val near = LocationTracker.position
+        r.orEmpty().take(6).forEach { p ->
+            val row = Row.Builder().setTitle(p.name).setOnClickListener {
+                screenManager.pop()
+                NavEngine.plan(carContext, p)
+            }
+            near?.let { row.addText(NavEngine.formatDistance(gr.gamemap.Geo.distance(it, p.pos))) }
+            list.addItem(row.build())
+        }
+        return b.setSingleList(list.build()).build()
     }
 }

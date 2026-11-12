@@ -406,7 +406,8 @@ object NavEngine {
                 offer = null
                 finishTrip()
                 Voice.say(Phrases.instruction(r.steps.lastOrNull() ?: NavStep("arrive", "arrive", "", 0, dest, null), Voice.lang))
-                main.postDelayed({ if (arrived) stop() }, 20_000)
+                // the arrival card stays a minute (Parking / Done), then the trip closes by itself
+                main.postDelayed({ if (arrived) { stop(); dismissTrip() } }, 60_000)
             }
             changed.fire()
             return
