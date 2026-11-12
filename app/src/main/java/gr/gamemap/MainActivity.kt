@@ -1179,6 +1179,67 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         return listOf(head, box)
     }
 
+    private fun renderReport() {
+        sheetHost.removeAllViews()
+        sheetHost.background = bg(panel, radius = 24f, topOnly = true)
+        sheetHost.addView(sheetHeader("Report"))
+        if (!Alerts.reportsReady) {
+            sheetHost.addView(label("Reports are shared with other GameMap drivers through a small free online database, which isn't set up yet.", 15f).apply {
+                setTextColor(ink); setPadding((4 * d).toInt(), (6 * d).toInt(), 0, (12 * d).toInt())
+            })
+            sheetHost.addView(pill("Set up reports") { reportsSetup() }.apply {
+                setTextColor(onAccent(accent)); background = bg(accent, radius = 14f)
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            return
+        }
+        if (LocationTracker.position == null) {
+            sheetHost.addView(label("Waiting for your location…", 15f).apply { setTextColor(dim()) })
+        }
+        var row: LinearLayout? = null
+        Alerts.reportTypes.forEachIndexed { i, rt ->
+            if (i % 3 == 0) {
+                row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                sheetHost.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (10 * d).toInt() })
+            }
+            val tile = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                minimumHeight = (96 * d).toInt()
+                background = bg(Color.argb(28, Color.red(ink), Color.green(ink), Color.blue(ink)), dim(60), 1f, 16f)
+                setOnClickListener {
+                    Alerts.report(rt.key) { ok ->
+                        Toast.makeText(this@MainActivity, if (ok) "Thanks! ${rt.title} reported" else "Couldn't send the report: check internet", Toast.LENGTH_SHORT).show()
+                    }
+                    closeSheet()
+                }
+            }
+            tile.addView(label(rt.glyph, 30f).apply { gravity = Gravity.CENTER })
+            tile.addView(label(rt.title, 14f, bold = true).apply { setTextColor(ink); gravity = Gravity.CENTER })
+            row?.addView(tile, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (i % 3 != 2) marginEnd = (10 * d).toInt() })
+        }
+        sheetHost.addView(label("Reports show for other drivers for an hour, longer if they confirm them.", 13f).apply {
+            setTextColor(dim()); setPadding((4 * d).toInt(), (12 * d).toInt(), 0, 0)
+        })
+    }
+
+    private fun reportsSetup() {
+        val input = EditText(this).apply {
+            hint = "https://…firebasedatabase.app"
+            setText(Alerts.dbUrl)
+            setSingleLine()
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Driver reports")
+            .setMessage("Paste the address of your Firebase Realtime Database (it ends in firebasedatabase.app). " +
+                "Everyone using the same address sees each other's reports.")
+            .setView(LinearLayout(this).apply {
+                val p = (20 * d).toInt(); setPadding(p, p / 2, p, 0); addView(input)
+            })
+            .setPositiveButton("Save") { _, _ -> Alerts.setDbUrl(input.text.toString()); refreshChrome() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     internal fun showSettings() = openSheet("settings")
 
     private fun renderSettings() {
