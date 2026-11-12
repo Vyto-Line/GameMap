@@ -283,9 +283,10 @@ object Places {
      */
     fun sound(s: String): String {
         var t = norm(s)
+        // single letters first, so "kallirois" (οι) and Καλλιρόης (οη) end up the same
         t = t.replace("αυ", "αβ").replace("ευ", "εβ").replace("ου", "\u0001")
-            .replace("ει", "ι").replace("οι", "ι").replace("υι", "ι").replace("αι", "ε")
-            .replace('η', 'ι').replace('υ', 'ι').replace('ω', 'ο').replace("\u0001", "ου")
+            .replace('η', 'ι').replace('υ', 'ι').replace('ω', 'ο')
+            .replace("ει", "ι").replace("οι", "ι").replace("αι", "ε").replace("\u0001", "ου")
             // sounds Greeklish spells loosely: μπ/β (b), ντ/δ (d), γκ/γγ/νγ (g), ξ/χ (x), κσ (ks)
             .replace("μπ", "β").replace("ντ", "δ").replace("γκ", "γ").replace("νγ", "γ")
             .replace("κσ", "χ").replace('ξ', 'χ').replace("πσ", "ψ")
