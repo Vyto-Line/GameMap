@@ -1,0 +1,43 @@
+name: probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe APIs
+        env:
+          TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
+        run: |
+          echo "== OSRM =="
+          curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.7329,37.9990?alternatives=3&steps=true&annotations=maxspeed,duration&overview=false" > osrm.json
+          python3 - <<'P'
+          import json
+          o=json.load(open('osrm.json'))
+          print('code',o.get('code'),'routes',len(o.get('routes',[])))
+          r=o['routes'][0]; l=r['legs'][0]
+          print('annotation keys', list(l.get('annotation',{}).keys()))
+          print('maxspeed sample', l.get('annotation',{}).get('maxspeed',[])[:6])
+          for s in l['steps'][:6]:
+            for it in s.get('intersections',[]):
+              if 'lanes' in it: print('lanes', s['name'], it['lanes']); break
+          for i,rr in enumerate(o['routes']): print('route',i,rr['distance'],rr['duration'])
+          P
+          echo "== TomTom incidents =="
+          F='{incidents{type,geometry{type,coordinates},properties{iconCategory,magnitudeOfDelay,events{description,code},from,to,length,delay}}}'
+          curl -s -m 30 -G "https://api.tomtom.com/traffic/services/5/incidentDetails" --data-urlencode "key=$TOMTOM_KEY" --data-urlencode "bbox=23.68,37.95,23.78,38.02" --data-urlencode "fields=$F" --data-urlencode "language=en-GB" --data-urlencode "timeValidityFilter=present" > inc.json
+          python3 -c "
+          import json;o=json.load(open('inc.json'));i=o.get('incidents',o)
+          print(type(i), len(i) if isinstance(i,list) else str(i)[:300])
+          if isinstance(i,list):
+            for x in i[:4]: p=x['properties']; print(p.get('iconCategory'),p.get('magnitudeOfDelay'),p.get('events'),x['geometry']['type'],len(x['geometry']['coordinates']))
+          "
+          echo "== Overpass cameras =="
+          curl -s -m 60 --data-urlencode 'data=[out:json][timeout:25];node["highway"="speed_camera"](37.85,23.55,38.15,23.95);out;' https://overpass-api.de/api/interpreter | python3 -c "
+          import json,sys;o=json.load(sys.stdin);e=o['elements'];print('cameras',len(e));print([x.get('tags') for x in e[:3]])"
+          echo "== OSRM lanes demo (highway) =="
+          curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.80,38.04?steps=true&overview=false" | python3 -c "
+          import json,sys;o=json.load(sys.stdin);n=0
+          for s in o['routes'][0]['legs'][0]['steps']:
+            for it in s.get('intersections',[]):
+              if 'lanes' in it and n<4: print(s['name'],s['maneuver'],it['lanes']); n+=1
+          print('lane intersections found', n)"
