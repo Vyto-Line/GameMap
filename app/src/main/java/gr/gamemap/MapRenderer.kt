@@ -111,6 +111,7 @@ class MapRenderer {
         c.scale(scale, scale)
 
         drawTiles(c, theme, z, px, py, hypot(w.toDouble(), h.toDouble()) * 0.75 / scale)
+        drawTraffic(c, theme, z, px, py, scale, d, hypot(w.toDouble(), h.toDouble()) * 0.75 / scale)
         drawRoute(c, theme, world, px, py, scale, d)
 
         // accuracy halo around the player
@@ -205,14 +206,7 @@ class MapRenderer {
             if (bmp != null) c.drawBitmap(bmp, null, dst, paint)
             else drawStandIn(c, theme, z, x, ty, paint)
         }
-        // live traffic on top of the map, under the route
-        if (Traffic.active) for (t in tiles) {
-            val x = t[0].mod(n)
-            val tb = Traffic.tile(theme, z, x, t[1]) ?: continue
-            val left = (t[0] * tilePx - px).toFloat(); val top = (t[1] * tilePx - py).toFloat()
-            dst.set(left, top, left + tilePx, top + tilePx)
-            c.drawBitmap(tb, null, dst, if (theme.pixel > 1) pixelPaint else tilePaint)
-        }
+
     }
 
     /** While a tile loads, show a cached tile from a nearby zoom level instead of a gap. */
@@ -240,6 +234,106 @@ class MapRenderer {
                 c.drawBitmap(child, null, quarter, paint)
             }
         }
+    }
+
+    // ---------------------------------------------------------------- traffic
+
+    /** Traffic lines for one data square at one zoom, in world pixels around the square's corner. */
+    private class TrafficPaths(val byState: Array<Path>, val arrows: Path, val ox: Double, val oy: Double)
+    private val trafficCache = LinkedHashMap<String, TrafficPaths>()
+    private val trafficPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+    private fun drawTraffic(c: Canvas, theme: Theme, z: Int, px: Double, py: Double, scale: Float, d: Float, reach: Double) {
+        if (!Traffic.active || z < 11) return
+        val look = theme.traffic
+        val st = theme.style
+        val span = TileCache.tilePx * 2.0.pow(z - Traffic.DATA_Z) // one traffic square in world pixels
+        val ax0 = floor((px - reach) / span).toInt(); val ax1 = floor((px + reach) / span).toInt()
+        val ay0 = floor((py - reach) / span).toInt(); val ay1 = floor((py + reach) / span).toInt()
+        if ((ax1 - ax0 + 1) * (ay1 - ay0 + 1) > 16) return
+        trafficPaint.isAntiAlias = look.smooth
+        arrowPaint.isAntiAlias = look.smooth
+        val u = d / scale // one dp in world pixels
+        var arrowsDrawn = false
+
+        for (ay in ay0..ay1) for (ax in ax0..ax1) {
+            val t = Traffic.tile(ax, ay) ?: continue
+            val key = "$ax/$ay/$z/${t.fetchedAt}"
+            val tp = trafficCache.getOrPut(key) { buildTraffic(t, ax, ay, span) }
+            c.save()
+            c.translate((tp.ox - px).toFloat(), (tp.oy - py).toFloat())
+
+            // free-flowing roads: a faint line
+            if (look.freeAlpha > 0 && look.freeWidth > 0) {
+                trafficPaint.pathEffect = null
+                trafficPaint.color = st.trafficFree; trafficPaint.alpha = look.freeAlpha
+                trafficPaint.strokeWidth = look.freeWidth * u
+                c.drawPath(tp.byState[Traffic.FREE], trafficPaint)
+            }
+            // slow, jammed and closed: glow, outline, then the line itself
+            for (state in intArrayOf(Traffic.SLOW, Traffic.JAM, Traffic.CLOSED)) {
+                val p = tp.byState[state]
+                if (p.isEmpty) continue
+                val col = if (state == Traffic.SLOW) st.trafficSlow else st.trafficJam
+                trafficPaint.pathEffect = null
+                for ((wdp, alpha) in look.glow) {
+                    trafficPaint.color = col; trafficPaint.alpha = alpha
+                    trafficPaint.strokeWidth = wdp * u
+                    c.drawPath(p, trafficPaint)
+                }
+                look.casing?.let { cas ->
+                    trafficPaint.color = cas; trafficPaint.alpha = 255
+                    trafficPaint.strokeWidth = (look.core + 2f) * u
+                    c.drawPath(p, trafficPaint)
+                }
+                trafficPaint.color = col; trafficPaint.alpha = 255
+                trafficPaint.strokeWidth = look.core * u
+                if (state == Traffic.CLOSED) trafficPaint.pathEffect = DashPathEffect(floatArrayOf(6 * u, 4 * u), 0f)
+                c.drawPath(p, trafficPaint)
+            }
+            // arrows crawling along one-way jams, in the driving direction
+            if (!tp.arrows.isEmpty) {
+                val size = (look.core + 1.5f) * u
+                val advance = 26f * u
+                val shape = Path().apply {
+                    moveTo(-size * 0.6f, -size); lineTo(size * 0.7f, 0f); lineTo(-size * 0.6f, size)
+                    lineTo(-size * 0.15f, 0f); close()
+                }
+                val moved = if (look.animate) ((android.os.SystemClock.uptimeMillis() / 1000.0 * 12 * u) % advance).toFloat() else 0f
+                arrowPaint.color = look.arrow
+                arrowPaint.pathEffect = android.graphics.PathDashPathEffect(
+                    shape, advance, advance - moved, android.graphics.PathDashPathEffect.Style.ROTATE
+                )
+                c.drawPath(tp.arrows, arrowPaint)
+                arrowPaint.pathEffect = null
+                arrowsDrawn = true
+            }
+            trafficPaint.pathEffect = null
+            c.restore()
+        }
+        if (arrowsDrawn && look.animate) animating = true
+        while (trafficCache.size > 48) trafficCache.remove(trafficCache.keys.first())
+    }
+
+    private fun buildTraffic(t: Traffic.Tile, ax: Int, ay: Int, span: Double): TrafficPaths {
+        val paths = Array(4) { Path() }
+        val arrows = Path()
+        val k = (span / t.extent).toFloat()
+        for (sg in t.segs) {
+            val p = paths[sg.state]
+            p.moveTo(sg.pts[0] * k, sg.pts[1] * k)
+            var i = 2
+            while (i < sg.pts.size) { p.lineTo(sg.pts[i] * k, sg.pts[i + 1] * k); i += 2 }
+            if (sg.oneWay && (sg.state == Traffic.JAM || sg.state == Traffic.CLOSED)) {
+                arrows.moveTo(sg.pts[0] * k, sg.pts[1] * k)
+                i = 2
+                while (i < sg.pts.size) { arrows.lineTo(sg.pts[i] * k, sg.pts[i + 1] * k); i += 2 }
+            }
+        }
+        return TrafficPaths(paths, arrows, ax * span, ay * span)
     }
 
     // ---------------------------------------------------------------- route

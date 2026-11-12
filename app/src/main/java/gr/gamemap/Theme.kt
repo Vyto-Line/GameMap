@@ -6,6 +6,25 @@ import android.graphics.Typeface
 /** How the HUD panels are drawn. */
 enum class HudShape { ROUND, CHAMFER, PIXEL }
 
+/** How live traffic is drawn (glowing lines, arrows along jams), tuned per theme. */
+class TrafficLook(
+    /** Soft passes under the line: (width in dp, alpha). */
+    val glow: List<Pair<Float, Int>> = listOf(12f to 50, 7f to 100),
+    /** Main line width in dp. */
+    val core: Float = 3.5f,
+    /** Outline drawn under the main line, or null. */
+    val casing: Int? = null,
+    /** Faint line on free-flowing roads: width in dp and alpha (0 = hidden). */
+    val freeWidth: Float = 2.2f,
+    val freeAlpha: Int = 90,
+    /** Colour of the arrows along jams. */
+    val arrow: Int = Color.WHITE,
+    /** Arrows crawl along the jam in the driving direction. */
+    val animate: Boolean = true,
+    /** Smooth edges (off for pixel themes). */
+    val smooth: Boolean = true,
+)
+
 /** Colours for drawing the map itself (from OpenStreetMap vector data). */
 class MapStyle(
     val land: Int,
@@ -63,6 +82,7 @@ enum class Theme(
     val dashedRoute: Boolean = false,
     val paper: Boolean = false,
     val sunGlow: Boolean = false,
+    val traffic: TrafficLook = TrafficLook(),
 ) {
     OPEN_WORLD(
         "Open World",
@@ -85,6 +105,7 @@ enum class Theme(
         player = Color.rgb(255, 51, 85), playerOutline = Color.rgb(252, 238, 10),
         hudText = Color.rgb(252, 238, 10), hudPanel = Color.argb(200, 6, 20, 24),
         scanlines = true, hud = HudShape.CHAMFER,
+        traffic = TrafficLook(glow = listOf(16f to 45, 9f to 110), core = 3f, freeWidth = 2f, freeAlpha = 130, arrow = Color.WHITE),
         style = MapStyle(
             land = Color.rgb(6, 18, 22), water = Color.rgb(2, 8, 13), park = Color.rgb(8, 32, 32),
             wood = Color.rgb(6, 28, 28), sand = Color.rgb(20, 34, 34), farm = Color.rgb(8, 24, 26),
@@ -102,6 +123,7 @@ enum class Theme(
         player = Color.rgb(255, 43, 214), playerOutline = Color.WHITE,
         hudText = Color.rgb(0, 240, 255), hudPanel = Color.argb(170, 20, 0, 40),
         grid = true,
+        traffic = TrafficLook(glow = listOf(16f to 45, 9f to 110), core = 3f, freeWidth = 2f, freeAlpha = 130, arrow = Color.WHITE),
         style = MapStyle(
             land = Color.rgb(16, 4, 30), water = Color.rgb(5, 1, 18), park = Color.rgb(24, 6, 42),
             wood = Color.rgb(22, 4, 38), sand = Color.rgb(34, 12, 48), farm = Color.rgb(20, 6, 36),
@@ -119,6 +141,7 @@ enum class Theme(
         player = Color.WHITE, playerOutline = Color.rgb(30, 30, 30),
         hudText = Color.WHITE, hudPanel = Color.argb(200, 40, 40, 40),
         hud = HudShape.PIXEL,
+        traffic = TrafficLook(glow = listOf(9f to 70), core = 5f, casing = Color.rgb(25, 25, 25), freeWidth = 0f, freeAlpha = 0, arrow = Color.WHITE, animate = false, smooth = false),
         style = MapStyle( // only background + traffic colours are used; Blocky draws its own world
             land = Color.rgb(94, 158, 58), water = Color.rgb(63, 118, 228), park = 0, wood = 0, sand = 0, farm = 0,
             urban = 0, pitch = 0, building = 0, buildingEdge = null, waterEdge = null,
@@ -132,6 +155,7 @@ enum class Theme(
         player = Color.rgb(46, 110, 82), playerOutline = Color.rgb(250, 240, 210),
         hudText = Color.rgb(74, 52, 32), hudPanel = Color.argb(225, 240, 226, 186),
         serif = true, dashedRoute = true, paper = true,
+        traffic = TrafficLook(glow = emptyList(), core = 3.2f, casing = Color.rgb(74, 52, 32), freeWidth = 0f, freeAlpha = 0, arrow = Color.rgb(74, 52, 32), animate = false),
         style = MapStyle(
             land = Color.rgb(234, 217, 174), water = Color.rgb(160, 190, 180), park = Color.rgb(212, 210, 158),
             wood = Color.rgb(184, 190, 132), sand = Color.rgb(238, 222, 170), farm = Color.rgb(224, 210, 160),
@@ -149,6 +173,7 @@ enum class Theme(
         player = Color.rgb(63, 184, 175), playerOutline = Color.rgb(242, 242, 232),
         hudText = Color.rgb(247, 213, 155), hudPanel = Color.argb(190, 43, 27, 61),
         sunGlow = true,
+        traffic = TrafficLook(glow = listOf(12f to 50, 7f to 90), core = 3.2f, freeAlpha = 80, arrow = Color.rgb(247, 213, 155)),
         style = MapStyle(
             land = Color.rgb(52, 32, 68), water = Color.rgb(30, 42, 78), park = Color.rgb(44, 28, 60),
             wood = Color.rgb(36, 22, 52), sand = Color.rgb(110, 62, 70), farm = Color.rgb(60, 36, 70),
@@ -166,6 +191,7 @@ enum class Theme(
         player = Color.rgb(15, 56, 15), playerOutline = Color.rgb(155, 188, 15),
         hudText = Color.rgb(15, 56, 15), hudPanel = Color.argb(210, 139, 172, 15),
         pixel = 4, hud = HudShape.PIXEL,
+        traffic = TrafficLook(glow = emptyList(), core = 4f, freeWidth = 0f, freeAlpha = 0, arrow = Color.rgb(155, 188, 15), animate = false, smooth = false),
         style = MapStyle(
             land = Color.rgb(155, 188, 15), water = Color.rgb(48, 98, 48), park = Color.rgb(139, 172, 15),
             wood = Color.rgb(139, 172, 15), sand = Color.rgb(155, 188, 15), farm = Color.rgb(155, 188, 15),
@@ -183,6 +209,7 @@ enum class Theme(
         player = Color.rgb(232, 255, 224), playerOutline = Color.rgb(0, 40, 0),
         hudText = Color.rgb(150, 255, 120), hudPanel = Color.argb(170, 0, 20, 0),
         scanlines = true,
+        traffic = TrafficLook(glow = listOf(12f to 50, 7f to 90), core = 3f, freeAlpha = 80, arrow = Color.rgb(0, 40, 0)),
         style = MapStyle(
             land = Color.rgb(0, 16, 2), water = Color.rgb(0, 5, 0), park = Color.rgb(0, 26, 4),
             wood = Color.rgb(0, 24, 3), sand = Color.rgb(10, 32, 8), farm = Color.rgb(0, 20, 3),
@@ -199,6 +226,7 @@ enum class Theme(
         route = Color.rgb(84, 104, 255), routeGlow = Color.argb(110, 84, 104, 255),
         player = Color.rgb(255, 255, 255), playerOutline = Color.rgb(30, 120, 200),
         hudText = Color.rgb(24, 70, 64), hudPanel = Color.argb(235, 250, 255, 250),
+        traffic = TrafficLook(glow = listOf(10f to 40), core = 4f, casing = Color.WHITE, freeWidth = 2.5f, freeAlpha = 150, arrow = Color.WHITE),
         style = MapStyle(
             land = Color.rgb(150, 214, 140), water = Color.rgb(84, 176, 240), park = Color.rgb(112, 196, 112),
             wood = Color.rgb(92, 178, 98), sand = Color.rgb(236, 222, 160), farm = Color.rgb(170, 220, 140),

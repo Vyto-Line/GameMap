@@ -74,6 +74,8 @@ class VectorTile(bytes: ByteArray) {
             val tag = p.varint().toInt()
             when (tag shr 3) {
                 1 -> v = p.string()
+                2 -> v = java.lang.Float.intBitsToFloat(p.fixed32()).toString()
+                3 -> v = java.lang.Double.longBitsToDouble(p.fixed64()).toString()
                 4, 5 -> v = p.varint().toString()
                 6 -> v = p.varint().let { (it ushr 1) xor -(it and 1) }.toString()
                 7 -> v = (p.varint() != 0L).toString()
@@ -176,6 +178,18 @@ class VectorTile(bytes: ByteArray) {
                 if (x and 0x80 == 0) return r
                 s += 7
             }
+        }
+        fun fixed32(): Int {
+            var r = 0
+            for (i in 0 until 4) r = r or ((b[pos + i].toInt() and 0xff) shl (8 * i))
+            pos += 4
+            return r
+        }
+        fun fixed64(): Long {
+            var r = 0L
+            for (i in 0 until 8) r = r or ((b[pos + i].toLong() and 0xff) shl (8 * i))
+            pos += 8
+            return r
         }
         fun sub(): Pbf { val len = varint().toInt(); val p = Pbf(b, pos, pos + len); pos += len; return p }
         fun string(): String { val len = varint().toInt(); val s = String(b, pos, len, Charsets.UTF_8); pos += len; return s }
