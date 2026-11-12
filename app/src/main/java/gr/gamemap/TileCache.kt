@@ -19,7 +19,7 @@ object TileCache {
     var tilePx = 512
         private set
 
-    private val mem = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 4).toInt()) {
+    private val mem = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 5).toInt()) {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
     private val inFlight = ConcurrentHashMap.newKeySet<String>()

@@ -185,6 +185,9 @@ object MapState {
         return n
     }
 
+    /** A finger is on the map (pinch, drag, twist): renderers keep frames light meanwhile. */
+    @Volatile var gesture = false
+
     /** Miles and mph instead of kilometres. */
     var imperial = false
         private set

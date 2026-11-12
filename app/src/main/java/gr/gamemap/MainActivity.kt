@@ -971,10 +971,34 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun showRecents() {
-        querySeq++
+        val seq = ++querySeq
         lastResults = emptyList()
         val rec = Places.recents()
         renderResults(rec, if (rec.isEmpty()) "Type a place, address or business" else null, header = if (rec.isEmpty()) null else "RECENT", force = true)
+        val near = LocationTracker.position ?: return
+        Thread { try { Places.prepareGazetteer(near) } catch (_: Exception) {} }.apply { priority = Thread.MIN_PRIORITY }.start()
+        io.execute {
+            val around = try { Places.around(near) } catch (e: Exception) { emptyList() }
+            if (around.isNotEmpty()) runOnUiThread {
+                if (seq != querySeq || isFinishing) return@runOnUiThread
+                renderSections(listOf("RECENT" to rec.take(4), "AROUND YOU" to around))
+            }
+        }
+    }
+
+    /** Several titled lists in the suggestions box. */
+    private fun renderSections(sections: List<Pair<String, List<Place>>>) {
+        val p = (12 * d).toInt()
+        suggestList.removeAllViews()
+        for ((title, places) in sections) {
+            if (places.isEmpty()) continue
+            suggestList.addView(TextView(this).apply {
+                text = title; textSize = 12f; setTextColor(dim(170)); letterSpacing = 0.1f
+                setPadding(p + p / 2, p, p, p / 3)
+            })
+            for (pl in places) suggestList.addView(resultRow(pl))
+        }
+        suggestScroll.visibility = View.VISIBLE
     }
 
     private fun runQuery(q: String, full: Boolean) {
@@ -989,11 +1013,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 if (seq == querySeq && !isFinishing) { lastResults = local; renderResults(local, null, header = "NEARBY") }
             }
             // 2) the search services (whole region, addresses)
-            val r = try { if (full) Places.search(q, near) else Places.suggest(q, near) } catch (e: Exception) { null }
+            val r = try { Places.nearFirst(if (full) Places.search(q, near) else Places.suggest(q, near), near) } catch (e: Exception) { null }
             runOnUiThread {
                 if (seq != querySeq || isFinishing) return@runOnUiThread
                 val net = r.orEmpty()
-                val merged = net + local.filter { l -> net.none { Places.norm(it.name) == Places.norm(l.name) && Geo.distance(it.pos, l.pos) < 300 } }
+                val merged = local.take(3) + net.filter { n -> local.take(3).none { Places.norm(it.name) == Places.norm(n.name) && Geo.distance(it.pos, n.pos) < 300 } } + local.drop(3).filter { l -> net.none { Places.norm(it.name) == Places.norm(l.name) && Geo.distance(it.pos, l.pos) < 300 } }
                 lastResults = merged
                 renderResults(merged, when {
                     merged.isNotEmpty() -> null
@@ -1018,35 +1042,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             suggestList.addView(TextView(this).apply { text = it; textSize = 15f; setTextColor(dim(170)); setPadding(p + p / 2, p, p, p) })
         }
         val near = LocationTracker.position
-        for (pl in places) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(p, p - p / 4, p + p / 2, p - p / 4)
-                isClickable = true
-                setOnClickListener { choose(pl) }
-            }
-            row.addView(TextView(this).apply {
-                text = pl.icon; textSize = 20f; gravity = Gravity.CENTER
-                layoutParams = LinearLayout.LayoutParams((40 * d).toInt(), WRAP_CONTENT)
-            })
-            row.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(p / 2, 0, p / 2, 0)
-                addView(TextView(context).apply {
-                    text = pl.name; textSize = 16f; setTextColor(ink); typeface = Typeface.DEFAULT_BOLD
-                    maxLines = 1; ellipsize = TextUtils.TruncateAt.END
-                })
-                if (pl.address.isNotBlank()) addView(TextView(context).apply {
-                    text = pl.address; textSize = 13f; setTextColor(dim(170))
-                    maxLines = 1; ellipsize = TextUtils.TruncateAt.END
-                })
-            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-            if (near != null) row.addView(TextView(this).apply {
-                text = NavEngine.formatDistance(Geo.distance(near, pl.pos)); textSize = 13f; setTextColor(dim(170))
-            })
-            suggestList.addView(row)
-        }
+        for (pl in places) suggestList.addView(resultRow(pl))
         suggestScroll.visibility = View.VISIBLE
         refreshChrome()
         // keep the list from covering the whole screen
@@ -1056,6 +1052,38 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val want = if (suggestList.height > max) max else WRAP_CONTENT
             if (lp.height != want) { lp.height = want; suggestScroll.layoutParams = lp }
         }
+    }
+
+    private fun resultRow(pl: Place): View {
+        val p = (12 * d).toInt()
+        val near = LocationTracker.position
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(p, p - p / 4, p + p / 2, p - p / 4)
+            isClickable = true
+            setOnClickListener { choose(pl) }
+        }
+        row.addView(TextView(this).apply {
+            text = pl.icon; textSize = 20f; gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams((40 * d).toInt(), WRAP_CONTENT)
+        })
+        row.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(p / 2, 0, p / 2, 0)
+            addView(TextView(context).apply {
+                text = pl.name; textSize = 16f; setTextColor(ink); typeface = Typeface.DEFAULT_BOLD
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            })
+            if (pl.address.isNotBlank()) addView(TextView(context).apply {
+                text = pl.address; textSize = 13f; setTextColor(dim(170))
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            })
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        if (near != null) row.addView(TextView(this).apply {
+            text = NavEngine.formatDistance(Geo.distance(near, pl.pos)); textSize = 13f; setTextColor(dim(170))
+        })
+        return row
     }
 
     private fun choose(pl: Place) {
@@ -1576,6 +1604,7 @@ class GameMapView(ctx: Context) : View(ctx) {
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         touching = e.actionMasked != MotionEvent.ACTION_UP && e.actionMasked != MotionEvent.ACTION_CANCEL
+        if (MapState.gesture != (touching && (dragging || scaling || rotating))) { MapState.gesture = touching && (dragging || scaling || rotating); if (!MapState.gesture) invalidate() }
         scaler.onTouchEvent(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {

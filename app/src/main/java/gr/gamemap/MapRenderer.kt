@@ -67,8 +67,10 @@ class MapRenderer(private val car: Boolean = false) {
     fun draw(c: Canvas, w: Int, h: Int, area: Rect, d: Float, hud: Boolean) {
         compassBounds.setEmpty()
         val zoomAnim = MapState.tick()
+        interacting = zoomAnim || MapState.gesture
         val moveAnim = LocationTracker.tick()
-        animating = zoomAnim || moveAnim
+        animating = zoomAnim || moveAnim || (wasInteracting && !(zoomAnim || MapState.gesture))
+        wasInteracting = zoomAnim || MapState.gesture
 
         val theme = if (car) MapState.carTheme ?: MapState.theme else MapState.theme
         MapState.fitRequest?.let { fit(it, area, d, theme) }
@@ -233,7 +235,7 @@ class MapRenderer(private val car: Boolean = false) {
             val x = tx.mod(n)
             val left = (tx * tilePx - px).toFloat(); val top = (ty * tilePx - py).toFloat()
             dst.set(left, top, left + tilePx, top + tilePx)
-            val bmp = TileCache.get(theme, z, x, ty)
+            val bmp = if (interacting) TileCache.peek(theme, z, x, ty) else TileCache.get(theme, z, x, ty)
             if (bmp != null) c.drawBitmap(bmp, null, dst, paint)
             else drawStandIn(c, theme, z, x, ty, paint)
         }
@@ -284,7 +286,7 @@ class MapRenderer(private val car: Boolean = false) {
     private fun drawTraffic(
         c: Canvas, theme: Theme, z: Int, px: Double, py: Double, scale: Float, d: Float, reach: Double, under: Boolean,
     ) {
-        if (!Traffic.active || !Traffic.showLayer || z < 11) return
+        if (under || !Traffic.active || !Traffic.showLayer || z < 11) return
         val look = theme.traffic
         val st = theme.style
         // Coarser traffic data zoomed out (few squares); finer geometry close up.
@@ -300,6 +302,7 @@ class MapRenderer(private val car: Boolean = false) {
         trafficPaint.isAntiAlias = look.smooth
         arrowPaint.isAntiAlias = look.smooth
         val u = d / scale // one dp in world pixels
+        val busy = interacting
         val nowMs = android.os.SystemClock.uptimeMillis()
         if (VectorSource.loadedCount != snapSeen && nowMs - snapEpochAt > 4000) {
             snapSeen = VectorSource.loadedCount; snapEpoch++; snapEpochAt = nowMs
@@ -309,39 +312,18 @@ class MapRenderer(private val car: Boolean = false) {
             val t = Traffic.tile(dz, ax, ay) ?: continue
             // rebuilt when new map data arrives too, so lanes can lock onto the roads
             val key = "$dz/$ax/$ay/$z/${t.fetchedAt}/$snapEpoch"
-            val tp = trafficCache.getOrPut(key) { buildTraffic(t, ax, ay, span, u, z) }
+            val tp = trafficCache[key] ?: if (busy) continue else buildTraffic(t, ax, ay, span, u, z).also { trafficCache[key] = it }
             c.save()
             c.translate((tp.ox - px).toFloat(), (tp.oy - py).toFloat())
 
-            // free-flowing roads: a faint line
-            if (under && look.freeAlpha > 0 && look.freeWidth > 0) {
-                trafficPaint.pathEffect = null
-                trafficPaint.color = st.trafficFree; trafficPaint.alpha = look.freeAlpha
-                trafficPaint.strokeWidth = look.freeWidth * u
-                c.drawPath(tp.byState[Traffic.FREE], trafficPaint)
-            }
-            // slow, jammed and closed: glow, outline, then the line itself
-            for (state in intArrayOf(Traffic.SLOW, Traffic.JAM, Traffic.CLOSED)) {
+            // one thin, slightly see-through line per slow / jammed / closed stretch (cheap to draw)
+            if (!under) for (state in intArrayOf(Traffic.SLOW, Traffic.JAM, Traffic.CLOSED)) {
                 val p = tp.byState[state]
                 if (p.isEmpty) continue
-                val col = if (state == Traffic.SLOW) st.trafficSlow else st.trafficJam
-                trafficPaint.pathEffect = null
-                if (under) {
-                    for ((wdp, alpha) in look.glow) {
-                        trafficPaint.color = col; trafficPaint.alpha = alpha
-                        trafficPaint.strokeWidth = wdp * u
-                        c.drawPath(p, trafficPaint)
-                    }
-                    continue
-                }
-                look.casing?.let { cas ->
-                    trafficPaint.color = cas; trafficPaint.alpha = 255
-                    trafficPaint.strokeWidth = (look.core + 2f) * u
-                    c.drawPath(p, trafficPaint)
-                }
-                trafficPaint.color = col; trafficPaint.alpha = 255
-                trafficPaint.strokeWidth = look.core * u
-                if (state == Traffic.CLOSED) trafficPaint.pathEffect = DashPathEffect(floatArrayOf(6 * u, 4 * u), 0f)
+                trafficPaint.pathEffect = if (state == Traffic.CLOSED) DashPathEffect(floatArrayOf(6 * u, 4 * u), 0f) else null
+                trafficPaint.color = if (state == Traffic.SLOW) st.trafficSlow else st.trafficJam
+                trafficPaint.alpha = 175
+                trafficPaint.strokeWidth = maxOf(2.2f, look.core * 0.65f) * u
                 c.drawPath(p, trafficPaint)
             }
             trafficPaint.pathEffect = null
@@ -502,6 +484,9 @@ class MapRenderer(private val car: Boolean = false) {
         val times = HashMap<String, Long>()
     }
 
+    /** True while zooming or touching: draw what's cached, render new detail once it settles. */
+    private var interacting = false
+    private var wasInteracting = false
     private var snapSeen = -1
     private var snapEpoch = 0
     private var snapEpochAt = 0L

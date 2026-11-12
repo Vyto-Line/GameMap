@@ -58,7 +58,9 @@ class Build2PreviewTest {
         shot("ui2_style_picker")
         activity.onBackPressedDispatcher.onBackPressed()
 
-        File(out, "local.txt").writeText(listOf("ομον", "σταδ", "Stad", "μουσ", "Πατησ").joinToString("\n") { q ->
+        Places.prepareGazetteer(LatLng(37.9838, 23.7275))
+        File(out, "around.txt").writeText(Places.around(LatLng(37.9838, 23.7275)).joinToString("\n") { "${it.icon} ${it.name}" })
+        File(out, "local.txt").writeText(listOf("ομον", "σταδ", "Stad", "μουσ", "Πατησ", "Λυκοβριση", "κηφισια", "Glyf").joinToString("\n") { q ->
             "$q → " + Places.local(q, LatLng(37.9838, 23.7275)).joinToString(" | ") { "${it.icon} ${it.name}" }
         })
         activity.showSettings()

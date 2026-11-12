@@ -228,6 +228,18 @@ object Places {
     fun norm(s: String): String = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
         .replace(Regex("\\p{Mn}+"), "").replace('ς', 'σ')
 
+    /**
+     * Greek spelling by sound, so small spelling slips still match: ι/η/υ/ει/οι all become ι,
+     * ω→ο, αι→ε, double letters single ("Λυκοβριση" finds "Λυκόβρυση").
+     */
+    fun sound(s: String): String {
+        var t = norm(s)
+        t = t.replace("αυ", "αβ").replace("ευ", "εβ").replace("ου", "\u0001")
+            .replace("ει", "ι").replace("οι", "ι").replace("υι", "ι").replace("αι", "ε")
+            .replace('η', 'ι').replace('υ', 'ι').replace('ω', 'ο').replace("\u0001", "ου")
+        return t.replace(Regex("(\\p{L})\\1"), "$1")
+    }
+
     private fun indexTile(key: String, vt: VectorTile): List<Named> = nameIndex.getOrPut(key) {
         val (zs, xs, ys) = key.split("/")
         val z = zs.toInt(); val tx = xs.toInt(); val ty = ys.toInt()
@@ -247,7 +259,7 @@ object Places {
             if (px < 0 || py < 0 || px > f.extent || py > f.extent) continue
             val pos = LatLng(Geo.lat((ty + py / f.extent.toDouble()) / n, 1.0), Geo.lon((tx + px / f.extent.toDouble()) / n, 1.0))
             val alt = listOfNotNull(f["name:latin"], f["name_en"], f["name:en"]).joinToString(" ")
-            val full = norm("$name $alt")
+            val full = sound("$name $alt")
             val icon = when (kind) { 0 -> "🏙"; 2 -> "🛣"; else -> icon(f["class"], f["subclass"]) }
             out += Named(full.split(Regex("[\\s,.\\-()]+")).filter { it.isNotEmpty() }, full, name, pos, icon, kind)
         }
@@ -255,9 +267,42 @@ object Places {
         out
     }
 
+    @Volatile private var gazetteer: List<Named> = emptyList()
+    @Volatile private var gazetteerAt: LatLng? = null
+
+    /**
+     * Towns, villages and neighbourhoods for ~70 km around [near] (from zoom-11 map data, downloaded
+     * once and cached), so searching a suburb's name works even before the map has been there.
+     */
+    fun prepareGazetteer(near: LatLng) {
+        val at = gazetteerAt
+        if (at != null && Geo.distance(at, near) < 20_000) return
+        gazetteerAt = near
+        val z = 11; val n = 1 shl z
+        val cx = (Geo.x(near.lon, 1.0) * n).toInt(); val cy = (Geo.y(near.lat, 1.0) * n).toInt()
+        val out = ArrayList<Named>()
+        for (ty in cy - 2..cy + 2) for (tx in cx - 2..cx + 2) {
+            val vt = try { VectorSource.get(z, tx, ty) } catch (e: Exception) { null } ?: continue
+            out += indexTile("$z/$tx/$ty", vt).filter { it.kind == 0 }
+        }
+        gazetteer = out.distinctBy { it.name }
+    }
+
+    /** The nearest named shops, cafés, sights… around [near] from the map data (search box opened, nothing typed). */
+    fun around(near: LatLng): List<Place> {
+        val hits = ArrayList<Named>()
+        for ((key, vt) in VectorSource.parsedTiles()) {
+            if (!key.startsWith("${VectorSource.MAX_Z}/")) continue
+            hits += indexTile(key, vt).filter { it.kind == 1 && it.icon != "📍" }
+        }
+        return hits.asSequence().map { it to Geo.distance(near, it.pos) }.filter { it.second < 1500 }
+            .sortedBy { it.second }.map { it.first }.distinctBy { it.name }.take(8)
+            .map { Place(it.name, "", it.pos, it.icon) }.toList()
+    }
+
     /** Names on the map data in memory that start with what was typed, nearest first. Instant, offline. */
     fun local(query: String, near: LatLng?): List<Place> {
-        val words = norm(query.trim()).split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val words = sound(query.trim()).split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.isEmpty()) return emptyList()
         val hits = ArrayList<Named>()
         for ((key, vt) in VectorSource.parsedTiles()) {
@@ -266,6 +311,7 @@ object Places {
                 if (words.all { w -> e.norm.any { it.startsWith(w) } }) hits += e
             }
         }
+        for (e in gazetteer) if (words.all { w -> e.norm.any { it.startsWith(w) } }) hits += e
         val from = near ?: LocationTracker.position
         val best = LinkedHashMap<String, Named>()
         for (e in hits.sortedBy { if (from != null) Geo.distance(from, it.pos) else 0.0 }) {
@@ -287,6 +333,13 @@ object Places {
             if (e.message?.contains("403") == true) tomtomSearchBlockedUntil = System.currentTimeMillis() + 15 * 60_000
             null
         }
+    }
+
+    /** Puts results within 40 km first, nearest first; far ones keep the service's order after them. */
+    fun nearFirst(list: List<Place>, near: LatLng?): List<Place> {
+        if (near == null) return list
+        val (close, far) = list.partition { Geo.distance(near, it.pos) < 40_000 }
+        return close.sortedBy { Geo.distance(near, it.pos) } + far
     }
 
     /** Search-as-you-type suggestions: TomTom, then Photon, then Nominatim (whole words). */
