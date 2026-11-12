@@ -1344,6 +1344,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             settingRow("Light / dark", MapState.lightMode.label) { chooseLightMode() },
             settingRow("Units", if (MapState.imperial) "Miles" else "Kilometres") { MapState.setImperial(!MapState.imperial) },
             settingRow("Android Auto style", MapState.carTheme?.title ?: "Same as phone") { chooseCarStyle() },
+            switchRow("Car: dark map when headlights are on", MapState.followHeadlights) { MapState.followHeadlights = it },
         ) + group("App",
             settingRow("Explorer profile", "Level ${Explorer.level} · ${Explorer.xp} XP") { showProfile() },
             settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) },

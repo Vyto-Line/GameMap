@@ -73,7 +73,18 @@ class GameMapCarAppService : CarAppService() {
 }
 
 class GameMapSession : Session() {
-    override fun onCreateScreen(intent: Intent): Screen = MapScreen(carContext)
+    override fun onCreateScreen(intent: Intent): Screen {
+        // the car's night mode follows its headlights (or light sensor): dark map at night
+        MapState.setCarNight(carContext.isDarkMode)
+        lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+            override fun onDestroy(owner: androidx.lifecycle.LifecycleOwner) { MapState.setCarNight(null) }
+        })
+        return MapScreen(carContext)
+    }
+
+    override fun onCarConfigurationChanged(newConfiguration: android.content.res.Configuration) {
+        MapState.setCarNight(carContext.isDarkMode)
+    }
 }
 
 fun icon(ctx: CarContext, res: Int) = CarIcon.Builder(IconCompat.createWithResource(ctx, res)).build()
@@ -88,41 +99,62 @@ class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
     var onButton: ((String) -> Unit)? = null
     val ownButtons get() = renderer.carButtons
     private val main = Handler(Looper.getMainLooper())
-    private var surface: Surface? = null
-    private var w = 0
-    private var h = 0
-    private var density = 1f
+    /**
+     * Drawing has its own thread: the main thread stays free for the car's taps and drags, so
+     * they're handled at once instead of waiting behind a frame.
+     */
+    private val thread = android.os.HandlerThread("car-render", android.os.Process.THREAD_PRIORITY_DISPLAY).apply { start() }
+    private val rh = Handler(thread.looper)
+    private val lock = Any()
+    @Volatile private var surface: Surface? = null
+    @Volatile private var w = 0
+    @Volatile private var h = 0
+    @Volatile private var density = 1f
     private val visible = Rect()
     private val draw = Runnable { render() }
-    val redraw: () -> Unit = { main.removeCallbacks(draw); main.post(draw) }
+    val redraw: () -> Unit = { rh.removeCallbacks(draw); rh.post(draw) }
 
     override fun onSurfaceAvailable(container: SurfaceContainer) {
-        surface = container.surface
-        w = container.width; h = container.height
-        density = (container.dpi / 160f).coerceAtLeast(0.75f)
-        visible.set(0, 0, w, h)
+        synchronized(lock) {
+            surface = container.surface
+            w = container.width; h = container.height
+            density = (container.dpi / 160f).coerceAtLeast(0.75f)
+            visible.set(0, 0, w, h)
+        }
         redraw()
     }
 
     override fun onVisibleAreaChanged(visibleArea: Rect) {
-        visible.set(visibleArea)
+        synchronized(lock) { visible.set(visibleArea) }
         redraw()
     }
 
-    override fun onStableAreaChanged(stableArea: Rect) {}
+    override fun onStableAreaChanged(stableArea: Rect) {
+        renderer.stableTop = stableArea.top
+        redraw()
+    }
 
     override fun onSurfaceDestroyed(container: SurfaceContainer) {
-        surface = null
+        // waits for a frame being drawn, so the surface is never used after the car takes it back
+        synchronized(lock) { surface = null }
+    }
+
+    /** The car screen went away for good: stop the drawing thread. */
+    fun release() {
+        rh.removeCallbacksAndMessages(null)
+        thread.quitSafely()
     }
 
     override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
         MapState.zoomByFactor(scaleFactor)
+        redraw()
     }
 
     /** Pan mode (the ✥ button) or a drag on the map: move the map with the finger. */
     override fun onScroll(distanceX: Float, distanceY: Float) {
         val cam = renderer.camera ?: return
         MapState.pan(renderer.toMap(cam.cx + distanceX, cam.cy + distanceY, cam), cam.bearing)
+        redraw()
     }
 
     override fun onFling(velocityX: Float, velocityY: Float) {}
@@ -134,23 +166,27 @@ class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
     private var hardware = true
 
     private fun render() {
-        val s = surface ?: return
-        if (!s.isValid || w == 0) return
-        val c = try {
-            if (hardware) s.lockHardwareCanvas() else s.lockCanvas(null)
-        } catch (e: Exception) {
-            if (hardware) { hardware = false; redraw() }
-            return
-        }
-        try {
-            renderer.draw(c, w, h, if (visible.isEmpty) Rect(0, 0, w, h) else visible, density, hud = true)
-        } finally {
-            s.unlockCanvasAndPost(c)
+        synchronized(lock) {
+            val s = surface ?: return
+            if (!s.isValid || w == 0) return
+            val c = try {
+                if (hardware) s.lockHardwareCanvas() else s.lockCanvas(null)
+            } catch (e: Exception) {
+                if (hardware) { hardware = false; redraw() }
+                return
+            }
+            try {
+                renderer.draw(c, w, h, if (visible.isEmpty) Rect(0, 0, w, h) else Rect(visible), density, hud = true)
+            } catch (e: Exception) {
+                // a frame drawn while the data changed under it: skip it, the next one is fine
+            } finally {
+                try { s.unlockCanvasAndPost(c) } catch (_: Exception) {}
+            }
         }
         // Keep animating (gliding arrow, smooth zoom) at ~30 fps while something moves.
         if (renderer.animating) {
-            main.removeCallbacks(draw)
-            main.postDelayed(draw, 33)
+            rh.removeCallbacks(draw)
+            rh.postDelayed(draw, 33)
         }
     }
 }
@@ -230,6 +266,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             }
 
             override fun onDestroy(owner: LifecycleOwner) {
+                surface.release()
                 TileCache.loaded -= surface.redraw
                 LocationTracker.changed -= surface.redraw
                 MapState.changed -= surface.redraw

@@ -104,13 +104,20 @@ class Build1PreviewTest {
         MapState.setTheme(Theme.OPEN_WORLD); MapState.setLightMode(MapState.LightMode.DARK)
         run {
             val w = 1920; val h = 720
-            val rr = MapRenderer(car = true).apply { carButtons = true }
+            val rr = MapRenderer(car = true).apply { carButtons = true; stableTop = 120 }
             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             val c = Canvas(bmp)
-            val area = Rect(0, 0, w - 140, h)
-            repeat(60) { rr.draw(c, w, h, area, 1.6f, hud = true); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(60) }
-            rr.draw(c, w, h, area, 1.6f, hud = true)
-            File(out, "ui_car_drive.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            // Android Auto's ☰ hidden (visible area reaches the top) / shown (area starts below it)
+            for ((name, area) in listOf("ui_car_drive" to Rect(0, 0, w, h), "ui_car_drive_hoststrip" to Rect(0, 120, w, h))) {
+                repeat(40) { rr.draw(c, w, h, area, 1.6f, hud = true); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(60) }
+                rr.draw(c, w, h, area, 1.6f, hud = true)
+                if (name.endsWith("hoststrip")) {
+                    // stand-in for the host's own button, to check the column sits below it
+                    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(60, 60, 64) }
+                    c.drawCircle(w - 14 * 1.6f - 24 * 1.6f, 60f, 44f, p)
+                }
+                File(out, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
         }
 
         // 4. faster route offer

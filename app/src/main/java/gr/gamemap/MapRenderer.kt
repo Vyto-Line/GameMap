@@ -185,6 +185,7 @@ class MapRenderer(private val car: Boolean = false) {
         drawDiscovery(c, area, d, theme)
         if (hud && (MapState.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
         drawAttribution(c, area, d, theme)
+        if (car) { hitsShown = ArrayList(carHits); lastDensity = d }
     }
 
     fun toScreen(p: LatLng, cam: Camera): Pair<Float, Float> {
@@ -832,14 +833,26 @@ class MapRenderer(private val car: Boolean = false) {
     /** Draw GameMap's own see-through buttons on the car screen (hosts that report taps). */
     var carButtons = false
     /** Where each car button is on screen, for the car's tap callback. */
-    val carHits = ArrayList<Pair<RectF, String>>()
+    private val carHits = ArrayList<Pair<RectF, String>>()
+    /** The buttons of the last finished frame (taps are read on another thread than drawing). */
+    @Volatile private var hitsShown: List<Pair<RectF, String>> = emptyList()
+
+    /** The car's stable area top: Android Auto's own ☰ lives above it. 0 = not known. */
+    @Volatile var stableTop = 0
     private var etaRight = 0f
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
     }
 
     /** The id of the car button under (x, y), if any. */
-    fun carButtonAt(x: Float, y: Float): String? = carHits.lastOrNull { it.first.contains(x, y) }?.second
+    fun carButtonAt(x: Float, y: Float): String? {
+        val hits = hitsShown
+        // exact hit first, then a forgiving 12 dp halo (car screens are hard to hit precisely)
+        hits.lastOrNull { it.first.contains(x, y) }?.let { return it.second }
+        val pad = 12 * lastDensity
+        return hits.lastOrNull { RectF(it.first).apply { inset(-pad, -pad) }.contains(x, y) }?.second
+    }
+    @Volatile private var lastDensity = 1f
 
     private fun glassButton(c: Canvas, r: RectF, d: Float, t: Theme, fillCol: Int? = null) {
         val base = fillCol ?: Ui.panel(t).let { Color.argb(140, Color.red(it), Color.green(it), Color.blue(it)) }
@@ -915,10 +928,21 @@ class MapRenderer(private val car: Boolean = false) {
             icon(c, iconId, r.centerX(), r.centerY(), size * 0.46f, if (filled) Ui.ink(t).let { if (Ui.contrast(it, t.route) < 3) Color.BLACK else it } else white)
             carHits += r to id
         }
-        // GameMap's own ☰, where Android Auto's is: it stays when the host hides its buttons
-        btn("menu", 12 * d)
-        // right: style, traffic / voice, report
-        var y = 12 * d + size + gap
+        // Android Auto's ☰ sits above the stable area; when the host hides it (the visible area
+        // then reaches the top), GameMap shows its own lookalike in the same place.
+        val stripBottom = if (stableTop > 8 * d) stableTop.toFloat() else 76 * d
+        val hostShown = a.top > 8 * d
+        if (!hostShown) {
+            val ms = minOf(56 * d, stripBottom - 8 * d).coerceAtLeast(40 * d)
+            val cy = stripBottom / 2
+            val r = RectF(x + size / 2 - ms / 2, cy - ms / 2, x + size / 2 + ms / 2, cy + ms / 2)
+            fill.color = Color.argb(235, 46, 46, 50)
+            c.drawOval(r, fill)
+            icon(c, "menu", r.centerX(), r.centerY(), ms * 0.42f, white)
+            carHits += r to "menu"
+        }
+        // right: style, traffic / voice, report (below the ☰, whichever one is showing)
+        var y = maxOf(stripBottom, a.top.toFloat()) + gap
         btn("style", y); y += size + gap
         if (NavEngine.active) btn(if (Voice.muted) "unmute" else "mute", y) else btn("traffic", y)
         y += size + gap

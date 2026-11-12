@@ -312,9 +312,26 @@ object MapState {
     private var darkNow = false
     private var darkCheckedAt = 0L
 
+    /** Setting: in the car, the map goes dark when the headlights are on (the car's night mode). */
+    var followHeadlights: Boolean
+        get() = prefs().getBoolean("followHeadlights", true)
+        set(v) { prefs().edit().putBoolean("followHeadlights", v).apply(); darkCheckedAt = 0; TileCache.clear(); changed.fire() }
+
+    /** The car's day/night state while Android Auto is connected (null = not connected). */
+    @Volatile var carNight: Boolean? = null
+        private set
+
+    fun setCarNight(night: Boolean?) {
+        if (carNight == night) return
+        val before = dark
+        carNight = night
+        if (dark != before) { TileCache.clear(); changed.fire() }
+    }
+
     /** True when the dark version of the theme should be shown right now. */
     val dark: Boolean
         get() {
+            carNight?.let { if (followHeadlights) return it }
             when (lightMode) {
                 LightMode.LIGHT -> return false
                 LightMode.DARK -> return true
