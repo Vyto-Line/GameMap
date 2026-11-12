@@ -123,6 +123,10 @@ object MapState {
     var freeBearing = 0f
         private set
 
+    /** Map rotation chosen with a two-finger twist; null = turn with the direction of travel. */
+    var userBearing: Float? = null
+        private set
+
     /** Free CARTO basemaps key (carto.com/basemaps/apikey); tiles need it since Sept 2026. */
     var mapKey = ""
         private set
@@ -197,6 +201,22 @@ object MapState {
     fun recenter() {
         following = true
         freeCenter = null
+        userBearing = null
+        changed.fire()
+    }
+
+    /** Two-finger twist: rotate the map by [delta] degrees from [current]. */
+    fun rotateBy(delta: Float, current: Float) {
+        val b = ((userBearing ?: current) + delta + 720f) % 360f
+        userBearing = b
+        if (!following) freeBearing = b
+        changed.fire()
+    }
+
+    /** Reset rotation to the direction of travel (or north when panning). */
+    fun clearRotation() {
+        userBearing = null
+        if (!following) freeBearing = 0f
         changed.fire()
     }
 

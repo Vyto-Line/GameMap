@@ -264,7 +264,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         navCard.visibility = if (nav) View.VISIBLE else View.GONE
         searchCard.visibility = if (nav) View.GONE else View.VISIBLE
         if (nav && suggestScroll.visibility == View.VISIBLE) closeSearch()
-        recenterBtn.visibility = if (MapState.following) View.GONE else View.VISIBLE
+        recenterBtn.visibility = if (MapState.following && MapState.userBearing == null) View.GONE else View.VISIBLE
         if (nav) {
             when {
                 NavEngine.arrived -> { etaBig.text = "Mission complete"; etaSmall.text = NavEngine.destinationName }
@@ -573,6 +573,11 @@ class GameMapView(ctx: Context) : View(ctx) {
     private var lastY = 0f
     private var dragging = false
     private var scaling = false
+    private var rotating = false
+    private var lastAngle = 0f
+    private var twist = 0f
+    private var downX = 0f
+    private var downY = 0f
 
     private val scaler = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScaleBegin(detector: ScaleGestureDetector): Boolean { scaling = true; return true }
@@ -598,21 +603,46 @@ class GameMapView(ctx: Context) : View(ctx) {
         super.onDetachedFromWindow()
     }
 
+    private fun angle(e: MotionEvent) =
+        Math.toDegrees(kotlin.math.atan2((e.getY(1) - e.getY(0)).toDouble(), (e.getX(1) - e.getX(0)).toDouble())).toFloat()
+
     override fun onTouchEvent(e: MotionEvent): Boolean {
         scaler.onTouchEvent(e)
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { lastX = e.x; lastY = e.y; dragging = false; scaling = false }
-            MotionEvent.ACTION_MOVE -> if (!scaling && e.pointerCount == 1) {
-                val dx = e.x - lastX; val dy = e.y - lastY
-                if (dragging || abs(dx) + abs(dy) > 12 * resources.displayMetrics.density) {
-                    dragging = true
-                    val cam = renderer.camera
-                    if (cam != null) {
-                        // Move the camera so the point under the finger stays under it.
-                        val newCenter = renderer.toMap(cam.cx - dx, cam.cy - dy, cam)
-                        MapState.pan(newCenter, cam.bearing)
+            MotionEvent.ACTION_DOWN -> {
+                lastX = e.x; lastY = e.y; downX = e.x; downY = e.y
+                dragging = false; scaling = false; rotating = false; twist = 0f
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) { lastAngle = angle(e); twist = 0f }
+            MotionEvent.ACTION_MOVE -> {
+                if (e.pointerCount >= 2) {
+                    // Two-finger twist rotates the map (after a small dead zone, so pinching stays clean).
+                    val a = angle(e)
+                    val delta = Geo.angleDiff(lastAngle, a)
+                    lastAngle = a
+                    twist += delta
+                    if (!rotating && abs(twist) > 12f) rotating = true
+                    if (rotating) {
+                        val cam = renderer.camera
+                        if (cam != null) MapState.rotateBy(-delta, cam.bearing)
+                    }
+                } else if (!scaling && !rotating) {
+                    val dx = e.x - lastX; val dy = e.y - lastY
+                    if (dragging || abs(e.x - downX) + abs(e.y - downY) > 12 * resources.displayMetrics.density) {
+                        dragging = true
+                        val cam = renderer.camera
+                        if (cam != null) {
+                            // Move the camera so the point under the finger stays under it.
+                            MapState.pan(renderer.toMap(cam.cx - dx, cam.cy - dy, cam), cam.bearing)
+                        }
                     }
                     lastX = e.x; lastY = e.y
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                // Tap on the compass: back to driving direction / north.
+                if (!dragging && !scaling && !rotating && renderer.compassBounds.contains(e.x, e.y)) {
+                    MapState.clearRotation()
                 }
             }
         }

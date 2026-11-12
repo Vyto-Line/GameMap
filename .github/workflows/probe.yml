@@ -6,38 +6,28 @@ jobs:
     steps:
       - name: Probe
         run: |
+          pip install mapbox-vector-tile >/dev/null 2>&1
           cat > p.py <<'PY'
-          import math, json, time, urllib.request, urllib.parse, concurrent.futures as cf
-          def lon(x, w): return x / w * 360 - 180
-          def lat(y, w): return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / w))))
-          W = 256 * 2**15
-          def bbox(ax, ay): return lat((ay+1)*256, W), lon(ax*256, W), lat(ay*256, W), lon((ax+1)*256, W)
-          FULL = "way[building];way[highway];way[waterway];way[natural];way[landuse];way[leisure];way[amenity=parking];relation[natural=water];relation[landuse];relation[leisure];relation[building];"
-          SLIM = "way[building];way[highway];way[waterway];way[natural~\"^(water|coastline|wood|scrub|beach|sand|bare_rock)$\"];way[landuse];way[leisure];relation[natural=water];"
-          def q(ax, ay, body, ep="https://overpass-api.de/api/interpreter"):
-              s,w,n,e = bbox(ax, ay)
-              data = f"[out:json][timeout:25][bbox:{s},{w},{n},{e}];({body});out geom qt;"
-              t = time.time()
-              try:
-                  r = urllib.request.urlopen(urllib.request.Request(ep, data=urllib.parse.urlencode({"data": data}).encode(), headers={"User-Agent":"GameMap probe"}), timeout=60)
-                  raw = r.read(); j = json.loads(raw)
-                  els = j.get("elements", [])
-                  kinds = {}
-                  for el in els:
-                      tg = el.get("tags", {})
-                      k = "building" if "building" in tg else "highway" if "highway" in tg else (list(tg)[0] if tg else "?")
-                      kinds[k] = kinds.get(k, 0) + 1
-                  return f"{ep.split('/')[2]} {ax},{ay} 200 {len(raw)/1e6:.2f}MB {len(els)} els {time.time()-t:.1f}s remark={j.get('remark','')[:80]} top={sorted(kinds.items(), key=lambda x:-x[1])[:6]}"
-              except Exception as ex:
-                  return f"{ep.split('/')[2]} {ax},{ay} FAIL {ex} {time.time()-t:.1f}s"
-          print("FULL  ", q(18544, 12644, FULL))
-          print("SLIM  ", q(18544, 12644, SLIM))
-          print("KUMI  ", q(18544, 12644, SLIM, "https://overpass.kumi.systems/api/interpreter"))
-          print("PRIVATE", q(18544, 12644, SLIM, "https://overpass.private.coffee/api/interpreter"))
-          with cf.ThreadPoolExecutor(4) as ex:
-              for r in ex.map(lambda a: q(a[0], a[1], SLIM), [(18545,12644),(18544,12645),(18545,12645),(18543,12644)]):
-                  print("PAR   ", r)
-          # coastal area (Piraeus / Faliro)
-          print("COAST ", q(18536, 12651, SLIM))
+          import json, time, urllib.request, gzip, collections
+          import mapbox_vector_tile as mvt
+          def get(u):
+              t=time.time(); r=urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent":"GameMap probe","Accept-Encoding":"gzip"}), timeout=30)
+              b=r.read(); enc=r.headers.get("Content-Encoding"); 
+              if b[:2]==b"\x1f\x8b": b=gzip.decompress(b)
+              return b, time.time()-t, enc, r.headers.get("Content-Type")
+          tj, dt, enc, ct = get("https://tiles.openfreemap.org/planet")
+          j=json.loads(tj); print("TILEJSON", dt, j.get("tiles"), "maxzoom", j.get("maxzoom"))
+          tmpl=j["tiles"][0]
+          for name,(z,x,y) in {"athens":(14,9272,6322),"coast":(14,9268,6325),"athens13":(13,4636,3161)}.items():
+              b, dt, enc, ct = get(tmpl.replace("{z}",str(z)).replace("{x}",str(x)).replace("{y}",str(y)))
+              d = mvt.decode(b)
+              print("TILE", name, z, x, y, f"{len(b)/1e3:.0f}KB {dt:.2f}s enc={enc} ct={ct}")
+              for ln, layer in d.items():
+                  feats = layer["features"]
+                  cls = collections.Counter((f["properties"].get("class"), f["geometry"]["type"]) for f in feats)
+                  print("  ", ln, "extent", layer.get("extent"), "n", len(feats), cls.most_common(12))
+                  if ln=="transportation":
+                      print("     brunnel", collections.Counter(f["properties"].get("brunnel") for f in feats).most_common(4), "sub", collections.Counter(f["properties"].get("subclass") for f in feats).most_common(10))
+                  if ln=="building" and feats: print("     building props", list(feats[0]["properties"].keys())[:10])
           PY
           python3 p.py

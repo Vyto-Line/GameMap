@@ -61,6 +61,7 @@ class MapRenderer {
      * @param hud  draw the turn banner ourselves (the car shows its own instead)
      */
     fun draw(c: Canvas, w: Int, h: Int, area: Rect, d: Float, hud: Boolean) {
+        compassBounds.setEmpty()
         val zoomAnim = MapState.tick()
         val moveAnim = LocationTracker.tick()
         animating = zoomAnim || moveAnim
@@ -72,7 +73,7 @@ class MapRenderer {
         val me = LocationTracker.displayPosition()
         val following = MapState.following
         val center = if (following) me ?: fallback else MapState.freeCenter ?: me ?: fallback
-        val bearing = if (following) LocationTracker.heading else MapState.freeBearing
+        val bearing = if (following) MapState.userBearing ?: LocationTracker.heading else MapState.freeBearing
 
         val zoom = MapState.zoom
         val z = floor(zoom).toInt().coerceIn(2, 19)
@@ -134,6 +135,7 @@ class MapRenderer {
 
         drawSpeed(c, area, d, theme)
         if (hud) drawBanner(c, area, d, theme)
+        if (hud && (MapState.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
         drawAttribution(c, area, d, theme)
     }
 
@@ -472,6 +474,25 @@ class MapRenderer {
         path.lineTo(x - s * 0.7f, y - s * 0.2f)
         path.close()
         fill.color = t.route; c.drawPath(path, fill)
+        c.restore()
+    }
+
+    /** Where the compass button sits (the phone taps it to reset rotation). */
+    val compassBounds = RectF()
+
+    private fun drawCompass(c: Canvas, a: Rect, bearing: Float, d: Float, t: Theme) {
+        val r = 22 * d
+        val x = a.left + 14 * d + r
+        val y = a.top + (if (NavEngine.active) 110 * d else 14 * d) + r
+        compassBounds.set(x - r, y - r, x + r, y + r)
+        fill.color = t.hudPanel; c.drawCircle(x, y, r, fill)
+        stroke.color = t.route; stroke.strokeWidth = 2 * d; c.drawCircle(x, y, r, stroke)
+        c.save()
+        c.rotate(-bearing, x, y)
+        path.reset(); path.moveTo(x, y - r * 0.75f); path.lineTo(x + r * 0.28f, y); path.lineTo(x - r * 0.28f, y); path.close()
+        fill.color = Color.rgb(230, 50, 40); c.drawPath(path, fill)
+        path.reset(); path.moveTo(x, y + r * 0.75f); path.lineTo(x + r * 0.28f, y); path.lineTo(x - r * 0.28f, y); path.close()
+        fill.color = t.hudText; c.drawPath(path, fill)
         c.restore()
     }
 
