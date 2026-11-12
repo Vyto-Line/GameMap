@@ -46,6 +46,8 @@ class RouteOption(
 
     /** TomTom's time with traffic for the whole route (null until known). */
     var trafficSeconds: Int? = null
+    /** TomTom couldn't time this route (show OSRM's time instead). */
+    var timingFailed = false
     var delaySeconds = 0
     /** Traffic stretches: value = TomTom magnitude 1..4, extra = delay seconds. */
     var traffic: List<Stretch> = emptyList()

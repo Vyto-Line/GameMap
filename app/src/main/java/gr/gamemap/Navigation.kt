@@ -164,12 +164,75 @@ object Places {
         appContext = ctx.applicationContext
     }
 
-    /** Search-as-you-type suggestions near [near] (Photon, OpenStreetMap data). */
+    private val searchLang get() = if (java.util.Locale.getDefault().language == "el") "el-GR" else "en-GB"
+
+    /** TomTom search (fast, good with Greek and English). [typeahead] = the user is still typing. */
+    fun tomtom(query: String, near: LatLng?, typeahead: Boolean): List<Place> {
+        val q = URLEncoder.encode(query.trim(), "UTF-8").replace("+", "%20")
+        var url = "https://api.tomtom.com/search/2/search/$q.json?key=${Traffic.key}&limit=8&language=$searchLang" +
+            "&typeahead=$typeahead&idxSet=POI,PAD,Addr,Str,Geo"
+        if (near != null) url += "&lat=${near.lat}&lon=${near.lon}"
+        return parseTomTom(Http.get(url, timeout = 6000))
+    }
+
+    private fun parseTomTom(json: String): List<Place> {
+        val arr = JSONObject(json).optJSONArray("results") ?: return emptyList()
+        val out = mutableListOf<Place>()
+        for (i in 0 until arr.length()) {
+            val r = arr.getJSONObject(i)
+            val pos = r.optJSONObject("position") ?: continue
+            val addr = r.optJSONObject("address")
+            val poi = r.optJSONObject("poi")
+            val free = addr?.optString("freeformAddress").orEmpty()
+            val street = listOfNotNull(addr?.optString("streetName")?.takeIf { it.isNotBlank() }, addr?.optString("streetNumber")?.takeIf { it.isNotBlank() })
+                .joinToString(" ")
+            val name = poi?.optString("name")?.takeIf { it.isNotBlank() }
+                ?: street.ifBlank { null }
+                ?: addr?.optString("municipality")?.takeIf { it.isNotBlank() }
+                ?: free
+            if (name.isBlank()) continue
+            val code = poi?.optJSONArray("classifications")?.optJSONObject(0)?.optString("code").orEmpty()
+            val address = free.removePrefix(name).trimStart(',', ' ').ifBlank { addr?.optString("municipality").orEmpty() }
+            out += Place(name, address, LatLng(pos.getDouble("lat"), pos.getDouble("lon")), tomtomIcon(code, r.optString("type")))
+        }
+        return out.distinctBy { it.name + "|" + it.address }
+    }
+
+    private fun tomtomIcon(code: String, type: String) = when {
+        code == "PETROL_STATION" || code == "ELECTRIC_VEHICLE_STATION" -> "⛽"
+        code == "RESTAURANT" -> "🍽"
+        code == "CAFE_PUB" -> "☕"
+        code == "PARKING_GARAGE" || code == "OPEN_PARKING_AREA" -> "🅿"
+        code == "HOSPITAL_POLYCLINIC" || code == "DOCTOR" -> "🏥"
+        code == "PHARMACY" -> "💊"
+        code == "SHOP" || code == "SHOPPING_CENTER" || code == "MARKET" -> "🛍"
+        code == "HOTEL_MOTEL" -> "🏨"
+        code == "MUSEUM" || code == "IMPORTANT_TOURIST_ATTRACTION" || code == "TOURIST_ATTRACTION" -> "🏛"
+        code == "AIRPORT" -> "✈"
+        code == "RAILWAY_STATION" || code == "PUBLIC_TRANSPORT_STOP" -> "🚉"
+        code == "BEACH" -> "🏖"
+        code == "PARK_RECREATION_AREA" -> "🌳"
+        code == "COLLEGE_UNIVERSITY" || code == "SCHOOL" -> "🎓"
+        type == "Geography" -> "🏙"
+        type == "Street" -> "🛣"
+        type == "Point Address" || type == "Address Range" -> "🏠"
+        else -> "📍"
+    }
+
+    /** Search-as-you-type suggestions: TomTom first, Photon if that fails. */
     fun suggest(query: String, near: LatLng?): List<Place> {
+        if (Traffic.key.isNotEmpty()) {
+            try { return tomtom(query, near, typeahead = true) } catch (_: Exception) {}
+        }
+        return photon(query, near)
+    }
+
+    /** Photon (OpenStreetMap data); short timeout, it's only a fallback now. */
+    fun photon(query: String, near: LatLng?): List<Place> {
         val q = URLEncoder.encode(query.trim(), "UTF-8")
         var url = "https://photon.komoot.io/api/?q=$q&limit=8"
         if (near != null) url += "&lat=${near.lat}&lon=${near.lon}&zoom=12&location_bias_scale=0.3"
-        val features = JSONObject(Http.get(url)).getJSONArray("features")
+        val features = JSONObject(Http.get(url, timeout = 4000)).getJSONArray("features")
         val out = mutableListOf<Place>()
         for (i in 0 until features.length()) {
             val f = features.getJSONObject(i)
@@ -190,9 +253,13 @@ object Places {
         return out.distinctBy { it.name + "|" + it.address }
     }
 
-    /** Full search on Enter: Photon first, Nominatim if Photon finds nothing. */
+    /** Full search on Enter: TomTom, then Photon, then Nominatim. */
     fun search(query: String, near: LatLng?): List<Place> {
-        val photon = try { suggest(query, near) } catch (e: Exception) { emptyList() }
+        if (Traffic.key.isNotEmpty()) {
+            val t = try { tomtom(query, near, typeahead = false) } catch (e: Exception) { emptyList() }
+            if (t.isNotEmpty()) return t
+        }
+        val photon = try { photon(query, near) } catch (e: Exception) { emptyList() }
         if (photon.isNotEmpty()) return photon
         val q = URLEncoder.encode(query, "UTF-8")
         var url = "https://nominatim.openstreetmap.org/search?q=$q&format=jsonv2&limit=8"
@@ -238,8 +305,22 @@ object Places {
 
     // ---- places near me by category (Fuel, Food, Parking) ----
 
-    /** Places of an OSM amenity type around [near], nearest first (Nominatim). */
+    /** Places of an OSM amenity type around [near], nearest first (TomTom, Nominatim as fallback). */
     fun nearby(amenities: List<String>, near: LatLng): List<Place> {
+        val cats = amenities.mapNotNull {
+            when (it) {
+                "fuel" -> "7311"; "charging_station" -> "7309"; "restaurant", "fast_food" -> "7315"
+                "cafe" -> "9376"; "parking" -> "7313,7369"; else -> null
+            }
+        }.distinct().joinToString(",")
+        if (Traffic.key.isNotEmpty() && cats.isNotEmpty()) {
+            try {
+                val url = "https://api.tomtom.com/search/2/nearbySearch/.json?key=${Traffic.key}&lat=${near.lat}&lon=${near.lon}" +
+                    "&radius=6000&limit=15&categorySet=$cats&language=$searchLang"
+                val r = parseTomTom(Http.get(url, timeout = 6000)).sortedBy { Geo.distance(near, it.pos) }
+                if (r.isNotEmpty()) return r
+            } catch (_: Exception) {}
+        }
         val out = mutableListOf<Place>()
         for (span in listOf(0.025, 0.08)) {
             for (a in amenities) {
@@ -323,10 +404,10 @@ object Places {
 }
 
 object Http {
-    fun get(url: String): String {
+    fun get(url: String, timeout: Int = 15000): String {
         val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 10000
-        c.readTimeout = 15000
+        c.connectTimeout = minOf(10000, timeout)
+        c.readTimeout = timeout
         c.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
         c.setRequestProperty("Accept-Language", java.util.Locale.getDefault().language)
         try {

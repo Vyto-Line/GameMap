@@ -105,7 +105,7 @@ class MapRenderer(private val car: Boolean = false) {
         c.scale(scale, scale)
 
         var tp0 = System.nanoTime()
-        drawTiles(c, theme, z, px, py, hypot(w.toDouble(), h.toDouble()) * 0.75 / scale)
+        drawTiles(c, theme, z, px, py, hypot(w.toDouble(), h.toDouble()) * 0.75 / scale, scale, bearing, cx, cy, w, h)
         prof("tiles", tp0); tp0 = System.nanoTime()
         val reach = hypot(w.toDouble(), h.toDouble()) * 0.75 / scale
         // traffic glow under the route, traffic colours on top of it (jams on your route stay visible)
@@ -191,7 +191,20 @@ class MapRenderer(private val car: Boolean = false) {
 
     // ---------------------------------------------------------------- tiles
 
-    private fun drawTiles(c: Canvas, theme: Theme, z: Int, px: Double, py: Double, reach: Double) {
+    private fun drawTiles(
+        c: Canvas, theme: Theme, z: Int, px: Double, py: Double, reach: Double,
+        scale: Float, bearing: Float, cx: Float, cy: Float, w: Int, h: Int,
+    ) {
+        // only tiles that touch the (rotated) screen: about half as many as the square around it
+        val ang = Math.toRadians(-bearing.toDouble())
+        val ca = cos(ang); val sa = sin(ang)
+        val half = TileCache.tilePx * scale * 0.7072
+        fun onScreen(tx: Int, ty: Int): Boolean {
+            val wx = ((tx + 0.5) * TileCache.tilePx - px) * scale
+            val wy = ((ty + 0.5) * TileCache.tilePx - py) * scale
+            val sx = wx * ca - wy * sa; val sy = wx * sa + wy * ca
+            return sx > -cx - half && sx < w - cx + half && sy > -cy - half && sy < h - cy + half
+        }
         val tilePx = TileCache.tilePx
         val n = 1 shl z
         val tx0 = floor((px - reach) / tilePx).toInt(); val tx1 = floor((px + reach) / tilePx).toInt()
@@ -203,7 +216,7 @@ class MapRenderer(private val car: Boolean = false) {
         // tiles nearest the player are drawn first.
         val tiles = tileList
         tiles.clear()
-        for (ty in ty0..ty1) for (tx in tx0..tx1) tiles += intArrayOf(tx, ty)
+        for (ty in ty0..ty1) for (tx in tx0..tx1) if (onScreen(tx, ty)) tiles += intArrayOf(tx, ty)
         val ctx = px / tilePx - 0.5; val cty = py / tilePx - 0.5
         tiles.sortByDescending { (it[0] - ctx) * (it[0] - ctx) + (it[1] - cty) * (it[1] - cty) }
 

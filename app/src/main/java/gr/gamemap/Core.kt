@@ -341,3 +341,16 @@ object MapState {
     const val MIN_ZOOM = 3.0
     const val MAX_ZOOM = 19.0
 }
+
+/** Background threads that never compete with drawing the screen. */
+object Bg {
+    fun factory(name: String) = java.util.concurrent.ThreadFactory { r ->
+        Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            r.run()
+        }, name).apply { isDaemon = true }
+    }
+
+    fun pool(name: String, n: Int): java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newFixedThreadPool(n, factory(name))
+}

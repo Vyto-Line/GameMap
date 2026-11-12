@@ -43,13 +43,15 @@ object Traffic {
         private set
     val active get() = key.isNotEmpty() && enabled
 
+    private val LOCAL_TYPES = setOf("Local road", "Minor local road", "Major local road")
+
     /** Count of flow segments per TomTom road type (diagnostics). */
     val roadTypes = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val tiles = object : LruCache<String, Tile>(40) {}
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val failedAt = ConcurrentHashMap<String, Long>()
     /** Separate from the map-drawing threads, so slow downloads never hold up the map. */
-    private val net = Executors.newFixedThreadPool(2)
+    private val net = Bg.pool("traffic", 2)
 
     fun init(ctx: Context) {
         appContext = ctx.applicationContext
@@ -122,6 +124,8 @@ object Traffic {
                     else -> FREE
                 }
                 roadTypes.merge(f["road_type"] ?: "?", 1, Int::plus)
+                // big roads only: local streets made the map busy and slow
+                if (f["road_type"] in LOCAL_TYPES) continue
                 val oneWay = f["traffic_road_coverage"] == "one_side"
                 val leftHand = f["left_hand_traffic"].equals("true", ignoreCase = true)
                 for (part in f.parts) if (part.size >= 4) segs += Seg(part, state, oneWay, leftHand)

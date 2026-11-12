@@ -17,7 +17,7 @@ import kotlin.math.floor
 object Alerts {
     val changed = Signal()
     private lateinit var appContext: Context
-    private val net = Executors.newFixedThreadPool(2)
+    private val net = Bg.pool("alerts", 2)
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     fun init(ctx: Context) {

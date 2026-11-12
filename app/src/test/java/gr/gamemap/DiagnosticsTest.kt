@@ -37,7 +37,10 @@ class DiagnosticsTest {
         for (q in listOf("Syntagma", "Σύνταγμα", "Acropolis Museum", "Ikea", "Πειραιάς", "Κηφισίας 100", "starbucks")) {
             time("photon suggest '$q'") { Places.suggest(q, athens) }
         }
-        time("nominatim search 'Ikea'") { Places.search("Ikea Athens", athens) }
+        time("search (Enter) 'Ikea'") { Places.search("Ikea", athens) }
+        time("photon 'Syntagma'") { Places.photon("Syntagma", athens) }
+        time("nearby fuel") { Places.nearby(listOf("fuel", "charging_station"), athens) }
+        time("nearby parking") { Places.nearby(listOf("parking"), athens) }
         val dest = LatLng(37.9990, 23.7329)
         val routes = time("osrm 3 routes 2 km") { Osrm.routes(athens, dest, true) } ?: emptyList()
         val far = time("osrm 3 routes 25 km (Piraeus→Kifisia)") { Osrm.routes(LatLng(37.9420, 23.6470), LatLng(38.0740, 23.8110), true) } ?: emptyList()

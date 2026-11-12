@@ -647,11 +647,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             }
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
             top.addView(TextView(this).apply {
-                text = NavEngine.formatDuration(o.seconds); textSize = if (sel) 22f else 19f; typeface = theme.typeface
+                text = if (NavEngine.timeKnown(o)) NavEngine.formatDuration(o.seconds) else "· · ·"
+                textSize = if (sel) 22f else 19f; typeface = theme.typeface
                 setTextColor(if (sel) readable(accent) else ink)
             })
             top.addView(TextView(this).apply {
-                text = "  ${NavEngine.formatDistance(o.distance)} · arrive ${NavEngine.optionArrival(o)}"; textSize = 14f; setTextColor(dim())
+                text = "  ${NavEngine.formatDistance(o.distance)}" + (if (NavEngine.timeKnown(o)) " · arrive ${NavEngine.optionArrival(o)}" else " · checking traffic")
+                textSize = 14f; setTextColor(dim())
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
             val tag = when {
                 NavEngine.breaksAvoid(o) -> if (o.hasToll && NavEngine.avoidTolls) "TOLLS" else "MOTORWAY"
@@ -879,7 +881,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
         if (planning) {
             val o = NavEngine.options
-            val key = "${t.name}|${MapState.dark}|${System.identityHashCode(o)}|${NavEngine.selected}|${o.sumOf { it.trafficSeconds ?: 0 }}|" +
+            val key = "${t.name}|${MapState.dark}|${System.identityHashCode(o)}|${NavEngine.selected}|${o.sumOf { it.trafficSeconds ?: 0 }}|${o.count { it.timingFailed }}|" +
                 "${NavEngine.departAt}|${NavEngine.planLoading}|${NavEngine.planError}"
             if (key != lastPreviewKey) { lastPreviewKey = key; renderPreview() }
         } else lastPreviewKey = ""
@@ -1493,7 +1495,7 @@ class GameMapView(ctx: Context) : View(ctx) {
     var insetBottom = 0
     /** Called when a finger first touches the map (closes search). */
     var onTouchStart: (() -> Unit)? = null
-    private val redraw: () -> Unit = { postInvalidateOnAnimation() }
+    private val redraw: () -> Unit = { if (touching) postInvalidateOnAnimation() else postInvalidateDelayed(16) }
     private var lastX = 0f
     private var lastY = 0f
     private var dragging = false
@@ -1531,7 +1533,10 @@ class GameMapView(ctx: Context) : View(ctx) {
     private fun angle(e: MotionEvent) =
         Math.toDegrees(kotlin.math.atan2((e.getY(1) - e.getY(0)).toDouble(), (e.getX(1) - e.getX(0)).toDouble())).toFloat()
 
+    private var touching = false
+
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        touching = e.actionMasked != MotionEvent.ACTION_UP && e.actionMasked != MotionEvent.ACTION_CANCEL
         scaler.onTouchEvent(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -1578,7 +1583,8 @@ class GameMapView(ctx: Context) : View(ctx) {
     override fun onDraw(canvas: Canvas) {
         area.set(0, insetTop, width, height - insetBottom)
         renderer.draw(canvas, width, height, area, resources.displayMetrics.density, hud = true)
-        if (renderer.animating) postInvalidateOnAnimation()
+        // smooth 60 fps under the fingers, 30 fps for the gliding arrow and zoom animations
+        if (renderer.animating) { if (touching) postInvalidateOnAnimation() else postInvalidateDelayed(33) }
     }
 }
 

@@ -475,7 +475,7 @@ class RoutePreviewScreen(carContext: CarContext) : Screen(carContext) {
             .setTitle(NavEngine.planPlace?.name ?: "Route")
             .setHeaderAction(Action.BACK)
         val opts = NavEngine.options
-        if (opts.isEmpty()) {
+        if (opts.isEmpty() || opts.any { !NavEngine.timeKnown(it) }) {
             b.setLoading(true)
             return b.build()
         }

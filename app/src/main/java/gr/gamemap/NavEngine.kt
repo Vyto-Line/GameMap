@@ -134,6 +134,7 @@ object NavEngine {
     private var offRouteCount = 0
     private var lastRouteAt = 0L
     private val io = Executors.newSingleThreadExecutor()
+    private val timing = Bg.pool("timing", 3)
     private val main = Handler(Looper.getMainLooper())
     private lateinit var appContext: Context
 
@@ -210,22 +211,25 @@ object NavEngine {
         }
     }
 
+    /** TomTom times all the routes at once (each takes ~0.1 s). */
     private fun evaluateOptions(seq: Int) {
         val opts = options
         val depart = departAt
-        io.execute {
-            for (o in opts) {
-                val r = try { TomTomTime.evaluate(o, 0.0, departAt = depart) } catch (e: Exception) { null } ?: continue
-                main.post {
-                    if (seq != planSeq) return@post
-                    o.trafficSeconds = r.seconds; o.delaySeconds = r.delay
-                    o.traffic = r.traffic; o.limits = r.limits
-                    if (!userPicked) selected = fastestIndex()
-                    changed.fire()
-                }
+        for (o in opts) timing.execute {
+            val r = try { TomTomTime.evaluate(o, 0.0, departAt = depart) } catch (e: Exception) { null }
+            main.post {
+                if (seq != planSeq) return@post
+                if (r == null) { o.timingFailed = true; changed.fire(); return@post }
+                o.trafficSeconds = r.seconds; o.delaySeconds = r.delay
+                o.traffic = r.traffic; o.limits = r.limits
+                if (!userPicked) selected = fastestIndex()
+                changed.fire()
             }
         }
     }
+
+    /** True once a route's time is worth showing (TomTom answered, failed, or isn't available). */
+    fun timeKnown(o: RouteOption) = o.trafficSeconds != null || o.timingFailed || !Traffic.active
 
     fun fastestIndex(): Int {
         val allowed = options.indices.filterNot { breaksAvoid(options[it]) }.ifEmpty { options.indices.toList() }
@@ -241,7 +245,7 @@ object NavEngine {
     /** "Leave later": re-times the routes for a departure at [ms] (null = now). */
     fun setDeparture(ms: Long?) {
         departAt = ms
-        options.forEach { it.trafficSeconds = null; it.delaySeconds = 0; it.traffic = emptyList() }
+        options.forEach { it.trafficSeconds = null; it.timingFailed = false; it.delaySeconds = 0; it.traffic = emptyList() }
         changed.fire()
         evaluateOptions(planSeq)
     }
@@ -360,7 +364,7 @@ object NavEngine {
         trafficRatio = r.trafficSeconds?.let { (it / maxOf(r.duration, 1.0)).coerceIn(0.6, 4.0) } ?: trafficRatio
         trafficDelaySeconds = r.delaySeconds
         // fresh traffic soon after the start, then every 3 minutes
-        trafficAt = if (r.trafficSeconds != null) System.currentTimeMillis() else System.currentTimeMillis() - 150_000
+        trafficAt = if (r.trafficSeconds != null) System.currentTimeMillis() else System.currentTimeMillis() - 85_000
         nearest = 0; along = 0.0
         offRouteCount = 0
         loading = false
@@ -426,7 +430,7 @@ object NavEngine {
      * OSRM's other ways from here are timed too; one that saves 3+ minutes is offered.
      */
     private fun maybeRefreshTraffic(pos: LatLng) {
-        if (!Traffic.active || loading || System.currentTimeMillis() - trafficAt < 180_000) return
+        if (!Traffic.active || loading || System.currentTimeMillis() - trafficAt < 90_000) return
         val dest = destination ?: return
         val r = current ?: return
         trafficAt = System.currentTimeMillis()

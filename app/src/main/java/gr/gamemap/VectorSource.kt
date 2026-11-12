@@ -27,7 +27,7 @@ object VectorSource {
     private val parsed = object : LruCache<String, VectorTile>((Runtime.getRuntime().maxMemory() / 6).toInt()) {
         override fun sizeOf(key: String, value: VectorTile) = value.approxBytes
     }
-    private val prefetcher = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val prefetcher = Bg.pool("prefetch", 1)
     private val prefetching = ConcurrentHashMap.newKeySet<String>()
 
     /**

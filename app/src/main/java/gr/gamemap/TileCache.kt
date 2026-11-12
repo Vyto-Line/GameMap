@@ -32,8 +32,8 @@ object TileCache {
     private class Lifo : LinkedBlockingDeque<Runnable>() {
         override fun offer(e: Runnable) = offerFirst(e)
     }
-    private val threads = Runtime.getRuntime().availableProcessors().minus(1).coerceIn(2, 4)
-    private val pool = ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, Lifo())
+    private val threads = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(2, 3)
+    private val pool = ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, Lifo(), Bg.factory("tiles"))
 
     fun init(ctx: Context) {
         VectorSource.init(ctx)
