@@ -99,12 +99,14 @@ class RouteOption(
 
 /** The public OSRM router: geometry, maneuvers and lanes. */
 object Osrm {
-    fun routes(from: LatLng, to: LatLng, alternatives: Boolean, heading: Float? = null): List<RouteOption> {
+    fun routes(from: LatLng, to: LatLng, alternatives: Boolean, heading: Float? = null, reroute: Boolean = false): List<RouteOption> {
         var url = "https://router.project-osrm.org/route/v1/driving/" +
             "${from.lon},${from.lat};${to.lon},${to.lat}" +
             "?overview=full&geometries=geojson&steps=true"
         if (alternatives) url += "&alternatives=3"
-        if (heading != null) url += "&bearings=${heading.toInt().coerceIn(0, 359)},60;"
+        // on a reroute: keep going the way the car faces, never a U-turn back to the old route
+        if (heading != null) url += "&bearings=${heading.toInt().coerceIn(0, 359)},${if (reroute) 45 else 60};"
+        if (reroute) url += "&continue_straight=true"
         return parseAll(Http.get(url))
     }
 

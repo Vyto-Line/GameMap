@@ -1,5 +1,6 @@
 package gr.gamemap
 
+import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -7,37 +8,53 @@ import org.robolectric.annotation.Config
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class SearchProbeTest {
+    private fun fetch(u: String): Pair<Int, ByteArray> {
+        val c = URL(u).openConnection() as HttpURLConnection
+        c.connectTimeout = 10000; c.readTimeout = 20000; c.setRequestProperty("User-Agent", "GameMap/1.0 (probe)")
+        val code = try { c.responseCode } catch (e: Exception) { -1 }
+        val body = try { (if (code == 200) c.inputStream else c.errorStream)?.readBytes() ?: ByteArray(0) } catch (e: Exception) { ByteArray(0) }
+        return code to body
+    }
+
     @Test
     fun probe() {
         val out = File(System.getProperty("previewOut") ?: "build/previews").apply { mkdirs() }
         val log = StringBuilder()
-        val k = Traffic.key
-        for (u in listOf(
-            "https://api.tomtom.com/search/2/poiSearch/Syntagma.json?key=$k&limit=3&lat=37.98&lon=23.72",
-            "https://api.tomtom.com/search/2/geocode/Syntagma.json?key=$k&limit=3&lat=37.98&lon=23.72",
-            "https://api.tomtom.com/search/2/autocomplete/Syntag.json?key=$k&language=en-GB&lat=37.98&lon=23.72",
-            "https://api.tomtom.com/search/2/categorySearch/museum.json?key=$k&limit=3&lat=37.98&lon=23.72",
-            "https://api.tomtom.com/search/2/nearbySearch/.json?key=$k&limit=2&lat=37.98&lon=23.72",
-            "https://api.tomtom.com/search/2/structuredGeocode.json?key=$k&countryCode=GR&streetName=Kifisias&streetNumber=100&municipality=Athens",
-            "https://photon.komoot.io/api/?q=Syntagma&limit=2",
-            "https://nominatim.openstreetmap.org/search?q=Syntag&format=jsonv2&limit=2",
-        )) {
-            val c = URL(u).openConnection() as HttpURLConnection
-            val code = run { c.connectTimeout = 8000; c.readTimeout = 8000; c.setRequestProperty("User-Agent", "GameMap/1.0"); try { c.responseCode } catch (e: Exception) { -1 } }
-            val body = try { (if (code == 200) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty() } catch (e: Exception) { e.toString() }
-            log.append("$code ${u.replace(k, "KEY")}\n   ${body.take(400)}\n")
-        }
-        for (q in listOf("Syntagma", "Σύνταγμα", "Acropolis Museum", "Ikea", "Κηφισίας 100")) {
+        val near = LatLng(37.957, 23.728) // Neos Kosmos
+        val t = JSONObject(String(fetch("https://tiles.openfreemap.org/planet").second)).getJSONArray("tiles").getString(0)
+        for (z in listOf(12, 13, 14)) {
+            val n = 1 shl z
+            val x = (Geo.x(near.lon, 1.0) * n).toInt(); val y = (Geo.y(near.lat, 1.0) * n).toInt()
             val t0 = System.currentTimeMillis()
-            val r = try { Places.suggest(q, LatLng(37.98, 23.72)).map { it.name }.take(4).toString() } catch (e: Exception) { e.toString() }
+            val (code, bytes) = fetch(t.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y"))
+            val ms = System.currentTimeMillis() - t0
+            val vt = try { VectorTile(bytes) } catch (e: Exception) { log.append("z$z parse $e\n"); continue }
+            val names = vt.features.filter { it.layer == "transportation_name" }.mapNotNull { it["name"] }.toSet()
+            val parks = vt.features.filter { it.layer == "poi" && (it["class"] == "parking" || it["subclass"] == "parking") }
+            log.append("z$z $code ${bytes.size} B ${ms} ms: ${names.size} street names, Εγγέλη=${names.any { it.contains("Εγγ") }}, " +
+                "parking pois=${parks.size} (named ${parks.count { !it["name"].isNullOrBlank() }}) layers=${vt.features.groupingBy { it.layer }.eachCount()}\n")
+            log.append("   sample names: ${names.take(15)}\n")
+            log.append("   parking sample: ${parks.take(5).map { it.props }}\n")
+            log.append("   poi classes: ${vt.features.filter { it.layer == "poi" }.groupingBy { it["class"] }.eachCount()}\n")
+        }
+        val vb = "&viewbox=${near.lon - 0.15},${near.lat + 0.15},${near.lon + 0.15},${near.lat - 0.15}"
+        for (q in listOf("Εγγέλη 32", "Εγγέλη 32 Νέος Κόσμος", "Εγγελι 32", "eggeli 32", "engeli 32", "Εγγέλη")) {
+            for (b in listOf("", "&bounded=1")) {
+                val (code, body) = fetch("https://nominatim.openstreetmap.org/search?q=${URLEncoder.encode(q, "UTF-8")}&format=jsonv2&limit=3$vb$b")
+                log.append("nominatim '$q'$b $code: ${String(body).take(300)}\n")
+                Thread.sleep(1100)
+            }
+        }
+        for (q in listOf("eggeli 32 news kosmos", "Λυκοβριση", "ikea")) {
+            val t0 = System.currentTimeMillis()
+            val r = try { Places.suggest(q, near).map { it.name + " | " + it.address }.take(4).toString() } catch (e: Exception) { e.toString() }
             log.append("suggest '$q' ${System.currentTimeMillis() - t0} ms: $r\n")
         }
-        try { log.append("Places.tomtom: " + Places.tomtom("Syntagma", LatLng(37.98, 23.72), true).map { it.name } + "\n") }
-        catch (e: Exception) { log.append("Places.tomtom error: $e\n") }
         File(out, "search.txt").writeText(log.toString())
     }
 }

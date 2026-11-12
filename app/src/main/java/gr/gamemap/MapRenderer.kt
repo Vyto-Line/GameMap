@@ -175,7 +175,11 @@ class MapRenderer(private val car: Boolean = false) {
         if (car && hud && carButtons && !NavEngine.planning && NavEngine.lastTrip == null) drawCarButtons(c, area, d, theme)
         bannerBottom = area.top.toFloat()
         val carTrip = car && carButtons && NavEngine.lastTrip != null
-        if (hud && !NavEngine.planning && NavEngine.offer == null && !carTrip) drawBanner(c, area, d, theme)
+        if (hud && !NavEngine.planning && NavEngine.offer == null && !carTrip) {
+            // in the car: smaller, in the very top-left corner
+            if (car) drawBanner(c, Rect(area.left, 0, area.right, area.bottom), d * 0.8f, theme, pad = 8 * d)
+            else drawBanner(c, area, d, theme)
+        }
         if (carTrip) drawCarTrip(c, area, d, theme)
         drawJamChip(c, area, d, theme, hud)
         drawDiscovery(c, area, d, theme)
@@ -883,6 +887,7 @@ class MapRenderer(private val car: Boolean = false) {
                 for (k in -1..1) p.addCircle(cx, cy + k * h * 0.58f, h * 0.15f, Path.Direction.CW) }
             "zoomin" -> { p.moveTo(cx - h * 0.8f, cy); p.lineTo(cx + h * 0.8f, cy); p.moveTo(cx, cy - h * 0.8f); p.lineTo(cx, cy + h * 0.8f) }
             "zoomout" -> { p.moveTo(cx - h * 0.8f, cy); p.lineTo(cx + h * 0.8f, cy) }
+            "menu" -> { for (k in -1..1) { p.moveTo(cx - h * 0.8f, cy + k * h * 0.55f); p.lineTo(cx + h * 0.8f, cy + k * h * 0.55f) } }
             "overview" -> { p.moveTo(cx - h, cy - h * 0.6f); p.lineTo(cx - h * 0.35f, cy - h * 0.85f); p.lineTo(cx + h * 0.35f, cy - h * 0.6f)
                 p.lineTo(cx + h, cy - h * 0.85f); p.lineTo(cx + h, cy + h * 0.6f); p.lineTo(cx + h * 0.35f, cy + h * 0.85f)
                 p.lineTo(cx - h * 0.35f, cy + h * 0.6f); p.lineTo(cx - h, cy + h * 0.85f); p.close()
@@ -910,8 +915,10 @@ class MapRenderer(private val car: Boolean = false) {
             icon(c, iconId, r.centerX(), r.centerY(), size * 0.46f, if (filled) Ui.ink(t).let { if (Ui.contrast(it, t.route) < 3) Color.BLACK else it } else white)
             carHits += r to id
         }
-        // right: style, traffic / voice, report (below Android Auto's ☰ menu button)
-        var y = maxOf(a.top + 12 * d, 74 * d)
+        // GameMap's own ☰, where Android Auto's is: it stays when the host hides its buttons
+        btn("menu", 12 * d)
+        // right: style, traffic / voice, report
+        var y = 12 * d + size + gap
         btn("style", y); y += size + gap
         if (NavEngine.active) btn(if (Voice.muted) "unmute" else "mute", y) else btn("traffic", y)
         y += size + gap
@@ -939,7 +946,7 @@ class MapRenderer(private val car: Boolean = false) {
             carHits += r to "end"
         } else if (!NavEngine.active && NavEngine.lastTrip == null) {
             // "Where to?" and saved places, top left
-            val r = RectF(a.left + 14 * d, a.top + 12 * d, a.left + 14 * d + 300 * d, a.top + 12 * d + 50 * d)
+            val r = RectF(a.left + 14 * d, 12 * d, a.left + 14 * d + 300 * d, 12 * d + 50 * d)
             glassButton(c, r, d, t)
             icon(c, "search", r.left + 26 * d, r.centerY(), 20 * d, Ui.onPanel(t, t.route, 3.0))
             text.textSize = 18 * d; text.typeface = t.typeface; text.color = white
@@ -1039,7 +1046,7 @@ class MapRenderer(private val car: Boolean = false) {
     /** Bottom of the turn banner on screen (for placing things below it). */
     private var bannerBottom = 0f
 
-    private fun drawBanner(c: Canvas, a: Rect, d: Float, t: Theme) {
+    private fun drawBanner(c: Canvas, a: Rect, d: Float, t: Theme, pad: Float = 12 * d) {
         if (!NavEngine.active) return
         val step = NavEngine.currentStep
         val (title, sub) = when {
@@ -1055,7 +1062,6 @@ class MapRenderer(private val car: Boolean = false) {
         val detail = if (!NavEngine.arrived && !NavEngine.loading && NavEngine.error == null && step != null &&
             step.road.isNotBlank() && step.type != "arrive") step.text.substringBefore(" onto ") else null
         val lanes = step?.lanes?.takeIf { NavEngine.distanceToNext < 900 && !NavEngine.loading }
-        val pad = 12 * d
         val mainH = if (detail != null) 96 * d else 80 * d
         val lanesH = if (lanes != null) 44 * d else 0f
         val box = RectF(a.left + pad, a.top + pad, minOf(a.right - pad, a.left + pad + 440 * d), a.top + pad + mainH + lanesH)

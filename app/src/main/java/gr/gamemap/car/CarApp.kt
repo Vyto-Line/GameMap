@@ -315,6 +315,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             "recenter" -> MapState.recenter()
             "overview" -> NavEngine.route.takeIf { it.size > 1 }?.let { r -> MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last()) }
             "end" -> NavEngine.stop()
+            "menu" -> screenManager.push(CarMenuScreen(carContext))
             "search" -> screenManager.push(SearchScreen(carContext))
             "home", "work" -> Places.saved(id)?.let { NavEngine.plan(carContext, it) }
             "done" -> { NavEngine.stop(); NavEngine.dismissTrip() }

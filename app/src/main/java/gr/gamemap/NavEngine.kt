@@ -317,7 +317,37 @@ object NavEngine {
     // ============================================================= driving
 
     private fun heading(): Float? =
-        if (LocationTracker.speedMps > 3f) LocationTracker.heading else null
+        if (LocationTracker.speedMps > 1.5f) LocationTracker.heading else null
+
+    /**
+     * After leaving the route, pick the option that carries on the way the driver went:
+     * no early turn-back, and as little of the abandoned route as possible.
+     */
+    private fun pickForward(list: List<RouteOption>, heading: Float?, old: RouteOption?): RouteOption? {
+        if (list.size <= 1) return list.firstOrNull()
+        val best = list.first()
+        fun score(r: RouteOption): Double {
+            var s = r.duration
+            if (heading != null) {
+                // first ~150 m must not point back
+                val p = r.points
+                val i = r.cum.indexOfFirst { it > 150 }.let { if (it < 1) p.size - 1 else it }
+                val b = Geo.bearing(p[0], p[i])
+                val diff = Math.abs(((b - heading + 540) % 360) - 180)
+                if (diff > 100) s += 600
+            }
+            if (old != null) {
+                // re-joining the old route behind the car = being pulled back
+                val end = (nearest + 1).coerceAtMost(old.points.size)
+                val behind = old.points.subList(maxOf(0, end - 400), end)
+                val sample = r.points.filterIndexed { k, _ -> k % 8 == 0 }.take(40)
+                val back = sample.count { q -> behind.any { Geo.distance(it, q) < 25 } }
+                s += back * 30
+            }
+            return s
+        }
+        return list.minByOrNull { score(it) }?.takeIf { score(it) < score(best) - 30 || it === best } ?: best
+    }
 
     /** If p is within 30 m of the route, the closest point on it and the road's direction there. */
     fun snap(p: LatLng): Pair<LatLng, Float>? {
@@ -350,7 +380,11 @@ object NavEngine {
         if (reroute) Voice.say(Phrases.rerouting(Voice.lang))
         changed.fire()
         io.execute {
-            val r = try { preferAllowed(Osrm.routes(from, dest, alternatives = wantsAlternatives, heading = heading())).firstOrNull() } catch (e: Exception) { null }
+            val h = heading()
+            val r = try {
+                val list = preferAllowed(Osrm.routes(from, dest, alternatives = reroute || wantsAlternatives, heading = h, reroute = reroute))
+                if (reroute) pickForward(list, h, current) else list.firstOrNull()
+            } catch (e: Exception) { null }
             main.post {
                 if (destination != dest) return@post
                 if (r == null) {
