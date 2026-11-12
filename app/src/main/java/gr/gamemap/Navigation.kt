@@ -625,7 +625,8 @@ object Places {
     }
 
     fun icon(key: String?, value: String?): String = when {
-        value == "fuel" || value == "charging_station" -> "⛽"
+        value == "fuel" -> "⛽"
+        value == "charging_station" -> "🔌"
         value in setOf("restaurant", "fast_food", "food_court") -> "🍽"
         value == "cafe" -> "☕"
         value in setOf("bar", "pub", "nightclub") -> "🍺"
