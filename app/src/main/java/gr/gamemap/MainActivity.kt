@@ -1765,8 +1765,11 @@ class GameMapView(ctx: Context) : View(ctx) {
     override fun onDraw(canvas: Canvas) {
         area.set(0, insetTop, width, height - insetBottom)
         renderer.draw(canvas, width, height, area, resources.displayMetrics.density, hud = true)
-        // smooth 60 fps under the fingers, 30 fps for the gliding arrow and zoom animations
-        if (renderer.animating) postInvalidateOnAnimation()
+        // full frame rate under the fingers; 30 fps is plenty for the gliding arrow and zooms
+        // (a 120 Hz phone would otherwise draw the whole map 120 times a second while driving)
+        if (renderer.animating) {
+            if (MapState.gesture) postInvalidateOnAnimation() else postInvalidateDelayed(33)
+        }
     }
 }
 

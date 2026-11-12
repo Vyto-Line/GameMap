@@ -113,6 +113,8 @@ object LocationTracker : LocationListener {
     }
 
     /** Advances the heading animation. Returns true while anything is still moving. */
+    private var glideMeters = 0.0
+
     fun tick(): Boolean {
         val now = SystemClock.uptimeMillis()
         val dt = (now - lastTick).coerceIn(0, 100)
@@ -122,7 +124,8 @@ object LocationTracker : LocationListener {
         val diff = Geo.angleDiff(heading, target)
         val turning = abs(diff) > 0.3f
         heading = if (turning) (heading + diff * (1 - exp(-dt / 260.0)).toFloat() + 360f) % 360f else target
-        val gliding = toPos != null && (now - fixAt < 1000 || speed >= 2f)
+        // standing still, a new fix a few cm away isn't worth 30 frames a second
+        val gliding = toPos != null && ((now - fixAt < 1000 && glideMeters > 0.8) || speed >= 2f)
         return turning || gliding
     }
 
@@ -158,6 +161,7 @@ object LocationTracker : LocationListener {
 
         val firstFix = toPos == null
         fromPos = if (firstFix) p else displayPosition()
+        glideMeters = fromPos?.let { Geo.distance(it, p) } ?: 0.0
         toPos = p
         fixAt = SystemClock.uptimeMillis()
         if (firstFix) heading = headingTarget

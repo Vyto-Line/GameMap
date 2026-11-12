@@ -58,6 +58,15 @@ class PerfTest {
             log.append("${if (car) "car  " else "phone"} ${th.name.padEnd(16)} ${"%5.1f".format(total)} ms  " +
                 MapRenderer.times.entries.sortedByDescending { it.value }.joinToString { "${it.key} ${"%.1f".format(it.value / frames / 1e6)}" } + "\n")
         }
+        // drawing one 512 px map tile (background work while driving)
+        for (th in Theme.entries) for (dark in listOf(false, true)) {
+            if (th == Theme.BLOCKY) continue
+            VectorRenderer.render(th, 16, 37085, 25286, 512, dark)
+            val t0 = System.nanoTime()
+            var k = 0
+            for (ty in 25284..25287) for (tx in 37083..37086) { VectorRenderer.render(th, 16, tx, ty, 512, dark); k++ }
+            log.append("tile ${th.name.padEnd(16)} ${if (dark) "dark " else "light"} ${"%.1f".format((System.nanoTime() - t0) / k / 1e6)} ms\n")
+        }
         File(out, "perf.txt").writeText(log.toString())
     }
 }

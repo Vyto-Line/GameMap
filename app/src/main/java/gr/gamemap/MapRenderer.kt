@@ -64,6 +64,7 @@ class MapRenderer(private val car: Boolean = false) {
     private var paperTex: Bitmap? = null
     private val labels = Labels()
     private val tileList = ArrayList<IntArray>(64)
+    private val tilePool = ArrayList<IntArray>(64)
     private val quarter = RectF()
 
     /** Where Athens is, until the first GPS fix arrives. */
@@ -244,7 +245,13 @@ class MapRenderer(private val car: Boolean = false) {
         // tiles nearest the player are drawn first.
         val tiles = tileList
         tiles.clear()
-        for (ty in ty0..ty1) for (tx in tx0..tx1) if (onScreen(tx, ty)) tiles += intArrayOf(tx, ty)
+        var used = 0
+        for (ty in ty0..ty1) for (tx in tx0..tx1) if (onScreen(tx, ty)) {
+            // reuse the little arrays: no garbage every frame
+            if (used == tilePool.size) tilePool += IntArray(2)
+            val a = tilePool[used++]; a[0] = tx; a[1] = ty
+            tiles += a
+        }
         val ctx = px / tilePx - 0.5; val cty = py / tilePx - 0.5
         tiles.sortByDescending { (it[0] - ctx) * (it[0] - ctx) + (it[1] - cty) * (it[1] - cty) }
 
@@ -256,6 +263,10 @@ class MapRenderer(private val car: Boolean = false) {
                 if (ty in 0 until nd) VectorSource.prefetch(dz, tx.mod(nd), ty)
             }
         }
+        // Driving: draw the tiles the route reaches next before they come on screen, so they're
+        // ready instead of popping in. Asked for first: the loader takes newest requests first,
+        // so what's on screen still wins.
+        if (!interacting && NavEngine.active && view.following) prefetchAhead(theme, z, tiles)
         for (t in tiles) {
             val tx = t[0]; val ty = t[1]
             val x = tx.mod(n)
@@ -270,6 +281,34 @@ class MapRenderer(private val car: Boolean = false) {
     }
 
     /** While a tile loads, show a cached tile from a nearby zoom level instead of a gap. */
+    private var aheadAt = 0L
+
+    private fun prefetchAhead(theme: Theme, z: Int, onScreen: List<IntArray>) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - aheadAt < 1500) return
+        aheadAt = now
+        val r = NavEngine.current ?: return
+        val pts = r.points
+        if (pts.size < 2) return
+        val from = NavEngine.passedIndex.coerceIn(0, pts.size - 1)
+        val startM = r.cum[from]
+        val world = TileCache.tilePx * 2.0.pow(z)
+        val n = 1 shl z
+        var asked = 0
+        var last = -1L
+        var i = from
+        while (i < pts.size && r.cum[i] - startM < 1500 && asked < 6) {
+            val tx = floor(Geo.x(pts[i].lon, world) / TileCache.tilePx).toInt()
+            val ty = floor(Geo.y(pts[i].lat, world) / TileCache.tilePx).toInt()
+            val k = (tx.toLong() shl 32) or (ty.toLong() and 0xffffffffL)
+            if (k != last && ty in 0 until n && onScreen.none { it[0] == tx && it[1] == ty }) {
+                last = k
+                if (TileCache.peek(theme, z, tx.mod(n), ty) == null) { TileCache.get(theme, z, tx.mod(n), ty); asked++ }
+            }
+            i++
+        }
+    }
+
     private fun drawStandIn(c: Canvas, theme: Theme, z: Int, x: Int, y: Int, paint: Paint) {
         // Coarser levels: zoom into part of a parent tile.
         for (up in 1..5) {

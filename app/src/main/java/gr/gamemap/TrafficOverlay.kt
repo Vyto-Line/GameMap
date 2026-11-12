@@ -24,10 +24,28 @@ object TrafficOverlay {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
     }
 
-    // lanes re-lock onto the roads as map data arrives, but at most every 10 s
-    @Volatile private var epoch = 0
-    @Volatile private var epochSeen = -1
-    @Volatile private var epochAt = 0L
+    /** How many of the map tiles under a traffic square are loaded (checked at most once a second). */
+    private val stamps = ConcurrentHashMap<String, Pair<Long, Int>>()
+
+    private fun roadStamp(z: Int, dz: Int, ax: Int, ay: Int): Int {
+        val k = "$z/$dz/$ax/$ay"
+        val now = android.os.SystemClock.uptimeMillis()
+        stamps[k]?.let { (at, v) -> if (now - at < 1000) return v }
+        val tilePx = TileCache.tilePx
+        val span = tilePx * 2.0.pow(z - dz)
+        val vz = VectorSource.dataZoom(z)
+        val osmSpan = tilePx * 2.0.pow(z - vz)
+        val m = span * 0.1 // the snapping reach, generously
+        val tx0 = Math.floor((ax * span - m) / osmSpan).toInt(); val tx1 = Math.floor(((ax + 1) * span + m) / osmSpan).toInt()
+        val ty0 = Math.floor((ay * span - m) / osmSpan).toInt(); val ty1 = Math.floor(((ay + 1) * span + m) / osmSpan).toInt()
+        var v = 0
+        if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) <= 16) for (ty in ty0..ty1) for (tx in tx0..tx1) if (VectorSource.peek(vz, tx, ty) != null) v++
+        // map tiles leaving memory later don't make it worse: keep the best seen
+        stamps[k]?.let { v = maxOf(v, it.second) }
+        if (stamps.size > 400) stamps.clear()
+        stamps[k] = now to v
+        return v
+    }
 
     private fun dataZoom(z: Int) = when {
         z >= 17 -> 16
@@ -41,21 +59,19 @@ object TrafficOverlay {
         val sh = z - dz
         val ax = x shr sh; val ay = y shr sh
         val t = Traffic.tile(dz, ax, ay) ?: return null
-        val now = android.os.SystemClock.uptimeMillis()
-        if (VectorSource.loadedCount != epochSeen && now - epochAt > 10_000) {
-            epochSeen = VectorSource.loadedCount; epoch++; epochAt = now
-        }
+        // redrawn only when road data arrives for this traffic square (lanes lock onto roads),
+        // not every time any map tile anywhere loads
+        val stamp = roadStamp(z, dz, ax, ay)
         val dark = MapState.dark
         val tileKey = "${theme.name}/$dark/$z/$x/$y"
-        val key = "$tileKey/${t.fetchedAt}/$epoch"
+        val key = "$tileKey/${t.fetchedAt}/$stamp"
         mem.get(key)?.let { return it }
         if (build && busy.add(key)) {
             val look = theme.lookFor(dark)
-            val e = epoch
             exec.execute {
                 try {
-                    if (e == epoch) {
-                        val bmp = draw(t, look, z, x, y, dz, ax, ay)
+                    run {
+                        val bmp = draw(t, look, z, x, y, dz, ax, ay, stamp)
                         mem.put(key, bmp)
                         latest[tileKey] = key
                         TileCache.loaded.fire()
@@ -69,11 +85,11 @@ object TrafficOverlay {
         return latest[tileKey]?.let { mem.get(it) }
     }
 
-    private fun draw(t: Traffic.Tile, look: Look, z: Int, x: Int, y: Int, dz: Int, ax: Int, ay: Int): Bitmap {
+    private fun draw(t: Traffic.Tile, look: Look, z: Int, x: Int, y: Int, dz: Int, ax: Int, ay: Int, stamp: Int): Bitmap {
         val tilePx = TileCache.tilePx
         val span = tilePx * 2.0.pow(z - dz) // one traffic square in world pixels at zoom z
         val u = (tilePx / 256f) / 1.15f       // one dp in world pixels at this zoom
-        val sq = "$dz/$ax/$ay/$z/${t.fetchedAt}/$epoch"
+        val sq = "$dz/$ax/$ay/$z/${t.fetchedAt}/$stamp"
         val tp = squares[sq] ?: builder.buildTraffic(t, ax, ay, span, u, z).also {
             squares[sq] = it
             while (squares.size > 12) squares.remove(squares.keys.first())
