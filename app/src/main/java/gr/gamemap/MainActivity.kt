@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var offerVia: TextView
     private lateinit var keepBtn: TextView
     private lateinit var switchBtn: TextView
-    private lateinit var overlay: FrameLayout
+    private lateinit var sheetOverlay: FrameLayout
     private lateinit var sheetHost: LinearLayout
     private var sheetKind = ""
     private val fabs = mutableListOf<TextView>()
@@ -133,7 +133,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         buildPreview()
         buildOffer()
         sheetHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; isClickable = true; elevation = 16 * d }
-        overlay = FrameLayout(this).apply {
+        sheetOverlay = FrameLayout(this).apply {
             visibility = View.GONE
             setBackgroundColor(Color.argb(110, 0, 0, 0))
             setOnClickListener { closeSheet() }
@@ -148,7 +148,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(navCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
             addView(preview, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
             addView(offerCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
-            addView(overlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(sheetOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
         setContentView(root)
 
@@ -175,7 +175,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
-                    overlay.visibility == View.VISIBLE -> closeSheet()
+                    sheetOverlay.visibility == View.VISIBLE -> closeSheet()
                     suggestScroll.visibility == View.VISIBLE || pickFor != null -> closeSearch()
                     NavEngine.planning -> NavEngine.cancelPlan()
                     else -> { isEnabled = false; onBackPressedDispatcher.onBackPressed() }
@@ -697,7 +697,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (showOffer && offerCard.visibility != View.VISIBLE) { main.removeCallbacks(ticker); main.postDelayed(ticker, 1000) }
         offerCard.visibility = if (showOffer) View.VISIBLE else View.GONE
         if (showOffer) renderOffer()
-        if (overlay.visibility == View.VISIBLE) when (sheetKind) {
+        if (sheetOverlay.visibility == View.VISIBLE) when (sheetKind) {
             "style" -> renderStylePicker()
             "settings" -> renderSettings()
         }
@@ -862,12 +862,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun openSheet(kind: String) {
         sheetKind = kind
-        overlay.visibility = View.VISIBLE
+        sheetOverlay.visibility = View.VISIBLE
         refreshChrome()
     }
 
     private fun closeSheet() {
-        overlay.visibility = View.GONE
+        sheetOverlay.visibility = View.GONE
         sheetKind = ""
         sheetHost.removeAllViews()
     }
