@@ -143,11 +143,11 @@ object Osrm {
                     road = st.optString("name"),
                     exit = m.optInt("exit", 0),
                     pos = LatLng(loc.getDouble(1), loc.getDouble(0)),
-                    lanes = lanes?.takeIf { l2 -> l2.size >= 2 && l2.any { !it.valid } },
+                    lanes = lanes?.takeIf { l2 -> l2.size >= 2 },
                 )
             }
         }
-        val via = summary.split(",").map { it.trim() }.filter { it.isNotBlank() }.take(2).joinToString(" & ")
+        val via = summary.split(",").map { it.trim() }.filter { it.isNotBlank() }.distinct().take(2).joinToString(" & ")
         return RouteOption(pts, out, r.getDouble("distance"), r.getDouble("duration"), via)
     }
 }

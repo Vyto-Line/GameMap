@@ -106,9 +106,10 @@ class MapRenderer {
         drawTiles(c, theme, z, px, py, hypot(w.toDouble(), h.toDouble()) * 0.75 / scale)
         val reach = hypot(w.toDouble(), h.toDouble()) * 0.75 / scale
         // traffic glow under the route, traffic colours on top of it (jams on your route stay visible)
-        drawTraffic(c, theme, z, px, py, scale, d, reach, under = true)
+        // while choosing a route the routes' own traffic bars say enough; the map stays calm
+        if (!NavEngine.planning) drawTraffic(c, theme, z, px, py, scale, d, reach, under = true)
         drawRoute(c, theme, world, px, py, scale, d)
-        drawTraffic(c, theme, z, px, py, scale, d, reach, under = false)
+        if (!NavEngine.planning) drawTraffic(c, theme, z, px, py, scale, d, reach, under = false)
 
         // accuracy halo around the player
         if (me != null) {
@@ -496,6 +497,10 @@ class MapRenderer {
         c.translate((cp.ox - px).toFloat(), (cp.oy - py).toFloat())
         routePaint.pathEffect = null
         routePaint.isAntiAlias = !pixel
+        // a contrasting outline keeps the route readable over busy, same-coloured roads
+        routePaint.color = if (MapState.dark) Color.argb(200, 0, 0, 0) else Color.argb(220, 255, 255, 255)
+        routePaint.strokeWidth = (width + 5) * d / scale
+        c.drawPath(cp.path, routePaint)
         if (Color.alpha(glow) > 0) {
             routePaint.color = glow
             routePaint.strokeWidth = (width + 9) * d / scale
