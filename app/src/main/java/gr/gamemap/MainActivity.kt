@@ -419,7 +419,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             setPadding(p, p, p, p)
             background = bg(Color.argb(40, Color.red(accent), Color.green(accent), Color.blue(accent)), radius = 16f)
             setOnClickListener {
-                if (todo.isNotEmpty() && near != null) MapState.requestFit(todo.map { it.pos } + near)
+                if (todo.isNotEmpty() && near != null) MapState.phone.requestFit(todo.map { it.pos } + near)
                 else Toast.makeText(this@MainActivity, "Drive or walk around to find landmarks", Toast.LENGTH_SHORT).show()
             }
         }
@@ -520,11 +520,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun buildControls() {
         styleBtn = fab("🎮", "Map style") { showStylePicker() }
-        recenterBtn = fab("◎", "Recenter") { MapState.recenter() }
+        recenterBtn = fab("◎", "Recenter") { MapState.phone.recenter() }
         muteBtn = fab("🔊", "Mute voice") { Voice.muted = !Voice.muted }
         overviewBtn = fab("🗺", "Route overview") {
             val r = NavEngine.route
-            if (r.size > 1) MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last())
+            if (r.size > 1) MapState.phone.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last())
         }
         navMenuBtn = fab("☰", "Settings") { showSettings() }
         reportBtn = fab("⚠", "Report") { openSheet("report") }
@@ -1417,6 +1417,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             settingRow("TomTom key", if (Traffic.builtIn) "Built-in" else if (Traffic.key.isNotEmpty()) "Your own" else "None") { trafficSettings() },
         ) + group("Alerts",
             switchRow("Speed cameras", Alerts.camerasOn) { Alerts.camerasOn = it },
+            switchRow("Red light cameras", Alerts.redLightOn) { Alerts.redLightOn = it },
             switchRow("Accidents & roadworks", Alerts.incidentsOn) { Alerts.incidentsOn = it },
             settingRow("Driver reports", if (Alerts.reportsReady) "On" else "Set up") { reportsSetup() },
         ) + group("Map",

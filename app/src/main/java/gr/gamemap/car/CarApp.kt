@@ -146,14 +146,14 @@ class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
     }
 
     override fun onScale(focusX: Float, focusY: Float, scaleFactor: Float) {
-        MapState.zoomByFactor(scaleFactor)
+        MapState.car.zoomByFactor(scaleFactor)
         redraw()
     }
 
     /** Pan mode (the ✥ button) or a drag on the map: move the map with the finger. */
     override fun onScroll(distanceX: Float, distanceY: Float) {
         val cam = renderer.camera ?: return
-        MapState.pan(renderer.toMap(cam.cx + distanceX, cam.cy + distanceY, cam), cam.bearing)
+        MapState.car.pan(renderer.toMap(cam.cx + distanceX, cam.cy + distanceY, cam), cam.bearing)
         redraw()
     }
 
@@ -220,7 +220,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
 
     private var lastFollowing = true
     private val onMapState: () -> Unit = {
-        val f = MapState.following && MapState.userBearing == null
+        val f = MapState.car.following && MapState.car.userBearing == null
         if (f != lastFollowing) { lastFollowing = f; onNav() }
     }
 
@@ -348,10 +348,10 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             }
             "mute", "unmute" -> Voice.muted = !Voice.muted
             "report" -> screenManager.push(ReportScreen(carContext))
-            "zoomin" -> MapState.zoomBy(1.0)
-            "zoomout" -> MapState.zoomBy(-1.0)
-            "recenter" -> MapState.recenter()
-            "overview" -> NavEngine.route.takeIf { it.size > 1 }?.let { r -> MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last()) }
+            "zoomin" -> MapState.car.zoomBy(1.0)
+            "zoomout" -> MapState.car.zoomBy(-1.0)
+            "recenter" -> MapState.car.recenter()
+            "overview" -> NavEngine.route.takeIf { it.size > 1 }?.let { r -> MapState.car.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last()) }
             "end" -> NavEngine.stop()
             "menu" -> screenManager.push(CarMenuScreen(carContext))
             "search" -> screenManager.push(SearchScreen(carContext))
@@ -390,14 +390,14 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
         if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_2) {
             val m = ActionStrip.Builder()
                 .addAction(Action.PAN)
-                .addAction(action(R.drawable.ic_zoom_in) { MapState.zoomBy(1.0) })
-                .addAction(action(R.drawable.ic_zoom_out) { MapState.zoomBy(-1.0) })
-            if (!MapState.following || MapState.userBearing != null) {
-                m.addAction(action(R.drawable.ic_recenter) { MapState.recenter() })
+                .addAction(action(R.drawable.ic_zoom_in) { MapState.car.zoomBy(1.0) })
+                .addAction(action(R.drawable.ic_zoom_out) { MapState.car.zoomBy(-1.0) })
+            if (!MapState.car.following || MapState.car.userBearing != null) {
+                m.addAction(action(R.drawable.ic_recenter) { MapState.car.recenter() })
             } else if (NavEngine.active && NavEngine.route.size > 1) {
                 m.addAction(action(R.drawable.ic_overview) {
                     val r = NavEngine.route
-                    MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last())
+                    MapState.car.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last())
                 })
             }
             b.setMapActionStrip(m.build())

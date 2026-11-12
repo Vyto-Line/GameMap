@@ -127,11 +127,11 @@ object Sun {
 }
 
 /** Camera and settings shared by the phone and the car screen. */
-object MapState {
-    val changed = Signal()
-    var theme = Theme.OPEN_WORLD
-        private set
-
+/**
+ * Where one screen's map is looking: zoom, following or panned, rotation, route fitting.
+ * The phone and the car each have their own, so moving one never moves the other.
+ */
+class MapView(private val zoomKey: String) {
     /** Zoom being shown right now (animates toward [targetZoom]). */
     var zoom = 16.5
         private set
@@ -150,8 +150,144 @@ object MapState {
     var userBearing: Float? = null
         private set
 
-    private lateinit var appContext: Context
+    /** A finger is on this map (pinch, drag, twist): its renderer keeps frames light meanwhile. */
+    @Volatile var gesture = false
+
     private var lastTick = 0L
+
+    internal fun load(z: Double) { zoom = z.coerceIn(MapState.MIN_ZOOM, MapState.MAX_ZOOM); targetZoom = zoom }
+
+    /** Button zoom: animates smoothly to the next level. */
+    fun zoomBy(delta: Double) {
+        targetZoom = (targetZoom + delta).coerceIn(MapState.MIN_ZOOM, MapState.MAX_ZOOM)
+        saveZoom()
+        MapState.changed.fire()
+    }
+
+    /** Pinch zoom: follows the fingers directly. */
+    fun zoomByFactor(factor: Float) {
+        if (factor <= 0) return
+        zoom = (zoom + log2(factor.toDouble())).coerceIn(MapState.MIN_ZOOM, MapState.MAX_ZOOM)
+        targetZoom = zoom
+        saveZoom()
+        MapState.changed.fire()
+    }
+
+    private fun saveZoom() = MapState.saveZoom(zoomKey, targetZoom)
+
+    /** Advances the zoom animation. Returns true while animating. */
+    fun tick(): Boolean {
+        val now = SystemClock.uptimeMillis()
+        val dt = (now - lastTick).coerceIn(0, 100)
+        lastTick = now
+        if (abs(targetZoom - zoom) < 0.003) {
+            zoom = targetZoom
+            return false
+        }
+        zoom += (targetZoom - zoom) * (1 - exp(-dt / 110.0))
+        return true
+    }
+
+    fun pan(center: LatLng, bearing: Float) {
+        following = false
+        freeCenter = center
+        freeBearing = bearing
+        MapState.changed.fire()
+    }
+
+    fun recenter() {
+        following = true
+        freeCenter = null
+        userBearing = null
+        overview = false
+        fitRequest = null
+        savedZoom?.let { targetZoom = it; savedZoom = null }
+        MapState.changed.fire()
+    }
+
+    /** Points the next frame should fit on screen (route preview, overview). */
+    var fitRequest: List<LatLng>? = null
+        private set
+    /** True while showing the whole route instead of following. */
+    var overview = false
+        private set
+    private var savedZoom: Double? = null
+
+    fun requestFit(points: List<LatLng>) {
+        if (points.isEmpty()) return
+        fitRequest = points
+        MapState.changed.fire()
+    }
+
+    /** Whole-route view while driving; [recenter] goes back. */
+    fun showOverview(points: List<LatLng>) {
+        overview = true
+        requestFit(points)
+    }
+
+    /** Called by a renderer once it has worked out where [fitRequest] fits. */
+    fun applyFit(center: LatLng, z: Double) {
+        fitRequest = null
+        if (savedZoom == null) savedZoom = targetZoom
+        following = false
+        freeCenter = center
+        freeBearing = 0f
+        zoom = z.coerceIn(MapState.MIN_ZOOM, 17.5)
+        targetZoom = zoom
+        MapState.changed.fire()
+    }
+
+    /** Two-finger twist: rotate the map by [delta] degrees from [current]. */
+    fun rotateBy(delta: Float, current: Float) {
+        val b = ((userBearing ?: current) + delta + 720f) % 360f
+        userBearing = b
+        if (!following) freeBearing = b
+        MapState.changed.fire()
+    }
+
+    /** Reset rotation to the direction of travel (or north when panning). */
+    fun clearRotation() {
+        userBearing = null
+        if (!following) freeBearing = 0f
+        MapState.changed.fire()
+    }
+}
+
+object MapState {
+    val changed = Signal()
+    var theme = Theme.OPEN_WORLD
+        private set
+
+    /** The phone's map and the car's map: separate, so one never moves the other. */
+    val phone = MapView("zoom")
+    val car = MapView("carZoom")
+
+    // The phone's view, under the names the phone code (and tests) always used.
+    val zoom get() = phone.zoom
+    val targetZoom get() = phone.targetZoom
+    val following get() = phone.following
+    val freeCenter get() = phone.freeCenter
+    val freeBearing get() = phone.freeBearing
+    val userBearing get() = phone.userBearing
+    val overview get() = phone.overview
+    val fitRequest get() = phone.fitRequest
+    var gesture: Boolean
+        get() = phone.gesture
+        set(v) { phone.gesture = v }
+    fun zoomBy(delta: Double) = phone.zoomBy(delta)
+    fun zoomByFactor(factor: Float) = phone.zoomByFactor(factor)
+    fun tick() = phone.tick()
+    fun pan(center: LatLng, bearing: Float) = phone.pan(center, bearing)
+    fun applyFit(center: LatLng, z: Double) = phone.applyFit(center, z)
+    fun rotateBy(delta: Float, current: Float) = phone.rotateBy(delta, current)
+    fun clearRotation() = phone.clearRotation()
+
+    /** Navigation events (route preview, start): both screens. */
+    fun recenter() { phone.recenter(); car.recenter() }
+    fun requestFit(points: List<LatLng>) { phone.requestFit(points); car.requestFit(points) }
+    fun showOverview(points: List<LatLng>) { phone.showOverview(points); car.showOverview(points) }
+
+    private lateinit var appContext: Context
 
     fun init(ctx: Context) {
         appContext = ctx.applicationContext
@@ -159,13 +295,16 @@ object MapState {
         theme = p.getString("themeName", null)?.let { n -> Theme.entries.firstOrNull { it.name == n } }
             ?: Theme.OPEN_WORLD
         lightMode = LightMode.entries.getOrElse(p.getInt("lightMode", 0)) { LightMode.AUTO }
-        zoom = p.getFloat("zoom", 16.5f).toDouble().coerceIn(MIN_ZOOM, MAX_ZOOM)
+        phone.load(p.getFloat("zoom", 16.5f).toDouble())
+        car.load(p.getFloat("carZoom", p.getFloat("zoom", 16.5f)).toDouble())
         carTheme = p.getString("carTheme", null)?.let { n -> Theme.entries.firstOrNull { it.name == n } }
         imperial = p.getBoolean("imperial", false)
-        targetZoom = zoom
     }
 
     private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
+    internal fun saveZoom(key: String, z: Double) {
+        if (::appContext.isInitialized) prefs().edit().putFloat(key, z.toFloat()).apply()
+    }
 
     fun nextTheme(): Theme = setTheme(Theme.entries[(theme.ordinal + 1) % Theme.entries.size])
 
@@ -187,9 +326,6 @@ object MapState {
         return n
     }
 
-    /** A finger is on the map (pinch, drag, twist): renderers keep frames light meanwhile. */
-    @Volatile var gesture = false
-
     /** Miles and mph instead of kilometres. */
     var imperial = false
         private set
@@ -205,103 +341,6 @@ object MapState {
         prefs().edit().putString("themeName", theme.name).apply()
         changed.fire()
         return theme
-    }
-
-    /** Button zoom: animates smoothly to the next level. */
-    fun zoomBy(delta: Double) {
-        targetZoom = (targetZoom + delta).coerceIn(MIN_ZOOM, MAX_ZOOM)
-        saveZoom()
-        changed.fire()
-    }
-
-    /** Pinch zoom: follows the fingers directly. */
-    fun zoomByFactor(factor: Float) {
-        if (factor <= 0) return
-        zoom = (zoom + log2(factor.toDouble())).coerceIn(MIN_ZOOM, MAX_ZOOM)
-        targetZoom = zoom
-        saveZoom()
-        changed.fire()
-    }
-
-    private fun saveZoom() = prefs().edit().putFloat("zoom", targetZoom.toFloat()).apply()
-
-    /** Advances the zoom animation; safe to call from several renderers. Returns true while animating. */
-    fun tick(): Boolean {
-        val now = SystemClock.uptimeMillis()
-        val dt = (now - lastTick).coerceIn(0, 100)
-        lastTick = now
-        if (abs(targetZoom - zoom) < 0.003) {
-            zoom = targetZoom
-            return false
-        }
-        zoom += (targetZoom - zoom) * (1 - exp(-dt / 110.0))
-        return true
-    }
-
-    fun pan(center: LatLng, bearing: Float) {
-        following = false
-        freeCenter = center
-        freeBearing = bearing
-        changed.fire()
-    }
-
-    fun recenter() {
-        following = true
-        freeCenter = null
-        userBearing = null
-        overview = false
-        fitRequest = null
-        savedZoom?.let { targetZoom = it; savedZoom = null }
-        changed.fire()
-    }
-
-    // ---------------------------------------------------------------- fitting routes on screen
-
-    /** Points the next frame should fit on screen (route preview, overview). */
-    var fitRequest: List<LatLng>? = null
-        private set
-    /** True while showing the whole route instead of following. */
-    var overview = false
-        private set
-    private var savedZoom: Double? = null
-
-    fun requestFit(points: List<LatLng>) {
-        if (points.isEmpty()) return
-        fitRequest = points
-        changed.fire()
-    }
-
-    /** Whole-route view while driving; [recenter] goes back. */
-    fun showOverview(points: List<LatLng>) {
-        overview = true
-        requestFit(points)
-    }
-
-    /** Called by a renderer once it has worked out where [fitRequest] fits. */
-    fun applyFit(center: LatLng, z: Double) {
-        fitRequest = null
-        if (savedZoom == null) savedZoom = targetZoom
-        following = false
-        freeCenter = center
-        freeBearing = 0f
-        zoom = z.coerceIn(MIN_ZOOM, 17.5)
-        targetZoom = zoom
-        changed.fire()
-    }
-
-    /** Two-finger twist: rotate the map by [delta] degrees from [current]. */
-    fun rotateBy(delta: Float, current: Float) {
-        val b = ((userBearing ?: current) + delta + 720f) % 360f
-        userBearing = b
-        if (!following) freeBearing = b
-        changed.fire()
-    }
-
-    /** Reset rotation to the direction of travel (or north when panning). */
-    fun clearRotation() {
-        userBearing = null
-        if (!following) freeBearing = 0f
-        changed.fire()
     }
 
     // ---------------------------------------------------------------- light / dark

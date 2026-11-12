@@ -26,6 +26,9 @@ import kotlin.math.sin
  * the Android Auto surface). Also remembers the last camera so touch can be mapped back.
  */
 class MapRenderer(private val car: Boolean = false) {
+    /** This screen's own view (the car never moves the phone's map, nor the other way round). */
+    private val view get() = if (car) MapState.car else MapState.phone
+
 
     /** The camera used for the last frame. */
     class Camera(
@@ -67,23 +70,23 @@ class MapRenderer(private val car: Boolean = false) {
      */
     fun draw(c: Canvas, w: Int, h: Int, area: Rect, d: Float, hud: Boolean) {
         compassBounds.setEmpty()
-        val zoomAnim = MapState.tick()
-        interacting = zoomAnim || MapState.gesture
+        val zoomAnim = view.tick()
+        interacting = zoomAnim || view.gesture
         val moveAnim = LocationTracker.tick()
-        animating = zoomAnim || moveAnim || (wasInteracting && !(zoomAnim || MapState.gesture))
-        wasInteracting = zoomAnim || MapState.gesture
+        animating = zoomAnim || moveAnim || (wasInteracting && !(zoomAnim || view.gesture))
+        wasInteracting = zoomAnim || view.gesture
 
         val theme = if (car) MapState.carTheme ?: MapState.theme else MapState.theme
-        MapState.fitRequest?.let { fit(it, area, d, theme) }
+        view.fitRequest?.let { fit(it, area, d, theme) }
         c.drawColor(theme.background)
         text.typeface = theme.typeface
 
         val me = LocationTracker.displayPosition()
-        val following = MapState.following
-        val center = if (following) me ?: fallback else MapState.freeCenter ?: me ?: fallback
-        val bearing = if (following) MapState.userBearing ?: LocationTracker.heading else MapState.freeBearing
+        val following = view.following
+        val center = if (following) me ?: fallback else view.freeCenter ?: me ?: fallback
+        val bearing = if (following) view.userBearing ?: LocationTracker.heading else view.freeBearing
 
-        val zoom = MapState.zoom
+        val zoom = view.zoom
         val z = floor(zoom).toInt().coerceIn(2, 19)
         val tilePx = TileCache.tilePx
         val scale = (2.0.pow(zoom - z) * (d / (tilePx / 256f)) * 1.15).toFloat()
@@ -183,7 +186,7 @@ class MapRenderer(private val car: Boolean = false) {
         if (carTrip) drawCarTrip(c, area, d, theme)
         drawJamChip(c, area, d, theme, hud)
         drawDiscovery(c, area, d, theme)
-        if (hud && (MapState.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
+        if (hud && (view.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
         drawAttribution(c, area, d, theme)
         if (car) { hitsShown = ArrayList(carHits); lastDensity = d }
     }
@@ -654,7 +657,7 @@ class MapRenderer(private val car: Boolean = false) {
         val camY = if (theme.radar) 0.5 else 0.55
         val shift = (camY - 0.5) * area.height() / (k * 2.0.pow(zoom))
         val cx = (minX + maxX) / 2; val cy = (minY + maxY) / 2 - shift
-        MapState.applyFit(LatLng(Geo.lat(cy, 1.0), Geo.lon(cx, 1.0)), zoom)
+        view.applyFit(LatLng(Geo.lat(cy, 1.0), Geo.lon(cx, 1.0)), zoom)
     }
 
     // ---------------------------------------------------------------- player & frames
@@ -950,7 +953,7 @@ class MapRenderer(private val car: Boolean = false) {
         // bottom right: zoom and recenter / overview
         var b = a.bottom - 14 * d - size
         when {
-            !MapState.following || MapState.userBearing != null -> { btn("recenter", b, filled = true); b -= size + gap }
+            !view.following || view.userBearing != null -> { btn("recenter", b, filled = true); b -= size + gap }
             NavEngine.active && NavEngine.route.size > 1 -> { btn("overview", b); b -= size + gap }
         }
         btn("zoomout", b); b -= size + gap
@@ -1209,7 +1212,7 @@ class MapRenderer(private val car: Boolean = false) {
         }
         val tf = text.typeface
         text.typeface = Typeface.DEFAULT
-        for (cm in Alerts.cameras(center)) visit(cm.pos, "📷", Color.rgb(30, 110, 230))
+        for (cm in Alerts.cameras(center)) visit(cm.pos, cm.glyph, if (cm.redLight) Color.rgb(220, 50, 50) else Color.rgb(30, 110, 230))
         for (i in Alerts.incidents) visit(i.pos, Alerts.incidentGlyph(i.category), Color.rgb(220, 50, 50))
         for (r in Alerts.reports) visit(r.pos, Alerts.typeOf(r.type).glyph, Color.rgb(255, 150, 0))
         text.typeface = tf

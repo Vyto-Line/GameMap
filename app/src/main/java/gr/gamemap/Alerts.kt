@@ -36,7 +36,15 @@ object Alerts {
 
     // =============================================================== speed cameras (OSM)
 
-    class Camera(val pos: LatLng, val maxspeed: Int?, val direction: Float?)
+    class Camera(val pos: LatLng, val maxspeed: Int?, val direction: Float?, val kind: String = "speed") {
+        val redLight get() = kind == "redlight"
+        val title get() = when (kind) { "redlight" -> "Red light camera"; "average" -> "Average speed check"; else -> "Speed camera" }
+        val glyph get() = if (redLight) "🚦" else "📷"
+    }
+
+    var redLightOn: Boolean
+        get() = ready && prefs().getBoolean("alertRedLight", true)
+        set(v) { prefs().edit().putBoolean("alertRedLight", v).apply(); changed.fire() }
 
     private val cameraCells = ConcurrentHashMap<String, List<Camera>>()
     private val cellBusy = ConcurrentHashMap.newKeySet<String>()
@@ -48,9 +56,82 @@ object Alerts {
 
     private fun cellOf(p: LatLng) = "${floor(p.lat * 2).toInt()}_${floor(p.lon * 2).toInt()}"
 
-    /** Cameras in the half-degree square around [p] (downloaded once, kept 3 days). */
+    /**
+     * Whole-country camera lists, made weekly from OpenStreetMap by GameMap's own GitHub job
+     * (Overpass is too slow and busy to ask from a phone). Countries without a list fall back to
+     * asking Overpass for the half-degree square around.
+     */
+    private const val DATA = "https://raw.githubusercontent.com/Vyto-Line/GameMap/data/cameras"
+    private val national = ConcurrentHashMap<String, List<Camera>>()
+    private val countryOfCell = ConcurrentHashMap<String, String>()
+    @Volatile private var covered: Set<String>? = null
+    @Volatile private var coveredAt = 0L
+    private val loading = ConcurrentHashMap.newKeySet<String>()
+
+    /** Cameras around [p] (the caller filters by distance). Never waits for the network. */
     fun cameras(p: LatLng): List<Camera> {
         if (!camerasOn) return emptyList()
+        val all = camerasRaw(p)
+        return if (redLightOn) all else all.filter { !it.redLight }
+    }
+
+    private fun camerasRaw(p: LatLng): List<Camera> {
+        val idx = covered
+        if (idx == null || System.currentTimeMillis() - coveredAt > 86_400_000) { loadIndex(); if (idx == null) return emptyList() }
+        val deg = "${floor(p.lat).toInt()}_${floor(p.lon).toInt()}"
+        val cc = countryOfCell[deg]
+        if (cc == null) {
+            if (loading.add("cc:$deg")) net.execute {
+                try { Fuel.country(p)?.let { countryOfCell[deg] = it; changed.fire() } } finally { loading.remove("cc:$deg") }
+            }
+            return emptyList()
+        }
+        if (cc in idx!!) return national[cc] ?: run { loadNational(cc); emptyList() }
+        return cellCameras(p)
+    }
+
+    private fun loadIndex() {
+        if (!loading.add("index")) return
+        net.execute {
+            val file = File(appContext.cacheDir, "cameras/index.json")
+            try {
+                val text = try { Http.get("$DATA/index.json", timeout = 8000).also { file.parentFile?.mkdirs(); file.writeText(it) } }
+                    catch (e: Exception) { if (file.exists()) file.readText() else null }
+                covered = text?.let { JSONObject(it).keys().asSequence().toSet() } ?: emptySet()
+                coveredAt = if (text != null) System.currentTimeMillis() else System.currentTimeMillis() - 86_400_000 + 600_000
+                changed.fire()
+            } catch (e: Exception) {
+                covered = covered ?: emptySet()
+            } finally { loading.remove("index") }
+        }
+    }
+
+    private fun loadNational(cc: String) {
+        if (!loading.add("cc-data:$cc")) return
+        net.execute {
+            val file = File(appContext.cacheDir, "cameras/$cc.json")
+            try {
+                val fresh = file.exists() && System.currentTimeMillis() - file.lastModified() < 7 * 86_400_000L
+                val text = if (fresh) file.readText() else try {
+                    Http.get("$DATA/$cc.json", timeout = 15000).also { file.parentFile?.mkdirs(); file.writeText(it) }
+                } catch (e: Exception) { if (file.exists()) file.readText() else null }
+                if (text != null) {
+                    val a = JSONArray(text)
+                    national[cc] = (0 until a.length()).map { i ->
+                        val o = a.getJSONObject(i)
+                        Camera(LatLng(o.getDouble("lat"), o.getDouble("lon")),
+                            o.optInt("s").takeIf { it > 0 }, if (o.has("d")) o.optDouble("d").toFloat() else null,
+                            o.optString("k", "speed"))
+                    }
+                    changed.fire()
+                }
+            } catch (_: Exception) {
+            } finally { loading.remove("cc-data:$cc") }
+        }
+    }
+
+    /** Fallback: cameras in the half-degree square around [p] from Overpass (kept 3 days). */
+    private fun cellCameras(p: LatLng): List<Camera> {
         val cell = cellOf(p)
         cameraCells[cell]?.let { return it }
         val file = File(appContext.cacheDir, "cameras/$cell.json")
@@ -64,12 +145,13 @@ object Alerts {
             try {
                 val (a, b) = cell.split("_").map { it.toInt() }
                 val s = a / 2.0; val w = b / 2.0
-                val q = "[out:json][timeout:50];(node[\"highway\"=\"speed_camera\"]($s,$w,${s + 0.5},${w + 0.5});" +
-                    "node[\"enforcement\"=\"maxspeed\"]($s,$w,${s + 0.5},${w + 0.5}););out;"
+                val box = "($s,$w,${s + 0.5},${w + 0.5})"
+                val q = "[out:json][timeout:60];(node[\"highway\"=\"speed_camera\"]$box;" +
+                    "node[\"enforcement\"~\"^(maxspeed|traffic_signals|average_speed)$\"]$box;);out;"
                 var text: String? = null
                 for (ep in overpass) {
-                    text = try { Http.post(ep, "data=" + URLEncoder.encode(q, "UTF-8"), "application/x-www-form-urlencoded") } catch (e: Exception) { null }
-                    if (text != null) break
+                    text = try { Http.post(ep, "data=" + URLEncoder.encode(q, "UTF-8"), "application/x-www-form-urlencoded", timeout = 70_000) } catch (e: Exception) { null }
+                    if (text != null && text.trimStart().startsWith("{")) break else text = null
                 }
                 if (text == null) { cellFailedAt[cell] = System.currentTimeMillis(); return@execute }
                 val list = parseCameras(text)
@@ -95,6 +177,7 @@ object Alerts {
                 LatLng(o.getDouble("lat"), o.getDouble("lon")),
                 tags?.optString("maxspeed")?.takeWhile { it.isDigit() }?.toIntOrNull(),
                 tags?.optString("direction")?.toFloatOrNull(),
+                when (tags?.optString("enforcement")) { "traffic_signals" -> "redlight"; "average_speed" -> "average"; else -> "speed" },
             )
         }
     }
@@ -279,8 +362,8 @@ object Alerts {
         val items = ArrayList<Triple<String, LatLng, Pair<String, String>>>() // key, pos, (label, glyph)
         for (c in cameras(pos)) {
             if (Geo.distance(pos, c.pos) > 1200) continue
-            val lbl = "Speed camera" + (c.maxspeed?.let { " · $it" } ?: "")
-            items += Triple("cam:${c.pos.lat},${c.pos.lon}", c.pos, lbl to "📷")
+            val lbl = c.title + (c.maxspeed?.takeIf { !c.redLight }?.let { " · $it" } ?: "")
+            items += Triple("cam:${c.pos.lat},${c.pos.lon}", c.pos, lbl to c.glyph)
         }
         for (i in incidentsNear(pos)) {
             if (Geo.distance(pos, i.pos) > 2500) continue
@@ -339,6 +422,8 @@ object Alerts {
 
     private fun greek(label: String) = when {
         label.startsWith("Speed camera") -> "Κάμερα ταχύτητας"
+        label.startsWith("Red light camera") -> "Κάμερα φαναριού"
+        label.startsWith("Average speed") -> "Έλεγχος μέσης ταχύτητας"
         label.startsWith("Police") -> "Αστυνομία"
         label.startsWith("Accident") -> "Ατύχημα"
         label.startsWith("Road closed") -> "Κλειστός δρόμος"
