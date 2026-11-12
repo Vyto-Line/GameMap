@@ -676,9 +676,13 @@ object Places {
      * for stations, star ratings when a Google key is set.
      */
     fun nearbyFull(amenities: List<String>, near: LatLng, local: List<Place>): List<Place>? {
+        // prices load alongside the place search
+        var area: Fuel.Area? = null
+        val prices = if ("fuel" in amenities) Thread { area = try { Fuel.near(near) } catch (e: Exception) { null } }.apply { start() } else null
         val online = try { nearby(amenities, near) } catch (e: Exception) { null }
-        var list: List<Place> = if (online == null && local.isEmpty()) return null else mergeNearby(local, online, near)
-        if ("fuel" in amenities) Fuel.asPlaces(near, list)?.let { list = it.take(15) }
+        prices?.join(9000)
+        var list: List<Place> = if (online == null && local.isEmpty() && area == null) return null else mergeNearby(local, online, near)
+        if (area != null) Fuel.asPlaces(near, list)?.let { list = it.take(15) }
         list = try { Reviews.rate(list, near, amenities) } catch (e: Exception) { list }
         return list
     }
@@ -747,9 +751,14 @@ object Places {
                     val o = arr.getJSONObject(i)
                     if (o.optString("type") != a) continue
                     val display = o.optString("display_name")
-                    val name = o.optString("name").ifBlank { display.substringBefore(",") }
+                    val named = o.optString("name").takeIf { it.isNotBlank() }
+                    // unnamed: say what it is, not the house number Nominatim starts the address with
+                    val name = named ?: when (a) {
+                        "fuel" -> "Fuel"; "charging_station" -> "Charging"; "parking" -> "Car park"
+                        "cafe" -> "Café"; else -> "Food"
+                    }
                     out += Place(
-                        name, display.removePrefix(name).trimStart(',', ' ').split(", ").take(2).joinToString(", "),
+                        name, (if (named != null) display.removePrefix(named) else display).trimStart(',', ' ').split(", ").take(2).joinToString(", "),
                         LatLng(o.getString("lat").toDouble(), o.getString("lon").toDouble()),
                         icon("amenity", a),
                     )

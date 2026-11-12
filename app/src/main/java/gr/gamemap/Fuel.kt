@@ -114,9 +114,13 @@ object Fuel {
             val name = same?.name?.takeIf { it != "Fuel" } ?: s.name
             out += Place(name, s.address.ifBlank { same?.address.orEmpty() }, s.pos, "⛽", extra = describe(s, a))
         }
-        // stations the price feed doesn't have
-        for (o in others) if (out.none { Geo.distance(it.pos, o.pos) < 90 }) out += o
+        // stations the price feed doesn't have; where prices are an area average, it's theirs too
+        val avg = a.stations.firstOrNull()?.takeIf { a.averageOnly }
+        for (o in others) if (out.none { Geo.distance(it.pos, o.pos) < 90 }) {
+            out += if (avg != null && o.icon == "⛽" && o.extra.isBlank()) o.copy(extra = describe(avg, a)) else o
+        }
         return out.sortedBy { Geo.distance(p, it.pos) }
+            .fold(ArrayList<Place>()) { acc, x -> if (acc.none { it.name == x.name && Geo.distance(it.pos, x.pos) < 40 }) acc += x; acc }
     }
 
     /** Prices for one place (a fuel station picked from search), or null. */
