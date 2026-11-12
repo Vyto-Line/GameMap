@@ -73,6 +73,14 @@ class Build3PreviewTest {
             repeat(50) { rr.draw(c, w, h, area, 1.6f, hud = true); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(60) }
             rr.draw(c, w, h, area, 1.6f, hud = true)
             File(out, "ui3_car_arrival_${th.name.lowercase()}.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            CarParking.list = listOf(
+                Place("Δημοτικό Πάρκινγκ «Πασά»", "Car park", LatLng(37.9925, 23.7330), "🅿"),
+                Place("Car park", "Car park", LatLng(37.9931, 23.7341), "🅿"),
+                Place("Parking Patision 120", "Car park", LatLng(37.9950, 23.7310), "🅿"),
+            )
+            rr.draw(c, w, h, area, 1.6f, hud = true)
+            File(out, "ui3_car_parking_${th.name.lowercase()}.png").outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            CarParking.list = null
         }
         MapState.setLightMode(MapState.LightMode.LIGHT); MapState.setTheme(Theme.RETRO)
         shot("ui3_arrival_retro")

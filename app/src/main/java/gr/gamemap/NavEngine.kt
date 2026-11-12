@@ -107,6 +107,7 @@ object NavEngine {
     private var lastPos: LatLng? = null
 
     fun dismissTrip() {
+        CarParking.list = null
         lastTrip = null
         changed.fire()
     }
@@ -135,6 +136,14 @@ object NavEngine {
     private var nearest = 0
     private var offRouteCount = 0
     private var parkingReady = false
+    /** Closes the arrival card after a minute, but not while its parking list is open. */
+    private val closeArrival: Runnable = object : Runnable {
+        override fun run() {
+            if (!arrived) return
+            if (CarParking.list != null) { main.postDelayed(this, 30_000); return }
+            stop(); dismissTrip()
+        }
+    }
     private var lastRouteAt = 0L
     private val io = Executors.newSingleThreadExecutor()
     private val timing = Bg.pool("timing", 3)
@@ -448,7 +457,7 @@ object NavEngine {
                 finishTrip()
                 Voice.say(Phrases.instruction(r.steps.lastOrNull() ?: NavStep("arrive", "arrive", "", 0, dest, null), Voice.lang))
                 // the arrival card stays a minute (Parking / Done), then the trip closes by itself
-                main.postDelayed({ if (arrived) { stop(); dismissTrip() } }, 60_000)
+                main.postDelayed(closeArrival, 60_000)
             }
             changed.fire()
             return

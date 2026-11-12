@@ -21,6 +21,12 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
+/** Car arrival: the parking drop-down (null = closed; empty while loading or when none). */
+object CarParking {
+    @Volatile var list: List<Place>? = null
+    @Volatile var loading = false
+}
+
 /**
  * Draws the themed map with route, player and HUD onto any Canvas (the phone's view or
  * the Android Auto surface). Also remembers the last camera so touch can be mapped back.
@@ -1012,9 +1018,11 @@ class MapRenderer(private val car: Boolean = false) {
         carHits.clear()
         val w = minOf(460 * d, a.width() - 28f * d)
         val h = 236 * d
-        val box = RectF(a.left + 14 * d, a.top + 14 * d, a.left + 14 * d + w, a.top + 14 * d + h)
+        // fixed in the top-left corner (Android Auto's own bars come and go and move the visible area)
+        val box = RectF(a.left + 14 * d, 12 * d, a.left + 14 * d + w, 12 * d + h)
         panel(c, box, d, t, outline = true)
         val ink = Ui.ink(t)
+        CarParking.list?.let { drawParkingList(c, box, d, t, it); return }
         text.textAlign = Paint.Align.LEFT
         text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 13 * d; text.color = Ui.onPanel(t, t.route, 3.0)
         c.drawText(Explorer.completeTitle(t).uppercase(), box.left + 18 * d, box.top + 28 * d, text)
@@ -1049,6 +1057,46 @@ class MapRenderer(private val car: Boolean = false) {
         text.typeface = t.typeface
         carHits += park to "parking"
         carHits += done to "done"
+    }
+
+    /**
+     * Car: the arrival card turned into a parking list (the 3 nearest car parks), drawn by
+     * GameMap itself, so it opens at once instead of waiting for an Android Auto screen.
+     */
+    private fun drawParkingList(c: Canvas, box: RectF, d: Float, t: Theme, list: List<Place>) {
+        val ink = Ui.ink(t)
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d; text.color = Ui.onPanel(t, t.route, 3.0)
+        c.drawText("🅿  PARKING NEARBY", box.left + 18 * d, box.top + 32 * d, text)
+        // ✕ close
+        val x = RectF(box.right - 52 * d, box.top + 6 * d, box.right - 8 * d, box.top + 50 * d)
+        text.textAlign = Paint.Align.CENTER; text.textSize = 22 * d; text.color = ink
+        c.drawText("✕", x.centerX(), x.centerY() + 8 * d, text)
+        carHits += x to "parkclose"
+        text.textAlign = Paint.Align.LEFT
+        val near = LocationTracker.position
+        val rowH = 58 * d
+        var y = box.top + 50 * d
+        if (list.isEmpty()) {
+            text.typeface = t.typeface; text.textSize = 18 * d; text.color = Ui.dim(t, 200)
+            c.drawText(if (CarParking.loading) "Finding car parks…" else "No car parks found nearby", box.left + 18 * d, y + 40 * d, text)
+            text.typeface = t.typeface
+            return
+        }
+        list.take(3).forEachIndexed { i, p ->
+            val r = RectF(box.left + 10 * d, y, box.right - 10 * d, y + rowH - 6 * d)
+            glassButton(c, r, d, t, if (i == 0) withAlpha(t.route, 60) else null)
+            val dist = near?.let { NavEngine.formatDistance(Geo.distance(it, p.pos)) } ?: ""
+            text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 16 * d
+            val dw = text.measureText(dist)
+            text.color = Ui.dim(t, 220)
+            c.drawText(dist, r.right - 14 * d - dw, r.centerY() + 6 * d, text)
+            text.typeface = t.typeface; text.textSize = 18 * d; text.color = ink
+            c.drawText(ellipsize(p.name, r.width() - dw - 44 * d), r.left + 14 * d, r.centerY() + 6.5f * d, text)
+            carHits += r to "park:$i"
+            y += rowH
+        }
+        text.typeface = t.typeface
     }
 
     /** Car: "17 min · 18:02 · 4.5 km" next to the speed box, in the theme's see-through panel. */

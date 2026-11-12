@@ -338,8 +338,33 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
     private fun action(res: Int, onClick: () -> Unit) =
         Action.Builder().setIcon(icon(carContext, res)).setOnClickListener(onClick).build()
 
+    /** Parking on the arrival card: a list drawn on the map, the nearest car parks first. */
+    private fun openParking() {
+        val near = LocationTracker.position ?: return
+        val p = gr.gamemap.CarParking
+        p.loading = true
+        p.list = try { Places.nearbyLocal(listOf("parking"), near) } catch (e: Exception) { emptyList() } // instant
+        surface.redraw()
+        Executors.newSingleThreadExecutor().execute {
+            val more = try { Places.nearbyFull(listOf("parking"), near, p.list.orEmpty()) } catch (e: Exception) { null }
+            Handler(Looper.getMainLooper()).post {
+                p.loading = false
+                if (p.list != null && more != null) p.list = more
+                surface.redraw()
+            }
+        }
+    }
+
     /** A GameMap button drawn on the car map was tapped. */
     private fun onCarButton(id: String) {
+        if (id.startsWith("park:")) {
+            val pick = gr.gamemap.CarParking.list?.getOrNull(id.removePrefix("park:").toIntOrNull() ?: -1) ?: return
+            gr.gamemap.CarParking.list = null
+            NavEngine.stop(); NavEngine.dismissTrip()
+            NavEngine.start(carContext, pick) // straight there: it's around the corner
+            surface.redraw()
+            return
+        }
         when (id) {
             "style" -> CarToast.makeText(carContext, MapState.nextCarTheme().title, CarToast.LENGTH_SHORT).show()
             "traffic" -> {
@@ -357,7 +382,8 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             "search" -> screenManager.push(SearchScreen(carContext))
             "home", "work" -> Places.saved(id)?.let { NavEngine.plan(carContext, it) }
             "done" -> { NavEngine.stop(); NavEngine.dismissTrip() }
-            "parking" -> { NavEngine.stop(); NavEngine.dismissTrip(); screenManager.push(NearbyScreen(carContext, "Parking nearby", listOf("parking"))) }
+            "parking" -> openParking()
+            "parkclose" -> gr.gamemap.CarParking.list = null
         }
         surface.redraw()
     }
