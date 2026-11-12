@@ -103,6 +103,23 @@ object Geo {
     fun angleDiff(a: Float, b: Float): Float = ((b - a + 540f) % 360f) - 180f
 }
 
+/** Sunrise and sunset, to switch themes between light and dark automatically. */
+object Sun {
+    /** Daylight between sunrise and ~20 minutes after sunset (simple solar formula, ±10 min). */
+    fun isDaylight(p: LatLng, timeMs: Long): Boolean {
+        val dayOfYear = ((timeMs / 86_400_000L) % 365.2422).toDouble()
+        val decl = Math.toRadians(-23.44 * cos(2 * PI / 365.0 * (dayOfYear + 10)))
+        val lat = Math.toRadians(p.lat)
+        val cosH = (-0.0145 - sin(lat) * sin(decl)) / (cos(lat) * cos(decl))
+        if (cosH <= -1) return true   // midnight sun
+        if (cosH >= 1) return false   // polar night
+        val halfDayHours = Math.toDegrees(kotlin.math.acos(cosH)) / 15.0
+        val noonUtc = 12.0 - p.lon / 15.0
+        val hourUtc = (timeMs % 86_400_000L) / 3_600_000.0
+        return hourUtc >= noonUtc - halfDayHours && hourUtc <= noonUtc + halfDayHours + 0.33
+    }
+}
+
 /** Camera and settings shared by the phone and the car screen. */
 object MapState {
     val changed = Signal()
@@ -133,7 +150,9 @@ object MapState {
     fun init(ctx: Context) {
         appContext = ctx.applicationContext
         val p = prefs()
-        theme = Theme.entries.getOrElse(p.getInt("theme", 0)) { Theme.OPEN_WORLD }
+        theme = p.getString("themeName", null)?.let { n -> Theme.entries.firstOrNull { it.name == n } }
+            ?: Theme.OPEN_WORLD
+        lightMode = LightMode.entries.getOrElse(p.getInt("lightMode", 0)) { LightMode.AUTO }
         zoom = p.getFloat("zoom", 16.5f).toDouble().coerceIn(MIN_ZOOM, MAX_ZOOM)
         targetZoom = zoom
     }
@@ -144,7 +163,7 @@ object MapState {
 
     fun setTheme(t: Theme): Theme {
         theme = t
-        prefs().edit().putInt("theme", theme.ordinal).apply()
+        prefs().edit().putString("themeName", theme.name).apply()
         changed.fire()
         return theme
     }
@@ -206,6 +225,45 @@ object MapState {
     fun clearRotation() {
         userBearing = null
         if (!following) freeBearing = 0f
+        changed.fire()
+    }
+
+    // ---------------------------------------------------------------- light / dark
+
+    enum class LightMode(val label: String) { AUTO("Auto (sunrise / sunset)"), LIGHT("Light"), DARK("Dark") }
+
+    var lightMode = LightMode.AUTO
+        private set
+
+    private var darkNow = false
+    private var darkCheckedAt = 0L
+
+    /** True when the dark version of the theme should be shown right now. */
+    val dark: Boolean
+        get() {
+            when (lightMode) {
+                LightMode.LIGHT -> return false
+                LightMode.DARK -> return true
+                LightMode.AUTO -> {}
+            }
+            val now = System.currentTimeMillis()
+            if (now - darkCheckedAt > 60_000) {
+                darkCheckedAt = now
+                val pos = LocationTracker.position ?: LatLng(37.98, 23.73)
+                val d = !Sun.isDaylight(pos, now)
+                if (d != darkNow) {
+                    darkNow = d
+                    TileCache.clear()
+                    changed.fire()
+                }
+            }
+            return darkNow
+        }
+
+    fun setLightMode(m: LightMode) {
+        lightMode = m
+        prefs().edit().putInt("lightMode", m.ordinal).apply()
+        darkCheckedAt = 0
         changed.fire()
     }
 

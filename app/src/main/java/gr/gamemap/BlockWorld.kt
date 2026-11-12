@@ -43,7 +43,7 @@ object BlockWorld {
     private val locks = ConcurrentHashMap<String, Any>()
 
     /** A Blocky tile at any zoom, or null if the map data can't be loaded. */
-    fun tile(z: Int, x: Int, y: Int, size: Int): Bitmap? {
+    fun tile(z: Int, x: Int, y: Int, size: Int, night: Boolean = false): Bitmap? {
         val dz = minOf(z, DATA_Z)
         val sub = z - dz
         val ax = x shr sub; val ay = y shr sub
@@ -68,9 +68,18 @@ object BlockWorld {
             val globalX = x.toLong() * blocksPerTile + bx; val globalY = y.toLong() * blocksPerTile + by
             val jitter = 0.95f + (hash(globalX, globalY, z.toLong()) % 100) / 1000f
             val tex = texture(mat, variant)
+            // at night some buildings have a lit window in the middle of the block
+            val lit = night && mat == BUILDING && hash(globalX, globalY, 7L) % 100 < 22
             for (v in 0 until s) for (u in 0 until s) {
                 val c = if (s >= 4) tex[(v * 16 / s) * 16 + (u * 16 / s)] else tex[8 * 16 + 8]
-                out[(by * s + v) * w + bx * s + u] = scale(c, shade * jitter)
+                var px = scale(c, shade * jitter)
+                if (night) {
+                    px = Color.rgb((Color.red(px) * 0.34f).toInt(), (Color.green(px) * 0.40f).toInt(), (Color.blue(px) * 0.55f + 14).toInt().coerceAtMost(255))
+                    val mid = s / 2; val win = maxOf(1, s / 5)
+                    if (lit && u in mid - win until mid + win && v in mid - win until mid + win) px = Color.rgb(255, 214, 120)
+                    if (mat == WATER && (u + v * 3 + globalX.toInt()) % 23 == 0) px = Color.rgb(90, 110, 170)
+                }
+                out[(by * s + v) * w + bx * s + u] = px
             }
         }
         return Bitmap.createBitmap(out, w, w, Bitmap.Config.ARGB_8888)

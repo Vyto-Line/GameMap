@@ -46,7 +46,7 @@ object TileCache {
         failed.clear()
     }
 
-    private fun key(theme: Theme, z: Int, x: Int, y: Int) = "${theme.ordinal}/$z/$x/$y"
+    private fun key(theme: Theme, z: Int, x: Int, y: Int) = "${theme.name}/${if (MapState.dark) "d" else "l"}/$z/$x/$y"
 
     /** Themed tile if ready; otherwise starts drawing it and returns null. */
     fun get(theme: Theme, z: Int, x: Int, y: Int): Bitmap? {
@@ -59,7 +59,7 @@ object TileCache {
             pool.execute {
                 try {
                     if (System.currentTimeMillis() - (wanted[k] ?: 0) > 3000) return@execute
-                    val bmp = if (theme == Theme.BLOCKY) BlockWorld.tile(z, x, y, tilePx)
+                    val bmp = if (theme == Theme.BLOCKY) BlockWorld.tile(z, x, y, tilePx, k.contains("/d/"))
                     else VectorRenderer.render(theme, z, x, y, tilePx)
                     if (bmp != null) {
                         mem.put(k, bmp)

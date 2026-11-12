@@ -111,8 +111,11 @@ class MapRenderer {
         c.scale(scale, scale)
 
         drawTiles(c, theme, z, px, py, hypot(w.toDouble(), h.toDouble()) * 0.75 / scale)
-        drawTraffic(c, theme, z, px, py, scale, d, hypot(w.toDouble(), h.toDouble()) * 0.75 / scale)
+        val reach = hypot(w.toDouble(), h.toDouble()) * 0.75 / scale
+        // traffic glow under the route, traffic colours on top of it (jams on your route stay visible)
+        drawTraffic(c, theme, z, px, py, scale, d, reach, under = true)
         drawRoute(c, theme, world, px, py, scale, d)
+        drawTraffic(c, theme, z, px, py, scale, d, reach, under = false)
 
         // accuracy halo around the player
         if (me != null) {
@@ -246,28 +249,32 @@ class MapRenderer {
     }
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
 
-    private fun drawTraffic(c: Canvas, theme: Theme, z: Int, px: Double, py: Double, scale: Float, d: Float, reach: Double) {
+    private fun drawTraffic(
+        c: Canvas, theme: Theme, z: Int, px: Double, py: Double, scale: Float, d: Float, reach: Double, under: Boolean,
+    ) {
         if (!Traffic.active || z < 11) return
         val look = theme.traffic
         val st = theme.style
-        val span = TileCache.tilePx * 2.0.pow(z - Traffic.DATA_Z) // one traffic square in world pixels
+        // Use traffic data one level coarser than the map (squares stay few at any zoom).
+        val dz = (z - 1).coerceIn(Traffic.MIN_Z, Traffic.DATA_Z)
+        val span = TileCache.tilePx * 2.0.pow(z - dz) // one traffic square in world pixels
         val ax0 = floor((px - reach) / span).toInt(); val ax1 = floor((px + reach) / span).toInt()
         val ay0 = floor((py - reach) / span).toInt(); val ay1 = floor((py + reach) / span).toInt()
-        if ((ax1 - ax0 + 1) * (ay1 - ay0 + 1) > 16) return
+        if ((ax1 - ax0 + 1) * (ay1 - ay0 + 1) > 36) return
         trafficPaint.isAntiAlias = look.smooth
         arrowPaint.isAntiAlias = look.smooth
         val u = d / scale // one dp in world pixels
         var arrowsDrawn = false
 
         for (ay in ay0..ay1) for (ax in ax0..ax1) {
-            val t = Traffic.tile(ax, ay) ?: continue
-            val key = "$ax/$ay/$z/${t.fetchedAt}"
+            val t = Traffic.tile(dz, ax, ay) ?: continue
+            val key = "$dz/$ax/$ay/$z/${t.fetchedAt}"
             val tp = trafficCache.getOrPut(key) { buildTraffic(t, ax, ay, span) }
             c.save()
             c.translate((tp.ox - px).toFloat(), (tp.oy - py).toFloat())
 
             // free-flowing roads: a faint line
-            if (look.freeAlpha > 0 && look.freeWidth > 0) {
+            if (under && look.freeAlpha > 0 && look.freeWidth > 0) {
                 trafficPaint.pathEffect = null
                 trafficPaint.color = st.trafficFree; trafficPaint.alpha = look.freeAlpha
                 trafficPaint.strokeWidth = look.freeWidth * u
@@ -279,10 +286,13 @@ class MapRenderer {
                 if (p.isEmpty) continue
                 val col = if (state == Traffic.SLOW) st.trafficSlow else st.trafficJam
                 trafficPaint.pathEffect = null
-                for ((wdp, alpha) in look.glow) {
-                    trafficPaint.color = col; trafficPaint.alpha = alpha
-                    trafficPaint.strokeWidth = wdp * u
-                    c.drawPath(p, trafficPaint)
+                if (under) {
+                    for ((wdp, alpha) in look.glow) {
+                        trafficPaint.color = col; trafficPaint.alpha = alpha
+                        trafficPaint.strokeWidth = wdp * u
+                        c.drawPath(p, trafficPaint)
+                    }
+                    continue
                 }
                 look.casing?.let { cas ->
                     trafficPaint.color = cas; trafficPaint.alpha = 255
@@ -295,7 +305,7 @@ class MapRenderer {
                 c.drawPath(p, trafficPaint)
             }
             // arrows crawling along one-way jams, in the driving direction
-            if (!tp.arrows.isEmpty) {
+            if (!under && !tp.arrows.isEmpty) {
                 val size = (look.core + 3f) * u
                 val advance = 34f * u
                 val shape = Path().apply {
@@ -467,7 +477,7 @@ class MapRenderer {
     private fun drawScanlines(c: Canvas, a: Rect, d: Float, t: Theme) {
         stroke.color = Color.argb(50, 0, 0, 0); stroke.strokeWidth = 1.2f * d
         var y = a.top.toFloat(); while (y < a.bottom) { c.drawLine(a.left.toFloat(), y, a.right.toFloat(), y, stroke); y += 3 * d }
-        if (t != Theme.NIGHT_VISION) return
+        return
         val r = hypot(a.width().toFloat(), a.height().toFloat()) / 2
         fill.shader = RadialGradient(
             a.exactCenterX(), a.exactCenterY(), r,

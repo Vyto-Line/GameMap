@@ -15,8 +15,9 @@ import java.util.zip.GZIPInputStream
  * theme's style. Turn-by-turn directions stay on the open OSRM router.
  */
 object Traffic {
-    /** Traffic is fetched at this zoom (about 2 km squares) and drawn at every zoom. */
+    /** Traffic is fetched at most at this zoom (about 2 km squares); coarser when zoomed out. */
     const val DATA_Z = 14
+    const val MIN_Z = 10
     private const val REFRESH_MS = 120_000L
 
     const val FREE = 0
@@ -67,10 +68,10 @@ object Traffic {
         MapState.changed.fire()
     }
 
-    /** Traffic for a zoom-14 square if loaded; starts (re)loading it when missing or older than 2 minutes. */
-    fun tile(x: Int, y: Int): Tile? {
+    /** Traffic for a square if loaded; starts (re)loading it when missing or older than 2 minutes. */
+    fun tile(z: Int, x: Int, y: Int): Tile? {
         if (!active) return null
-        val k = "$x/$y"
+        val k = "$z/$x/$y"
         val t = tiles.get(k)
         val now = System.currentTimeMillis()
         val stale = t == null || now - t.fetchedAt > REFRESH_MS
@@ -78,7 +79,7 @@ object Traffic {
         if (stale && !backoff && inFlight.add(k)) {
             net.execute {
                 try {
-                    tiles.put(k, fetch(x, y))
+                    tiles.put(k, fetch(z, x, y))
                     failedAt.remove(k)
                     TileCache.loaded.fire()
                 } catch (_: Throwable) {
@@ -91,8 +92,8 @@ object Traffic {
         return t
     }
 
-    private fun fetch(x: Int, y: Int): Tile {
-        val url = "https://api.tomtom.com/traffic/map/4/tile/flow/relative/$DATA_Z/$x/$y.pbf?key=$key"
+    private fun fetch(z: Int, x: Int, y: Int): Tile {
+        val url = "https://api.tomtom.com/traffic/map/4/tile/flow/relative/$z/$x/$y.pbf?key=$key"
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 8000
         c.readTimeout = 10000

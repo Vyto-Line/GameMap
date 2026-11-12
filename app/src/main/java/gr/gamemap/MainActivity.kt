@@ -412,12 +412,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun showMenu() {
-        val items = arrayOf("🚦  Live traffic", "⬆  Check for updates", "ℹ  About")
+        val items = arrayOf("🌗  Light / dark: ${MapState.lightMode.label}", "🚦  Live traffic", "⬆  Check for updates", "ℹ  About")
         AlertDialog.Builder(this).setItems(items) { _, i ->
             when (i) {
-                0 -> trafficSettings()
-                1 -> checkForUpdates(manual = true)
-                2 -> AlertDialog.Builder(this)
+                0 -> {
+                    val modes = MapState.LightMode.entries
+                    AlertDialog.Builder(this)
+                        .setTitle("Light / dark mode")
+                        .setSingleChoiceItems(modes.map { it.label }.toTypedArray(), MapState.lightMode.ordinal) { dlg, m ->
+                            MapState.setLightMode(modes[m]); dlg.dismiss()
+                        }.show()
+                }
+                1 -> trafficSettings()
+                2 -> checkForUpdates(manual = true)
+                3 -> AlertDialog.Builder(this)
                     .setTitle("GameMap build ${Updater.currentVersion(this)}")
                     .setMessage("Map data © OpenStreetMap contributors\nVector tiles: OpenFreeMap\nTraffic: TomTom\nRouting: OSRM\nSearch: Photon (komoot), Nominatim")
                     .setPositiveButton("OK", null).show()

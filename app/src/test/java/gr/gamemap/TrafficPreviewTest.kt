@@ -26,7 +26,8 @@ class TrafficPreviewTest {
             VectorSource.put(14, x, y, VectorTile(f.readBytes()))
         }
         val log = StringBuilder("traffic active=${Traffic.active}\n")
-        for (theme in Theme.entries) {
+        for (mode in listOf(MapState.LightMode.LIGHT, MapState.LightMode.DARK)) for (theme in Theme.entries) {
+            MapState.setLightMode(mode)
             MapState.setTheme(theme)
             MapState.zoomBy(15.8 - MapState.targetZoom)
             repeat(400) { MapState.tick(); Thread.sleep(2) }
@@ -38,13 +39,13 @@ class TrafficPreviewTest {
                 Thread.sleep(80)
             }
             r.draw(c, 1080, 1920, Rect(0, 0, 1080, 1920), 2.75f, hud = false)
-            val t = Traffic.tile(9271, 6321)
+            val t = Traffic.tile(13, 4635, 3160)
             log.append("${theme.name}: segments=${t?.segs?.size} by state=${t?.segs?.groupingBy { it.state }?.eachCount()} oneWayJams=${t?.segs?.count { it.oneWay && it.state >= 2 }}\n")
             // title strip
             val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 50f; isFakeBoldText = true }
             c.drawRect(0f, 0f, 1080f, 80f, Paint().apply { color = Color.argb(200, 0, 0, 0) })
-            c.drawText("${theme.title} · live traffic", 24f, 58f, p)
-            File(out, "live_${theme.name.lowercase()}.png").outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 90, it) }
+            c.drawText("${theme.title} · ${mode.label}", 24f, 58f, p)
+            File(out, "live_${theme.name.lowercase()}_${mode.name.lowercase()}.png").outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 90, it) }
         }
         File(out, "timings.txt").writeText(log.toString())
     }
