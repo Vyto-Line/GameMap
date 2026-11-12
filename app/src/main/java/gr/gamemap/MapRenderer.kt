@@ -857,10 +857,18 @@ class MapRenderer(private val car: Boolean = false) {
     }
     @Volatile private var lastDensity = 1f
 
+    private fun glassLight(t: Theme) = Ui.luminance(Ui.panel(t)) > 0.4
+
+    /** Icon and text colour on a glass button. */
+    private fun glassInk(t: Theme) = if (glassLight(t)) Ui.ink(t) else Color.WHITE
+
     private fun glassButton(c: Canvas, r: RectF, d: Float, t: Theme, fillCol: Int? = null) {
-        val base = fillCol ?: Ui.panel(t).let { Color.argb(140, Color.red(it), Color.green(it), Color.blue(it)) }
+        // light styles: a more solid pane and dark icons, or white icons vanish on a bright map
+        val light = glassLight(t)
+        val base = fillCol ?: Ui.panel(t).let { Color.argb(if (light) 215 else 140, Color.red(it), Color.green(it), Color.blue(it)) }
         fill.color = base
-        stroke.color = withAlpha(t.route, 230); stroke.strokeWidth = 1.8f * d
+        stroke.color = if (light) Ui.onPanel(t, t.route, 3.0) else withAlpha(t.route, 230)
+        stroke.strokeWidth = (if (light) 2.2f else 1.8f) * d
         when (t.hud) {
             HudShape.ROUND -> {
                 val rad = minOf(r.width(), r.height()) / 2
@@ -925,10 +933,11 @@ class MapRenderer(private val car: Boolean = false) {
         val gap = 10 * d
         val x = a.right - 14 * d - size
         val white = Color.WHITE
+        val ink = glassInk(t)
         fun btn(id: String, y: Float, iconId: String = id, filled: Boolean = false) {
             val r = RectF(x, y, x + size, y + size)
             glassButton(c, r, d, t, if (filled) withAlpha(t.route, 235) else null)
-            icon(c, iconId, r.centerX(), r.centerY(), size * 0.46f, if (filled) Ui.ink(t).let { if (Ui.contrast(it, t.route) < 3) Color.BLACK else it } else white)
+            icon(c, iconId, r.centerX(), r.centerY(), size * 0.46f, if (filled) Ui.ink(t).let { if (Ui.contrast(it, t.route) < 3) Color.BLACK else it } else ink)
             carHits += r to id
         }
         // Android Auto's ☰ sits above the stable area; when the host hides it (the visible area
@@ -976,7 +985,7 @@ class MapRenderer(private val car: Boolean = false) {
             val r = RectF(a.left + 14 * d, 12 * d, a.left + 14 * d + 300 * d, 12 * d + 50 * d)
             glassButton(c, r, d, t)
             icon(c, "search", r.left + 26 * d, r.centerY(), 20 * d, Ui.onPanel(t, t.route, 3.0))
-            text.textSize = 18 * d; text.typeface = t.typeface; text.color = white
+            text.textSize = 18 * d; text.typeface = t.typeface; text.color = ink
             c.drawText("Where to?", r.left + 50 * d, r.centerY() + 6.5f * d, text)
             carHits += r to "search"
             var cxp = r.left
@@ -987,8 +996,8 @@ class MapRenderer(private val car: Boolean = false) {
                 val w = text.measureText(label) + 52 * d
                 val cr = RectF(cxp, r.bottom + 10 * d, cxp + w, r.bottom + 10 * d + 44 * d)
                 glassButton(c, cr, d, t)
-                icon(c, k, cr.left + 22 * d, cr.centerY(), 16 * d, white)
-                text.color = white
+                icon(c, k, cr.left + 22 * d, cr.centerY(), 16 * d, ink)
+                text.color = ink
                 c.drawText(label, cr.left + 38 * d, cr.centerY() + 5.5f * d, text)
                 carHits += cr to k
                 cxp = cr.right + 10 * d
@@ -1032,7 +1041,7 @@ class MapRenderer(private val car: Boolean = false) {
         glassButton(c, park, d, t)
         glassButton(c, done, d, t, withAlpha(t.route, 240))
         text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 18 * d; text.textAlign = Paint.Align.CENTER
-        text.color = Color.WHITE
+        text.color = glassInk(t)
         c.drawText("Parking", park.centerX(), park.centerY() + 6.5f * d, text)
         text.color = if (Ui.contrast(Color.WHITE, t.route) >= 3) Color.WHITE else Color.BLACK
         c.drawText("Done", done.centerX(), done.centerY() + 6.5f * d, text)

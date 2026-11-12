@@ -118,6 +118,15 @@ class Build1PreviewTest {
                 }
                 File(out, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
             }
+            // light styles: buttons must stay readable on a bright map
+            for (th in listOf(Theme.NEON_NOIR, Theme.TRAILBLAZER, Theme.RETRO)) {
+                MapState.setTheme(th); MapState.setLightMode(MapState.LightMode.LIGHT)
+                val area = Rect(0, 0, w, h)
+                repeat(30) { rr.draw(c, w, h, area, 1.6f, hud = true); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(60) }
+                rr.draw(c, w, h, area, 1.6f, hud = true)
+                File(out, "ui_car_light_${th.name.lowercase()}.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            MapState.setTheme(Theme.OPEN_WORLD); MapState.setLightMode(MapState.LightMode.DARK)
         }
 
         // 4. faster route offer
