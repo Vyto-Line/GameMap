@@ -20,7 +20,7 @@ jobs:
           TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
         run: |
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          gradle testDebugUnitTest --no-daemon -PbuildNumber=1 --tests gr.gamemap.TrafficPreviewTest \
+          gradle testDebugUnitTest --no-daemon -PbuildNumber=1 --tests gr.gamemap.MockupBackgroundsTest \
             -DpreviewData=$PWD/previewdata -DpreviewOut=$PWD/previews || true
           # system properties for the test JVM
           ls previews 2>/dev/null | head -50; cat previews/timings.txt 2>/dev/null || true
