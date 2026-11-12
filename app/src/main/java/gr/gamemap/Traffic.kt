@@ -43,6 +43,8 @@ object Traffic {
         private set
     val active get() = key.isNotEmpty() && enabled
 
+    /** Count of flow segments per TomTom road type (diagnostics). */
+    val roadTypes = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val tiles = object : LruCache<String, Tile>(40) {}
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val failedAt = ConcurrentHashMap<String, Long>()
@@ -119,6 +121,7 @@ object Traffic {
                     level < 0.65f -> SLOW
                     else -> FREE
                 }
+                roadTypes.merge(f["road_type"] ?: "?", 1, Int::plus)
                 val oneWay = f["traffic_road_coverage"] == "one_side"
                 val leftHand = f["left_hand_traffic"].equals("true", ignoreCase = true)
                 for (part in f.parts) if (part.size >= 4) segs += Seg(part, state, oneWay, leftHand)

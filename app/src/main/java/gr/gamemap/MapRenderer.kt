@@ -104,13 +104,18 @@ class MapRenderer(private val car: Boolean = false) {
         c.rotate(-bearing)
         c.scale(scale, scale)
 
+        var tp0 = System.nanoTime()
         drawTiles(c, theme, z, px, py, hypot(w.toDouble(), h.toDouble()) * 0.75 / scale)
+        prof("tiles", tp0); tp0 = System.nanoTime()
         val reach = hypot(w.toDouble(), h.toDouble()) * 0.75 / scale
         // traffic glow under the route, traffic colours on top of it (jams on your route stay visible)
         // while choosing a route the routes' own traffic bars say enough; the map stays calm
         if (!NavEngine.planning) drawTraffic(c, theme, z, px, py, scale, d, reach, under = true)
+        prof("traffic", tp0); tp0 = System.nanoTime()
         drawRoute(c, theme, world, px, py, scale, d)
+        prof("route", tp0); tp0 = System.nanoTime()
         if (!NavEngine.planning) drawTraffic(c, theme, z, px, py, scale, d, reach, under = false)
+        prof("traffic", tp0)
 
         // accuracy halo around the player
         if (me != null) {
@@ -125,7 +130,9 @@ class MapRenderer(private val car: Boolean = false) {
         c.restore()
 
         // names on top of the map, laid out on screen (never overlapping, always upright)
+        tp0 = System.nanoTime()
         labels.draw(c, camera!!, z, area, d, theme)
+        prof("labels", tp0)
         if (theme == Theme.TRAILBLAZER && zoom >= 13.5) drawLandmarks(c, camera!!, center, area, d)
         if (zoom >= 13.0) drawRoadAlerts(c, camera!!, center, area, d)
 
@@ -471,6 +478,16 @@ class MapRenderer(private val car: Boolean = false) {
     }
 
     // ---------------------------------------------------------------- route
+
+    private fun prof(k: String, t0: Long) {
+        if (profile) times[k] = (times[k] ?: 0L) + (System.nanoTime() - t0)
+    }
+
+    companion object {
+        /** Tests switch this on to see where frame time goes. */
+        @JvmStatic var profile = false
+        val times = HashMap<String, Long>()
+    }
 
     private var snapSeen = -1
     private var snapEpoch = 0
