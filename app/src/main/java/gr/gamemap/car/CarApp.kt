@@ -79,7 +79,7 @@ fun icon(ctx: CarContext, res: Int) = CarIcon.Builder(IconCompat.createWithResou
 
 /** Draws the game map onto the car's screen surface. */
 class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
-    private val renderer = MapRenderer()
+    private val renderer = MapRenderer(car = true)
     private val main = Handler(Looper.getMainLooper())
     private var surface: Surface? = null
     private var w = 0
@@ -256,7 +256,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
         val strip = ActionStrip.Builder()
             .addAction(action(R.drawable.ic_search) { screenManager.push(SearchScreen(carContext)) })
             .addAction(action(R.drawable.ic_theme) {
-                val t = MapState.nextTheme()
+                val t = MapState.nextCarTheme()
                 CarToast.makeText(carContext, t.title, CarToast.LENGTH_SHORT).show()
             })
         if (NavEngine.active) strip.addAction(action(R.drawable.ic_stop) { NavEngine.stop() })

@@ -121,6 +121,24 @@ object NavEngine {
         appContext = ctx.applicationContext
     }
 
+    var avoidTolls: Boolean
+        get() = ::appContext.isInitialized && prefs().getBoolean("avoidTolls", false)
+        set(v) { prefs().edit().putBoolean("avoidTolls", v).apply(); changed.fire() }
+    var avoidMotorways: Boolean
+        get() = ::appContext.isInitialized && prefs().getBoolean("avoidMotorways", false)
+        set(v) { prefs().edit().putBoolean("avoidMotorways", v).apply(); changed.fire() }
+
+    /** True if the route uses roads the user asked to avoid. */
+    fun breaksAvoid(o: RouteOption) = (avoidTolls && o.hasToll) || (avoidMotorways && o.hasMotorway)
+
+    /** Puts routes that respect "avoid tolls / motorways" first (OSRM can't exclude roads itself). */
+    private fun preferAllowed(list: List<RouteOption>): List<RouteOption> {
+        val ok = list.filterNot { breaksAvoid(it) }
+        return if (ok.isEmpty()) list else ok + list.filter { breaksAvoid(it) }
+    }
+
+    private val wantsAlternatives get() = avoidTolls || avoidMotorways
+
     // ============================================================= planning
 
     /** Shows the route choices to [place] (the preview), without starting. */
@@ -154,7 +172,7 @@ object NavEngine {
                 if (routes.isNullOrEmpty()) {
                     planLoading = false; planError = "No route found"; changed.fire(); return@post
                 }
-                options = routes.take(3)
+                options = preferAllowed(routes).take(3)
                 selected = 0
                 planLoading = false
                 MapState.requestFit(options.flatMap { o -> o.points.filterIndexed { i, _ -> i % 10 == 0 } } + place.pos)
@@ -181,7 +199,10 @@ object NavEngine {
         }
     }
 
-    fun fastestIndex(): Int = options.indices.minByOrNull { options[it].seconds } ?: 0
+    fun fastestIndex(): Int {
+        val allowed = options.indices.filterNot { breaksAvoid(options[it]) }.ifEmpty { options.indices.toList() }
+        return allowed.minByOrNull { options[it].seconds } ?: 0
+    }
 
     fun select(i: Int) {
         if (i !in options.indices) return
@@ -287,7 +308,7 @@ object NavEngine {
         if (reroute) Voice.say(Phrases.rerouting(Voice.lang))
         changed.fire()
         io.execute {
-            val r = try { Osrm.routes(from, dest, alternatives = false, heading = heading()).firstOrNull() } catch (e: Exception) { null }
+            val r = try { preferAllowed(Osrm.routes(from, dest, alternatives = wantsAlternatives, heading = heading())).firstOrNull() } catch (e: Exception) { null }
             main.post {
                 if (destination != dest) return@post
                 if (r == null) {
@@ -392,7 +413,7 @@ object NavEngine {
             val now = System.currentTimeMillis()
             var bestAlt: RouteOption? = null
             for (a in alts) {
-                if (r.similarTo(a)) continue
+                if (r.similarTo(a) || breaksAvoid(a)) continue
                 if (declinedNow.any { now - it.second < 15 * 60_000 && it.first.similarTo(a) }) continue
                 val e = try { TomTomTime.evaluate(a, 0.0) } catch (ex: Exception) { null } ?: continue
                 a.trafficSeconds = e.seconds; a.delaySeconds = e.delay; a.traffic = e.traffic; a.limits = e.limits
@@ -454,11 +475,21 @@ object NavEngine {
 
     // ============================================================= text helpers
 
-    fun formatDistance(m: Double): String = when {
-        m >= 10_000 -> "${(m / 1000).toInt()} km"
-        m >= 1000 -> String.format(java.util.Locale.US, "%.1f km", m / 1000)
-        m >= 100 -> "${((m / 50).toInt() * 50)} m"
-        else -> "${((m / 10).toInt() * 10)} m"
+    fun formatDistance(m: Double): String {
+        if (MapState.imperial) {
+            val mi = m / 1609.344
+            return when {
+                mi >= 10 -> "${mi.toInt()} mi"
+                mi >= 0.2 -> String.format(java.util.Locale.US, "%.1f mi", mi)
+                else -> "${((m * 3.28084 / 50).toInt() * 50).coerceAtLeast(50)} ft"
+            }
+        }
+        return when {
+            m >= 10_000 -> "${(m / 1000).toInt()} km"
+            m >= 1000 -> String.format(java.util.Locale.US, "%.1f km", m / 1000)
+            m >= 100 -> "${((m / 50).toInt() * 50)} m"
+            else -> "${((m / 10).toInt() * 10)} m"
+        }
     }
 
     fun formatDuration(sec: Double): String {

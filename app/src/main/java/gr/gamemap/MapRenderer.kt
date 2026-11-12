@@ -18,13 +18,14 @@ import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
  * Draws the themed map with route, player and HUD onto any Canvas (the phone's view or
  * the Android Auto surface). Also remembers the last camera so touch can be mapped back.
  */
-class MapRenderer {
+class MapRenderer(private val car: Boolean = false) {
 
     /** The camera used for the last frame. */
     class Camera(
@@ -69,7 +70,7 @@ class MapRenderer {
         val moveAnim = LocationTracker.tick()
         animating = zoomAnim || moveAnim
 
-        val theme = MapState.theme
+        val theme = if (car) MapState.carTheme ?: MapState.theme else MapState.theme
         MapState.fitRequest?.let { fit(it, area, d, theme) }
         c.drawColor(theme.background)
         text.typeface = theme.typeface
@@ -718,8 +719,9 @@ class MapRenderer {
 
     private fun drawSpeed(c: Canvas, a: Rect, d: Float, t: Theme) {
         if (LocationTracker.last == null) return
-        val kmh = (LocationTracker.speedMps * 3.6f).toInt()
-        val limit = if (NavEngine.active) NavEngine.speedLimit else null
+        val imp = MapState.imperial
+        val kmh = (LocationTracker.speedMps * (if (imp) 2.23694f else 3.6f)).toInt()
+        val limit = (if (NavEngine.active) NavEngine.speedLimit else null)?.let { if (imp) ((it * 0.621371 / 5).roundToInt() * 5) else it }
         val over = limit != null && kmh > limit + 4
         val pad = 14 * d
         text.textAlign = Paint.Align.CENTER
@@ -731,7 +733,7 @@ class MapRenderer {
         text.color = if (over) Color.rgb(255, 92, 92) else t.hudText
         c.drawText(big, box.centerX(), box.top + 33 * d, text)
         text.textSize = 11 * d
-        c.drawText("KM/H", box.centerX(), box.bottom - 9 * d, text)
+        c.drawText(if (imp) "MPH" else "KM/H", box.centerX(), box.bottom - 9 * d, text)
         if (limit != null) {
             val r = 21 * d
             val sx = box.right + 8 * d + r; val sy = box.bottom - r - 4 * d

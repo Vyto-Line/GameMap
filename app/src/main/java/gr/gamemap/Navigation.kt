@@ -211,7 +211,7 @@ object Places {
         }
     }
 
-    private fun icon(key: String?, value: String?): String = when {
+    fun icon(key: String?, value: String?): String = when {
         value == "fuel" || value == "charging_station" -> "⛽"
         value in setOf("restaurant", "fast_food", "food_court") -> "🍽"
         value == "cafe" -> "☕"
@@ -233,6 +233,66 @@ object Places {
         key == "building" || value == "house" -> "🏠"
         else -> "📍"
     }
+
+    // ---- places near me by category (Fuel, Food, Parking) ----
+
+    /** Places of an OSM amenity type around [near], nearest first (Nominatim). */
+    fun nearby(amenities: List<String>, near: LatLng): List<Place> {
+        val out = mutableListOf<Place>()
+        for (span in listOf(0.025, 0.08)) {
+            for (a in amenities) {
+                val url = "https://nominatim.openstreetmap.org/search?amenity=$a&format=jsonv2&limit=15&bounded=1" +
+                    "&viewbox=${near.lon - span},${near.lat + span},${near.lon + span},${near.lat - span}"
+                val arr = try { JSONArray(Http.get(url)) } catch (e: Exception) { continue }
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    if (o.optString("type") != a) continue
+                    val display = o.optString("display_name")
+                    val name = o.optString("name").ifBlank { display.substringBefore(",") }
+                    out += Place(
+                        name, display.removePrefix(name).trimStart(',', ' ').split(", ").take(2).joinToString(", "),
+                        LatLng(o.getString("lat").toDouble(), o.getString("lon").toDouble()),
+                        icon("amenity", a),
+                    )
+                }
+            }
+            if (out.size >= 4) break
+        }
+        return out.distinctBy { "${it.name}|${(it.pos.lat * 5000).toInt()}|${(it.pos.lon * 5000).toInt()}" }
+            .sortedBy { Geo.distance(near, it.pos) }.take(12)
+    }
+
+    // ---- home & work ----
+
+    fun saved(key: String): Place? {
+        if (!::appContext.isInitialized) return null
+        val raw = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE).getString("place_$key", null) ?: return null
+        return try {
+            val o = JSONObject(raw)
+            Place(o.getString("n"), o.optString("a"), LatLng(o.getDouble("lat"), o.getDouble("lon")), if (key == "home") "🏠" else "💼")
+        } catch (e: Exception) { null }
+    }
+
+    fun save(key: String, p: Place) {
+        val o = JSONObject().put("n", p.name).put("a", p.address).put("lat", p.pos.lat).put("lon", p.pos.lon)
+        appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE).edit().putString("place_$key", o.toString()).apply()
+    }
+
+    // ---- live ETAs for the home screen (TomTom, cached 5 minutes) ----
+
+    private val etaCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Traffic.Eta>>()
+
+    fun cachedEta(p: Place): Traffic.Eta? = etaCache[key(p)]?.takeIf { System.currentTimeMillis() - it.first < 300_000 }?.second
+
+    fun refreshEta(p: Place, from: LatLng): Traffic.Eta? {
+        cachedEta(p)?.let { return it }
+        if (Geo.distance(from, p.pos) < 150) return null
+        val e = try { Traffic.eta(from, p.pos) } catch (e: Exception) { null } ?: return null
+        etaCache[key(p)] = System.currentTimeMillis() to e
+        return e
+    }
+
+    private fun key(p: Place) = "${(p.pos.lat * 10000).toInt()},${(p.pos.lon * 10000).toInt()}"
 
     // ---- recent destinations ----
 

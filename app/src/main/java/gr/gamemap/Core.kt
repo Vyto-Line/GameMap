@@ -156,12 +156,42 @@ object MapState {
             ?: Theme.OPEN_WORLD
         lightMode = LightMode.entries.getOrElse(p.getInt("lightMode", 0)) { LightMode.AUTO }
         zoom = p.getFloat("zoom", 16.5f).toDouble().coerceIn(MIN_ZOOM, MAX_ZOOM)
+        carTheme = p.getString("carTheme", null)?.let { n -> Theme.entries.firstOrNull { it.name == n } }
+        imperial = p.getBoolean("imperial", false)
         targetZoom = zoom
     }
 
     private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
 
     fun nextTheme(): Theme = setTheme(Theme.entries[(theme.ordinal + 1) % Theme.entries.size])
+
+    /** Style for the car screen; null = same as the phone. */
+    var carTheme: Theme? = null
+        private set
+
+    fun setCarTheme(t: Theme?) {
+        carTheme = t
+        prefs().edit().putString("carTheme", t?.name ?: "").apply()
+        changed.fire()
+    }
+
+    /** The car's theme button: cycles the car style (or the shared one when they're the same). */
+    fun nextCarTheme(): Theme {
+        val c = carTheme ?: return nextTheme()
+        val n = Theme.entries[(c.ordinal + 1) % Theme.entries.size]
+        setCarTheme(n)
+        return n
+    }
+
+    /** Miles and mph instead of kilometres. */
+    var imperial = false
+        private set
+
+    fun setImperial(on: Boolean) {
+        imperial = on
+        prefs().edit().putBoolean("imperial", on).apply()
+        changed.fire()
+    }
 
     fun setTheme(t: Theme): Theme {
         theme = t

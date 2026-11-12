@@ -5,6 +5,7 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToLong
 
 /** One lane at a junction: the arrows painted on it and whether it leads where we're going. */
 class Lane(val directions: List<String>, val valid: Boolean)
@@ -35,6 +36,8 @@ class RouteOption(
     /** OSRM's time without traffic. */
     val duration: Double,
     val via: String,
+    val hasToll: Boolean = false,
+    val hasMotorway: Boolean = false,
 ) {
     val cum = DoubleArray(points.size).also { c ->
         for (i in 1 until points.size) c[i] = c[i - 1] + Geo.distance(points[i - 1], points[i])
@@ -119,6 +122,7 @@ object Osrm {
         val out = mutableListOf<NavStep>()
         val legs = r.getJSONArray("legs")
         var summary = ""
+        var toll = false; var motorway = false
         for (l in 0 until legs.length()) {
             val leg = legs.getJSONObject(l)
             if (summary.isBlank()) summary = leg.optString("summary")
@@ -129,6 +133,14 @@ object Osrm {
                 val loc = m.getJSONArray("location")
                 val type = m.optString("type")
                 val mod = m.optString("modifier", "straight")
+                st.optJSONArray("intersections")?.let { ins ->
+                    for (k in 0 until ins.length()) ins.getJSONObject(k).optJSONArray("classes")?.let { cl ->
+                        for (q in 0 until cl.length()) when (cl.optString(q)) {
+                            "toll" -> toll = true
+                            "motorway" -> motorway = true
+                        }
+                    }
+                }
                 var lanes: List<Lane>? = null
                 st.optJSONArray("intersections")?.optJSONObject(0)?.optJSONArray("lanes")?.let { la ->
                     lanes = (0 until la.length()).map { k ->
@@ -148,7 +160,7 @@ object Osrm {
             }
         }
         val via = summary.split(",").map { it.trim() }.filter { it.isNotBlank() }.distinct().take(2).joinToString(" & ")
-        return RouteOption(pts, out, r.getDouble("distance"), r.getDouble("duration"), via)
+        return RouteOption(pts, out, r.getDouble("distance"), r.getDouble("duration"), via, toll, motorway)
     }
 }
 
@@ -284,6 +296,14 @@ object Phrases {
 
     fun distance(m: Double, lang: String): String {
         val g = lang == GREEK
+        if (!g && MapState.imperial) {
+            val mi = m / 1609.344
+            return when {
+                mi >= 0.95 -> (Math.round(mi * 10) / 10.0).let { v -> if (v % 1.0 == 0.0) "${v.toInt()} miles" else "$v miles" }
+                mi >= 0.2 -> if (mi < 0.35) "a quarter mile" else if (mi < 0.65) "half a mile" else "three quarters of a mile"
+                else -> "${((m * 3.28084 / 100).roundToLong() * 100).coerceAtLeast(100)} feet"
+            }
+        }
         return when {
             m >= 950 -> {
                 val km = Math.round(m / 100) / 10.0
