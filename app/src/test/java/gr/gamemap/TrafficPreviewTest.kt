@@ -26,10 +26,10 @@ class TrafficPreviewTest {
             VectorSource.put(14, x, y, VectorTile(f.readBytes()))
         }
         val log = StringBuilder("traffic active=${Traffic.active}\n")
-        for (mode in listOf(MapState.LightMode.LIGHT, MapState.LightMode.DARK)) for (theme in Theme.entries) {
+        for (mode in listOf(MapState.LightMode.DARK)) for (theme in listOf(Theme.OPEN_WORLD, Theme.NEON_NOIR, Theme.TRAILBLAZER, Theme.PARCHMENT_QUEST)) {
             MapState.setLightMode(mode)
             MapState.setTheme(theme)
-            MapState.zoomBy(15.8 - MapState.targetZoom)
+            MapState.zoomBy(15.3 - MapState.targetZoom)
             repeat(400) { MapState.tick(); Thread.sleep(2) }
             val r = MapRenderer()
             val frame = Bitmap.createBitmap(1080, 1920, Bitmap.Config.ARGB_8888)

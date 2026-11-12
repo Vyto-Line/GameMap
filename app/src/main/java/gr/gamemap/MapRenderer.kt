@@ -200,6 +200,14 @@ class MapRenderer {
         val ctx = px / tilePx - 0.5; val cty = py / tilePx - 0.5
         tiles.sortByDescending { (it[0] - ctx) * (it[0] - ctx) + (it[1] - cty) * (it[1] - cty) }
 
+        // quietly download the map data just outside the screen
+        if (theme != Theme.BLOCKY && VectorSource.busy.get() == 0) {
+            val dz = VectorSource.dataZoom(z); val sh = z - dz
+            val nd = 1 shl dz
+            for (ty in ((ty0 shr sh) - 1)..((ty1 shr sh) + 1)) for (tx in ((tx0 shr sh) - 1)..((tx1 shr sh) + 1)) {
+                if (ty in 0 until nd) VectorSource.prefetch(dz, tx.mod(nd), ty)
+            }
+        }
         for (t in tiles) {
             val tx = t[0]; val ty = t[1]
             val x = tx.mod(n)
@@ -241,8 +249,12 @@ class MapRenderer {
 
     // ---------------------------------------------------------------- traffic
 
+    /** A traffic stretch that gets direction arrows: points in world pixels around the square's corner. */
+    private class ArrowLine(val pts: FloatArray, val bothWays: Boolean, val minX: Float, val minY: Float, val maxX: Float, val maxY: Float)
+
     /** Traffic lines for one data square at one zoom, in world pixels around the square's corner. */
-    private class TrafficPaths(val byState: Array<Path>, val arrows: Path, val ox: Double, val oy: Double)
+    private class TrafficPaths(val byState: Array<Path>, val arrows: List<ArrowLine>, val ox: Double, val oy: Double)
+    private val arrowShape = Path()
     private val trafficCache = LinkedHashMap<String, TrafficPaths>()
     private val trafficPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
@@ -269,7 +281,7 @@ class MapRenderer {
         for (ay in ay0..ay1) for (ax in ax0..ax1) {
             val t = Traffic.tile(dz, ax, ay) ?: continue
             val key = "$dz/$ax/$ay/$z/${t.fetchedAt}"
-            val tp = trafficCache.getOrPut(key) { buildTraffic(t, ax, ay, span) }
+            val tp = trafficCache.getOrPut(key) { buildTraffic(t, ax, ay, span, u) }
             c.save()
             c.translate((tp.ox - px).toFloat(), (tp.oy - py).toFloat())
 
@@ -304,22 +316,9 @@ class MapRenderer {
                 if (state == Traffic.CLOSED) trafficPaint.pathEffect = DashPathEffect(floatArrayOf(6 * u, 4 * u), 0f)
                 c.drawPath(p, trafficPaint)
             }
-            // arrows crawling along one-way jams, in the driving direction
-            if (!under && !tp.arrows.isEmpty) {
-                val size = (look.core + 3f) * u
-                val advance = 34f * u
-                val shape = Path().apply {
-                    moveTo(-size * 0.6f, -size); lineTo(size * 0.7f, 0f); lineTo(-size * 0.6f, size)
-                    lineTo(-size * 0.15f, 0f); close()
-                }
-                val moved = if (look.animate) ((android.os.SystemClock.uptimeMillis() / 1000.0 * 12 * u) % advance).toFloat() else 0f
-                arrowPaint.color = look.arrow
-                arrowPaint.pathEffect = android.graphics.PathDashPathEffect(
-                    shape, advance, advance - moved, android.graphics.PathDashPathEffect.Style.ROTATE
-                )
-                c.drawPath(tp.arrows, arrowPaint)
-                arrowPaint.pathEffect = null
-                arrowsDrawn = true
+            // arrows along slow and jammed stretches, pointing the way the traffic is going
+            if (!under && z >= 13 && tp.arrows.isNotEmpty()) {
+                if (drawArrows(c, tp, look, u, px - tp.ox, py - tp.oy, reach)) arrowsDrawn = true
             }
             trafficPaint.pathEffect = null
             c.restore()
@@ -328,22 +327,99 @@ class MapRenderer {
         while (trafficCache.size > 48) trafficCache.remove(trafficCache.keys.first())
     }
 
-    private fun buildTraffic(t: Traffic.Tile, ax: Int, ay: Int, span: Double): TrafficPaths {
+    private fun buildTraffic(t: Traffic.Tile, ax: Int, ay: Int, span: Double, u: Float): TrafficPaths {
         val paths = Array(4) { Path() }
-        val arrows = Path()
+        val arrows = ArrayList<ArrowLine>()
         val k = (span / t.extent).toFloat()
+        // One-direction data is drawn as its own lane on the driving side, so the two
+        // directions of a road sit side by side instead of on top of each other.
+        val lane = 2.6f * u
         for (sg in t.segs) {
+            val n = sg.pts.size / 2
+            val pts = FloatArray(sg.pts.size)
+            for (i in 0 until sg.pts.size) pts[i] = sg.pts[i] * k
+            if (sg.oneWay) offsetLine(pts, if (sg.leftHand) -lane else lane)
             val p = paths[sg.state]
-            p.moveTo(sg.pts[0] * k, sg.pts[1] * k)
-            var i = 2
-            while (i < sg.pts.size) { p.lineTo(sg.pts[i] * k, sg.pts[i + 1] * k); i += 2 }
-            if (sg.oneWay && (sg.state == Traffic.JAM || sg.state == Traffic.CLOSED)) {
-                arrows.moveTo(sg.pts[0] * k, sg.pts[1] * k)
-                i = 2
-                while (i < sg.pts.size) { arrows.lineTo(sg.pts[i] * k, sg.pts[i + 1] * k); i += 2 }
+            p.moveTo(pts[0], pts[1])
+            for (i in 1 until n) p.lineTo(pts[i * 2], pts[i * 2 + 1])
+            if (sg.state != Traffic.FREE) {
+                var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+                for (i in 0 until n) {
+                    minX = minOf(minX, pts[i * 2]); maxX = maxOf(maxX, pts[i * 2])
+                    minY = minOf(minY, pts[i * 2 + 1]); maxY = maxOf(maxY, pts[i * 2 + 1])
+                }
+                arrows += ArrowLine(pts, !sg.oneWay, minX, minY, maxX, maxY)
             }
         }
         return TrafficPaths(paths, arrows, ax * span, ay * span)
+    }
+
+    /** Shifts a line sideways by [d] (positive = right of its direction, screen coordinates). */
+    private fun offsetLine(p: FloatArray, d: Float) {
+        val n = p.size / 2
+        if (n < 2) return
+        val src = p.copyOf()
+        for (i in 0 until n) {
+            // average of the normals of the segments before and after this point
+            var nx = 0f; var ny = 0f
+            if (i > 0) { val dx = src[i * 2] - src[i * 2 - 2]; val dy = src[i * 2 + 1] - src[i * 2 - 1]; val l = hypot(dx, dy); if (l > 0) { nx += -dy / l; ny += dx / l } }
+            if (i < n - 1) { val dx = src[i * 2 + 2] - src[i * 2]; val dy = src[i * 2 + 3] - src[i * 2 + 1]; val l = hypot(dx, dy); if (l > 0) { nx += -dy / l; ny += dx / l } }
+            val l = hypot(nx, ny)
+            if (l > 0) { p[i * 2] = src[i * 2] + nx / l * d; p[i * 2 + 1] = src[i * 2 + 1] + ny / l * d }
+        }
+    }
+
+    /**
+     * Arrows every ~40 dp along slow and jammed stretches (one in the middle of short ones).
+     * One-direction stretches crawl forward; stretches that cover both directions alternate.
+     */
+    private fun drawArrows(c: Canvas, tp: TrafficPaths, look: TrafficLook, u: Float, vx: Double, vy: Double, reach: Double): Boolean {
+        val spacing = 40f * u
+        val size = (look.core + 2.5f) * u
+        arrowShape.reset()
+        arrowShape.moveTo(-size * 0.6f, -size); arrowShape.lineTo(size * 0.7f, 0f); arrowShape.lineTo(-size * 0.6f, size)
+        arrowShape.lineTo(-size * 0.15f, 0f); arrowShape.close()
+        arrowPaint.color = look.arrow
+        arrowPaint.pathEffect = null
+        val crawl = if (look.animate) ((android.os.SystemClock.uptimeMillis() / 1000.0 * 12 * u) % spacing).toFloat() else 0f
+        val l = (vx - reach).toFloat(); val r = (vx + reach).toFloat(); val t = (vy - reach).toFloat(); val b = (vy + reach).toFloat()
+        var drawn = 0
+        for (al in tp.arrows) {
+            if (al.maxX < l || al.minX > r || al.maxY < t || al.minY > b) continue
+            val pts = al.pts
+            var total = 0f
+            var i = 2
+            while (i < pts.size) { total += hypot(pts[i] - pts[i - 2], pts[i + 1] - pts[i - 1]); i += 2 }
+            if (total < size * 2.5f) continue
+            // where the arrows go along this stretch
+            val first: Float; val step: Float
+            if (total < spacing * 1.5f) { first = total / 2; step = Float.MAX_VALUE }
+            else { first = (if (al.bothWays) spacing / 2 else crawl + spacing / 2) % spacing; step = spacing }
+            var at = first
+            var idx = 0
+            var walked = 0f
+            i = 2
+            while (i < pts.size && at <= total) {
+                val x0 = pts[i - 2]; val y0 = pts[i - 1]; val x1 = pts[i]; val y1 = pts[i + 1]
+                val len = hypot(x1 - x0, y1 - y0)
+                while (at <= walked + len && len > 0) {
+                    val f = (at - walked) / len
+                    var ang = Math.toDegrees(kotlin.math.atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
+                    if (al.bothWays && idx % 2 == 1) ang += 180f
+                    c.save()
+                    c.translate(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f)
+                    c.rotate(ang)
+                    c.drawPath(arrowShape, arrowPaint)
+                    c.restore()
+                    drawn++; idx++
+                    at += step
+                    if (drawn > 500) return true
+                }
+                walked += len
+                i += 2
+            }
+        }
+        return drawn > 0
     }
 
     // ---------------------------------------------------------------- route

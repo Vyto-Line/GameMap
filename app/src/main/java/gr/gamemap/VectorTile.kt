@@ -5,6 +5,8 @@ package gr.gamemap
  * a few string properties and its geometry in tile units (0..extent).
  */
 class VectorTile(bytes: ByteArray) {
+    /** Rough memory use once parsed (for the cache budget). */
+    val approxBytes = bytes.size * 10
 
     class Feature(
         val layer: String,

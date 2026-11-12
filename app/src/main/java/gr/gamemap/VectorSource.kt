@@ -23,7 +23,38 @@ object VectorSource {
 
     private lateinit var dir: File
     private lateinit var appContext: Context
-    private val parsed = object : LruCache<String, VectorTile>(10) {}
+    /** Parsed tiles, as many as a sixth of the app's memory allows. */
+    private val parsed = object : LruCache<String, VectorTile>((Runtime.getRuntime().maxMemory() / 6).toInt()) {
+        override fun sizeOf(key: String, value: VectorTile) = value.approxBytes
+    }
+    private val prefetcher = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val prefetching = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Which data zoom draws a map zoom. Close up: the full-detail zoom-14 data. At
+     * neighbourhood zoom (14), the next level down: a quarter of the downloads, and
+     * buildings that small look the same.
+     */
+    fun dataZoom(z: Int) = when {
+        z >= 15 -> MAX_Z
+        z == 14 -> 13
+        else -> z
+    }
+
+    /** Downloads a tile in the background (no parsing) so it's ready when needed. */
+    fun prefetch(z: Int, x: Int, y: Int) {
+        val key = "$z/$x/$y"
+        if (parsed.get(key) != null || !prefetching.add(key)) return
+        prefetcher.execute {
+            try {
+                val f = File(dir, "$z/$x/$y.pbf")
+                if (!f.exists() || System.currentTimeMillis() - f.lastModified() > 30L * 86_400_000) load(z, x, y)
+            } catch (_: Exception) {
+            } finally {
+                if (prefetching.size > 500) prefetching.clear()
+            }
+        }
+    }
     private val locks = ConcurrentHashMap<String, Any>()
     @Volatile private var template: String? = null
 

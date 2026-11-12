@@ -44,7 +44,7 @@ class Labels {
         val st = theme.style
         if (!st.labels || theme.pixel > 1) return
         val tilePx = TileCache.tilePx
-        val dz = minOf(z, VectorSource.MAX_Z)
+        val dz = VectorSource.dataZoom(z)
 
         // data tiles under the view
         val reach = hypot(area.width().toDouble(), area.height().toDouble()) / cam.scale

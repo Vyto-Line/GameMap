@@ -25,8 +25,11 @@ object Traffic {
     const val JAM = 2
     const val CLOSED = 3
 
-    /** One road stretch: points in tile units (0..extent), its state, and if it's one direction. */
-    class Seg(val pts: FloatArray, val state: Int, val oneWay: Boolean)
+    /**
+     * One road stretch: points in tile units (0..extent), its state, whether the data is for
+     * one driving direction only (then the points run in that direction), and left-hand traffic.
+     */
+    class Seg(val pts: FloatArray, val state: Int, val oneWay: Boolean, val leftHand: Boolean)
 
     class Tile(val segs: List<Seg>, val extent: Int, val fetchedAt: Long)
 
@@ -117,7 +120,8 @@ object Traffic {
                     else -> FREE
                 }
                 val oneWay = f["traffic_road_coverage"] == "one_side"
-                for (part in f.parts) if (part.size >= 4) segs += Seg(part, state, oneWay)
+                val leftHand = f["left_hand_traffic"].equals("true", ignoreCase = true)
+                for (part in f.parts) if (part.size >= 4) segs += Seg(part, state, oneWay, leftHand)
             }
             return Tile(segs, extent, System.currentTimeMillis())
         } finally {

@@ -32,7 +32,7 @@ object VectorRenderer {
     private val drawOrder = listOf("path", "track", "rail", "transit", "service", "minor", "tertiary", "secondary", "primary", "trunk", "motorway")
 
     fun render(theme: Theme, z: Int, x: Int, y: Int, size: Int, dark: Boolean = MapState.dark): Bitmap? {
-        val dz = min(z, VectorSource.MAX_Z)
+        val dz = VectorSource.dataZoom(z)
         val sub = z - dz
         val ax = x shr sub; val ay = y shr sub
         val vt = VectorSource.get(dz, ax, ay) ?: return null
