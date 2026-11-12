@@ -32,6 +32,12 @@ object CarParking {
  * the Android Auto surface). Also remembers the last camera so touch can be mapped back.
  */
 class MapRenderer(private val car: Boolean = false) {
+    private val pois = PoiLayer()
+    /** The place whose card is open (gets a ring on the map). */
+    @Volatile var selectedPlace: Place? = null
+    /** The tappable place icon under a screen point, if any. */
+    fun placeAt(x: Float, y: Float): PoiLayer.Poi? = pois.at(x, y)
+
     /** This screen's own view (the car never moves the phone's map, nor the other way round). */
     private val view get() = if (car) MapState.car else MapState.phone
 
@@ -172,6 +178,15 @@ class MapRenderer(private val car: Boolean = false) {
         tp0 = System.nanoTime()
         labels.draw(c, camera!!, z, area, d, theme)
         prof("labels", tp0); tp0 = System.nanoTime()
+        // places (fuel, parking, food…) at street level; while navigating only fuel and parking
+        if (MapState.showPlaces && !NavEngine.planning) {
+            pois.draw(c, camera!!, zoom, w, h, d, if (NavEngine.active) NAV_PLACES else null, selectedPlace?.pos)
+        }
+        selectedPlace?.takeIf { it.icon == "📍" }?.let { pin ->
+            val (sx, sy) = toScreen(pin.pos, camera!!)
+            drawDroppedPin(c, sx, sy, d)
+        }
+        prof("places", tp0); tp0 = System.nanoTime()
         if (theme == Theme.TRAILBLAZER && zoom >= 13.5) drawLandmarks(c, camera!!, center, area, d)
         if (zoom >= 13.0) drawRoadAlerts(c, camera!!, center, area, d)
         prof("alerts", tp0); tp0 = System.nanoTime()
@@ -221,6 +236,7 @@ class MapRenderer(private val car: Boolean = false) {
             else drawBanner(c, area, d, theme)
         }
         if (carTrip) drawCarTrip(c, area, d, theme)
+        else if (car && carButtons && selectedPlace != null && !NavEngine.planning) drawCarPlace(c, area, d, theme)
         drawJamChip(c, area, d, theme, hud)
         drawDiscovery(c, area, d, theme)
         if (hud && (view.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
@@ -573,6 +589,7 @@ class MapRenderer(private val car: Boolean = false) {
     }
 
     companion object {
+        private val NAV_PLACES = setOf(PoiLayer.Kind.FUEL, PoiLayer.Kind.PARKING)
         /** Tests switch this on to see where frame time goes. */
         @JvmStatic var profile = false
         val times = HashMap<String, Long>()
@@ -1169,6 +1186,46 @@ class MapRenderer(private val car: Boolean = false) {
         text.typeface = t.typeface
     }
 
+    /** Car: the card of a tapped place (top-left, under the turn box when navigating), with Go. */
+    private fun drawCarPlace(c: Canvas, a: Rect, d: Float, t: Theme) {
+        val pl = selectedPlace ?: return
+        val w = minOf(420 * d, a.width() - 28f * d)
+        val top = if (NavEngine.active) bannerBottom + 10 * d else 12 * d
+        val hasExtra = pl.extra.isNotBlank()
+        val h = (if (hasExtra) 186 else 160) * d
+        val box = RectF(a.left + 14 * d, top, a.left + 14 * d + w, top + h)
+        panel(c, box, d, t, outline = true)
+        val ink = Ui.ink(t)
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = Typeface.DEFAULT; text.textSize = 24 * d
+        c.drawText(pl.icon, box.left + 18 * d, box.top + 42 * d, text)
+        text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 21 * d; text.color = ink
+        c.drawText(ellipsize(pl.name, w - 120 * d), box.left + 58 * d, box.top + 34 * d, text)
+        val near = LocationTracker.position
+        val sub = listOfNotNull(pl.address.takeIf { it.isNotBlank() }, near?.let { NavEngine.formatDistance(Geo.distance(it, pl.pos)) },
+            Reviews.stars(pl.rating, pl.ratings)).joinToString(" · ")
+        text.typeface = Typeface.DEFAULT; text.textSize = 15 * d; text.color = Ui.dim(t, 200)
+        c.drawText(ellipsize(sub, w - 120 * d), box.left + 58 * d, box.top + 56 * d, text)
+        if (hasExtra) {
+            text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d; text.color = Ui.onPanel(t, t.route, 3.0)
+            c.drawText(ellipsize(Fuel.brief(pl.extra), w - 36 * d), box.left + 18 * d, box.top + 84 * d, text)
+        }
+        // ✕
+        val x = RectF(box.right - 54 * d, box.top + 6 * d, box.right - 8 * d, box.top + 52 * d)
+        text.textAlign = Paint.Align.CENTER; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 22 * d; text.color = ink
+        c.drawText("✕", x.centerX(), x.centerY() + 8 * d, text)
+        carHits += x to "placeclose"
+        // Go
+        val go = RectF(box.left + 18 * d, box.bottom - 18 * d - 58 * d, box.right - 18 * d, box.bottom - 18 * d)
+        glassButton(c, go, d, t, withAlpha(t.route, 240))
+        text.textSize = 20 * d
+        text.color = if (Ui.contrast(Color.WHITE, t.route) >= 3) Color.WHITE else Color.BLACK
+        c.drawText(if (NavEngine.active) "Go here instead" else "Go", go.centerX(), go.centerY() + 7 * d, text)
+        carHits += go to "placego"
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = t.typeface
+    }
+
     /** Car: "17 min · 18:02 · 4.5 km" next to the speed box, in the theme's see-through panel. */
     private fun drawCarEta(c: Canvas, a: Rect, d: Float, t: Theme) {
         if (!NavEngine.active || NavEngine.arrived || NavEngine.loading || NavEngine.error != null) return
@@ -1495,6 +1552,21 @@ class MapRenderer(private val car: Boolean = false) {
 
     /** Where the compass button sits (the phone taps it to reset rotation). */
     val compassBounds = RectF()
+
+    /** A dropped pin: its tip on the point. */
+    private fun drawDroppedPin(c: Canvas, x: Float, y: Float, d: Float) {
+        val r = 13 * d
+        path.reset()
+        path.moveTo(x, y)
+        path.cubicTo(x - r * 0.4f, y - r * 1.2f, x - r * 1.3f, y - r * 1.6f, x - r * 1.3f, y - r * 2.4f)
+        path.arcTo(x - r * 1.3f, y - r * 3.7f, x + r * 1.3f, y - r * 1.1f, 180f, 180f, false)
+        path.cubicTo(x + r * 1.3f, y - r * 1.6f, x + r * 0.4f, y - r * 1.2f, x, y)
+        path.close()
+        fill.color = Color.argb(70, 0, 0, 0); c.drawCircle(x, y, 4 * d, fill)
+        fill.color = Color.rgb(232, 89, 12); c.drawPath(path, fill)
+        stroke.color = Color.WHITE; stroke.strokeWidth = 2.5f * d; c.drawPath(path, stroke)
+        fill.color = Color.WHITE; c.drawCircle(x, y - r * 2.4f, r * 0.5f, fill)
+    }
 
     private fun drawCompass(c: Canvas, a: Rect, bearing: Float, d: Float, t: Theme) {
         val r = 22 * d

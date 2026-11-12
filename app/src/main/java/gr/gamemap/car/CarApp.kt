@@ -159,8 +159,24 @@ class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
 
     override fun onFling(velocityX: Float, velocityY: Float) {}
 
+    /** The tapped place whose card is open on the car screen. */
+    var selectedPlace: Place?
+        get() = renderer.selectedPlace
+        set(v) { renderer.selectedPlace = v; redraw() }
+
     override fun onClick(x: Float, y: Float) {
-        renderer.carButtonAt(x, y)?.let { onButton?.invoke(it) }
+        renderer.carButtonAt(x, y)?.let { onButton?.invoke(it); return }
+        // a place icon: open its card (fuel prices filled in when they arrive)
+        renderer.placeAt(x, y)?.let { poi ->
+            val pl = poi.place()
+            selectedPlace = pl
+            if (pl.icon == "⛽") Executors.newSingleThreadExecutor().execute {
+                val f = try { gr.gamemap.Fuel.forPlace(pl) } catch (e: Exception) { null } ?: return@execute
+                main.post { if (selectedPlace?.pos == pl.pos) selectedPlace = pl.copy(extra = f) }
+            }
+            return
+        }
+        if (selectedPlace != null) selectedPlace = null
     }
 
     private var hardware = true
@@ -384,6 +400,11 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             "done" -> { NavEngine.stop(); NavEngine.dismissTrip() }
             "parking" -> openParking()
             "parkclose" -> gr.gamemap.CarParking.list = null
+            "placeclose" -> surface.selectedPlace = null
+            "placego" -> surface.selectedPlace?.let { pl ->
+                surface.selectedPlace = null
+                NavEngine.start(carContext, pl)
+            }
         }
         surface.redraw()
     }

@@ -326,6 +326,11 @@ object MapState {
         return n
     }
 
+    /** Setting: fuel, parking, food… as icons on the map at street level. */
+    var showPlaces: Boolean
+        get() = !::appContext.isInitialized || prefs().getBoolean("showPlaces", true)
+        set(v) { prefs().edit().putBoolean("showPlaces", v).apply(); changed.fire() }
+
     /** Miles and mph instead of kilometres. */
     var imperial = false
         private set

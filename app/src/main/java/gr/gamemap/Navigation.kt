@@ -199,12 +199,55 @@ object Places {
     private val searchLang get() = if (java.util.Locale.getDefault().language == "el") "el-GR" else "en-GB"
 
     /** TomTom search (fast, good with Greek and English). [typeahead] = the user is still typing. */
+    /** TomTom's one-box search; off when the key isn't allowed it (then the two below are used). */
+    @Volatile private var fuzzyOk = true
+
     fun tomtom(query: String, near: LatLng?, typeahead: Boolean): List<Place> {
         val q = URLEncoder.encode(query.trim(), "UTF-8").replace("+", "%20")
-        var url = "https://api.tomtom.com/search/2/search/$q.json?key=${Traffic.key}&limit=8&language=$searchLang" +
-            "&typeahead=$typeahead&idxSet=POI,PAD,Addr,Str,Geo"
-        if (near != null) url += "&lat=${near.lat}&lon=${near.lon}"
-        return parseTomTom(Http.get(url, timeout = 6000))
+        val key = Traffic.key
+        if (fuzzyOk) {
+            var url = "https://api.tomtom.com/search/2/search/$q.json?key=$key&limit=8&language=$searchLang" +
+                "&typeahead=$typeahead&idxSet=POI,PAD,Addr,Str,Geo"
+            if (near != null) url += "&lat=${near.lat}&lon=${near.lon}"
+            try { return parseTomTom(Http.get(url, timeout = 6000)) }
+            catch (e: Exception) { if (e.message?.contains("403") == true) fuzzyOk = false else throw e }
+        }
+        // Places by name (POI search) and addresses (geocoding), both kept to ~60 km around
+        val bias = near?.let { "&lat=${it.lat}&lon=${it.lon}&radius=60000" } ?: ""
+        var err: Exception? = null
+        val pois = try { parseTomTom(Http.get("https://api.tomtom.com/search/2/poiSearch/$q.json?key=$key&limit=6&language=$searchLang&typeahead=$typeahead$bias", timeout = 6000)) }
+            catch (e: Exception) { err = e; null }
+        val addrs = try { parseTomTom(Http.get("https://api.tomtom.com/search/2/geocode/$q.json?key=$key&limit=5&language=$searchLang$bias", timeout = 6000)) }
+            catch (e: Exception) { err = e; null }
+        if (pois == null && addrs == null) throw err ?: RuntimeException("TomTom search failed")
+        val first = if (query.any { it.isDigit() }) addrs.orEmpty() + pois.orEmpty() else pois.orEmpty() + addrs.orEmpty()
+        return first.distinctBy { norm(it.name) + "|" + (it.pos.lat * 2000).toInt() + "|" + (it.pos.lon * 2000).toInt() }.take(8)
+    }
+
+    /** The address at a point (dropped pin): TomTom, or OpenStreetMap's Nominatim without it. */
+    fun addressAt(p: LatLng): Place {
+        val ll = "${"%.6f".format(java.util.Locale.US, p.lat)},${"%.6f".format(java.util.Locale.US, p.lon)}"
+        if (Traffic.key.isNotEmpty()) try {
+            val o = JSONObject(Http.get("https://api.tomtom.com/search/2/reverseGeocode/$ll.json?key=${Traffic.key}&language=$searchLang", timeout = 5000))
+            val a = o.optJSONArray("addresses")?.optJSONObject(0)?.optJSONObject("address")
+            if (a != null) {
+                val street = a.optString("streetNameAndNumber").ifBlank { a.optString("streetName") }
+                val area = listOf(a.optString("municipalitySubdivision"), a.optString("municipality"), a.optString("postalCode"))
+                    .filter { it.isNotBlank() }.distinct().joinToString(", ")
+                if (street.isNotBlank() || area.isNotBlank()) return Place(street.ifBlank { area }, if (street.isBlank()) "" else area, p, "📍")
+            }
+        } catch (_: Exception) {}
+        try {
+            val o = JSONObject(Http.get("https://nominatim.openstreetmap.org/reverse?lat=${p.lat}&lon=${p.lon}&format=jsonv2&zoom=18", timeout = 6000))
+            val a = o.optJSONObject("address")
+            val road = a?.optString("road").orEmpty()
+            val num = a?.optString("house_number").orEmpty()
+            val street = listOf(road, num).filter { it.isNotBlank() }.joinToString(" ")
+            val area = listOfNotNull(a?.optString("suburb"), a?.optString("city") ?: a?.optString("town"), a?.optString("postcode"))
+                .filter { it.isNotBlank() }.distinct().joinToString(", ")
+            if (street.isNotBlank() || area.isNotBlank()) return Place(street.ifBlank { area }, if (street.isBlank()) "" else area, p, "📍")
+        } catch (_: Exception) {}
+        return Place("Dropped pin", ll, p, "📍")
     }
 
     private fun parseTomTom(json: String): List<Place> {

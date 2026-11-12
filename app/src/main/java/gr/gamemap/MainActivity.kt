@@ -97,6 +97,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var switchBtn: TextView
     private lateinit var sheetOverlay: FrameLayout
     private lateinit var tripOverlay: FrameLayout
+    private lateinit var placeCard: LinearLayout
+    /** The place (icon tapped or pin dropped) whose card is showing. */
+    private var placeShown: Place? = null
+    private var placeEta: String? = null
     private lateinit var tripCard: LinearLayout
     private var shownTrip: Explorer.Trip? = null
     private lateinit var sheetHost: LinearLayout
@@ -165,6 +169,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             })
         }
 
+        placeCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; isClickable = true; elevation = 20 * d; visibility = View.GONE
+        }
+        map.onPlaceTap = { if (!NavEngine.planning) showPlace(it, dropped = false) }
+        map.onMapTap = { if (placeShown != null) closePlace() }
+        map.onLongPress = { p -> if (!NavEngine.planning) dropPin(p) }
+
         val root = FrameLayout(this).apply {
             addView(map, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
             addView(homeSheet, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
@@ -174,6 +185,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(preview, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
             addView(offerCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
             addView(askCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
+            addView(placeCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
             addView(sheetOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
             addView(tripOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
@@ -193,6 +205,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             navCard.setPadding(bars.left + 2 * p, p + p / 2, bars.right + 2 * p, bars.bottom + p + p / 2)
             preview.setPadding(bars.left + p + p / 2, p, bars.right + p + p / 2, bars.bottom + p + p / 2)
             homeSheet.setPadding(bars.left, p, bars.right, bars.bottom + p)
+            placeCard.setPadding(bars.left + 2 * p, p + p / 2, bars.right + 2 * p, bars.bottom + 2 * p)
             sheetHost.setPadding(bars.left + 2 * p, p + p / 2, bars.right + 2 * p, bars.bottom + 2 * p)
             (offerCard.layoutParams as FrameLayout.LayoutParams).setMargins(bars.left + p, bars.top + p, bars.right + p, 0)
             (askCard.layoutParams as FrameLayout.LayoutParams).setMargins(bars.left + p, 0, bars.right + p, bars.bottom + (120 * d).toInt())
@@ -202,12 +215,14 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
         topArea.viewTreeObserver.addOnGlobalLayoutListener { updateMapInsets() }
         preview.viewTreeObserver.addOnGlobalLayoutListener { updateMapInsets() }
+        placeCard.viewTreeObserver.addOnGlobalLayoutListener { updateMapInsets() }
         homeSheet.viewTreeObserver.addOnGlobalLayoutListener { updateMapInsets() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
                     tripOverlay.visibility == View.VISIBLE -> NavEngine.dismissTrip()
+                    placeShown != null -> closePlace()
                     askCard.visibility == View.VISIBLE -> Alerts.clearAsk()
                     sheetOverlay.visibility == View.VISIBLE -> closeSheet()
                     suggestScroll.visibility == View.VISIBLE || pickFor != null -> closeSearch()
@@ -681,6 +696,110 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         return box
     }
 
+    // ------------------------------------------------------------------ place card (tap / hold)
+
+    private fun dropPin(p: LatLng) {
+        // the pin shows at once; its street address follows
+        showPlace(Place("Dropped pin", "Finding the address…", p, "📍"), dropped = true)
+        io.execute {
+            val a = try { Places.addressAt(p) } catch (e: Exception) { null } ?: return@execute
+            runOnUiThread { if (placeShown?.pos == p) showPlace(a, dropped = true) }
+        }
+    }
+
+    private fun closePlace() {
+        placeShown = null
+        map.selected = null
+        placeCard.visibility = View.GONE
+        refreshChrome()
+    }
+
+    private fun showPlace(pl: Place, dropped: Boolean) {
+        val first = placeShown?.pos != pl.pos
+        placeShown = pl
+        map.selected = pl
+        if (first) {
+            placeEta = null
+            val near = LocationTracker.position
+            if (near != null) io.execute {
+                val e = Places.refreshEta(pl, near)
+                val f = if (pl.icon == "⛽" && pl.extra.isBlank()) try { Fuel.forPlace(pl) } catch (_: Exception) { null } else null
+                if (Reviews.enabled && !dropped) try { Reviews.details(pl) } catch (_: Exception) {}
+                runOnUiThread {
+                    if (placeShown?.pos != pl.pos) return@runOnUiThread
+                    if (e != null) placeEta = "${(e.seconds + 30) / 60} min"
+                    showPlace(if (f != null) pl.copy(extra = f) else placeShown!!, dropped)
+                }
+            }
+        }
+        val p = (12 * d).toInt()
+        placeCard.removeAllViews()
+        placeCard.background = bg(panel, radius = 22f, topOnly = true)
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        head.addView(TextView(this).apply {
+            text = pl.icon; textSize = 22f; gravity = Gravity.CENTER
+            background = bg(Color.argb(40, Color.red(accent), Color.green(accent), Color.blue(accent)), radius = 24f)
+        }, LinearLayout.LayoutParams((46 * d).toInt(), (46 * d).toInt()))
+        head.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(p, 0, p / 2, 0)
+            if (dropped) addView(label("DROPPED PIN", 12f, bold = true).apply { setTextColor(readable(accent)); letterSpacing = 0.08f })
+            addView(label(pl.name, 20f, bold = true).apply { setTextColor(ink); typeface = theme.typeface; maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
+            if (pl.address.isNotBlank()) addView(label(pl.address, 14f).apply { setTextColor(dim()); maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        head.addView(TextView(this).apply {
+            text = "✕"; textSize = 18f; setTextColor(ink); gravity = Gravity.CENTER
+            setOnClickListener { closePlace() }
+        }, LinearLayout.LayoutParams((44 * d).toInt(), (44 * d).toInt()))
+        placeCard.addView(head)
+        val near = LocationTracker.position
+        val info = Reviews.cached(pl)
+        val facts = listOfNotNull(
+            Reviews.stars(info?.rating ?: pl.rating, info?.count ?: pl.ratings),
+            near?.let { NavEngine.formatDistance(Geo.distance(it, pl.pos)) },
+            placeEta,
+        ).joinToString("  ·  ")
+        if (facts.isNotBlank()) placeCard.addView(label(facts, 15f, bold = true).apply { setTextColor(ink); setPadding(0, p, 0, 0) })
+        if (pl.extra.isNotBlank()) placeCard.addView(label(pl.extra, 14f).apply { setTextColor(readable(accent)); setPadding(0, p / 3, 0, 0) })
+
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p + p / 2, 0, 0) }
+        row.addView(pill("➤  Go") {
+            closePlace(); NavEngine.start(this, pl)
+        }.apply { setTextColor(if (Ui.contrast(Color.WHITE, accent) >= 3) Color.WHITE else Color.BLACK); background = bg(accent, radius = 26f) },
+            LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f).apply { marginEnd = p })
+        row.addView(pill("Routes") { closePlace(); NavEngine.plan(this, pl) }.apply {
+            setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 26f)
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
+        row.addView(pill("Share") { sharePlace(pl) }.apply {
+            setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 26f)
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        placeCard.addView(row)
+        run {
+            val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0) }
+            for ((k, title) in listOf("home" to "Set as Home", "work" to "Set as Work")) {
+                more.addView(pill(title) {
+                    Places.save(k, pl); etaAskedAt = 0
+                    Toast.makeText(this, "${if (k == "home") "Home" else "Work"} saved: ${pl.name}", Toast.LENGTH_SHORT).show()
+                    closePlace()
+                }.apply { textSize = 14f; setTextColor(ink); background = bg(dim(30), radius = 22f) },
+                    LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (k == "home") marginEnd = p })
+            }
+            if (!pl.icon.contains("📍") && !dropped) more.addView(pill("Reviews") { showReviews(pl) }.apply {
+                textSize = 14f; setTextColor(ink); background = bg(dim(30), radius = 22f)
+            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginStart = p })
+            placeCard.addView(more)
+        }
+        placeCard.visibility = View.VISIBLE
+        homeSheet.visibility = View.GONE
+    }
+
+    private fun sharePlace(pl: Place) {
+        val url = "https://www.google.com/maps/search/?api=1&query=${pl.pos.lat},${pl.pos.lon}"
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "${pl.name}\n${pl.address}\n$url".replace("\n\n", "\n"))
+        }
+        startActivity(Intent.createChooser(send, "Share place"))
+    }
+
     private fun showReviews(place: Place) {
         val info = Reviews.cached(place)
         if (info == null || info.reviews.isEmpty()) {
@@ -944,7 +1063,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         searchCard.visibility = if (nav || planning) View.GONE else View.VISIBLE
         val chipsWas = chipsScroll.visibility; val homeWas = homeSheet.visibility
         chipsScroll.visibility = if (nav || planning || searching) View.GONE else View.VISIBLE
-        homeSheet.visibility = if (nav || planning || searching || (Places.recents().isEmpty() && t != Theme.TRAILBLAZER)) View.GONE else View.VISIBLE
+        homeSheet.visibility = if (nav || planning || searching || placeShown != null || (Places.recents().isEmpty() && t != Theme.TRAILBLAZER)) View.GONE else View.VISIBLE
         if (chipsWas != chipsScroll.visibility || homeWas != homeSheet.visibility) lastHomeKey = ""
         if ((nav || planning) && suggestScroll.visibility == View.VISIBLE) closeSearch()
         recenterBtn.visibility = if (MapState.following && MapState.userBearing == null || planning) View.GONE else View.VISIBLE
@@ -1030,6 +1149,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             else -> insets.top
         }
         val bottom = when {
+            placeCard.visibility == View.VISIBLE -> placeCard.height
             preview.visibility == View.VISIBLE -> preview.height
             navCard.visibility == View.VISIBLE -> navCard.height
             homeSheet.visibility == View.VISIBLE -> homeSheet.height
@@ -1424,6 +1544,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             settingRow("Light / dark", MapState.lightMode.label) { chooseLightMode() },
             settingRow("Units", if (MapState.imperial) "Miles" else "Kilometres") { MapState.setImperial(!MapState.imperial) },
             settingRow("Android Auto style", MapState.carTheme?.title ?: "Same as phone") { chooseCarStyle() },
+            switchRow("Places on the map (fuel, parking, food…)", MapState.showPlaces) { MapState.showPlaces = it },
             switchRow("Car: dark map when headlights are on", MapState.followHeadlights) { MapState.followHeadlights = it },
         ) + group("Places",
             settingRow("Star ratings & reviews", if (Reviews.enabled) "Google key set" else "Off: Reviews opens Google Maps") { chooseGoogleKey() },
@@ -1676,6 +1797,22 @@ class GameMapView(ctx: Context) : View(ctx) {
     var insetBottom = 0
     /** Called when a finger first touches the map (closes search). */
     var onTouchStart: (() -> Unit)? = null
+    /** A tap on a place icon / on empty map; a long press somewhere. */
+    var onPlaceTap: ((Place) -> Unit)? = null
+    var onMapTap: (() -> Unit)? = null
+    var onLongPress: ((LatLng) -> Unit)? = null
+    /** The place whose card is open (ring / pin on the map). */
+    var selected: Place?
+        get() = renderer.selectedPlace
+        set(v) { renderer.selectedPlace = v; invalidate() }
+    private var held = false
+    private val hold = Runnable {
+        val cam = renderer.camera ?: return@Runnable
+        if (dragging || scaling || rotating) return@Runnable
+        held = true
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        onLongPress?.invoke(renderer.toMap(downX, downY, cam))
+    }
     private val redraw: () -> Unit = { postInvalidateOnAnimation() }
     private var lastX = 0f
     private var lastY = 0f
@@ -1725,8 +1862,10 @@ class GameMapView(ctx: Context) : View(ctx) {
                 onTouchStart?.invoke()
                 lastX = e.x; lastY = e.y; downX = e.x; downY = e.y
                 dragging = false; scaling = false; rotating = false; twist = 0f
+                held = false
+                removeCallbacks(hold); postDelayed(hold, 550)
             }
-            MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) { lastAngle = angle(e); twist = 0f }
+            MotionEvent.ACTION_POINTER_DOWN -> { removeCallbacks(hold); if (e.pointerCount == 2) { lastAngle = angle(e); twist = 0f } }
             MotionEvent.ACTION_MOVE -> {
                 if (e.pointerCount >= 2) {
                     // Two-finger twist rotates the map (after a small dead zone, so pinching stays clean).
@@ -1742,6 +1881,7 @@ class GameMapView(ctx: Context) : View(ctx) {
                 } else if (!scaling && !rotating) {
                     val dx = e.x - lastX; val dy = e.y - lastY
                     if (dragging || abs(e.x - downX) + abs(e.y - downY) > 12 * resources.displayMetrics.density) {
+                        if (!dragging) removeCallbacks(hold)
                         dragging = true
                         val cam = renderer.camera
                         if (cam != null) {
@@ -1752,10 +1892,13 @@ class GameMapView(ctx: Context) : View(ctx) {
                     lastX = e.x; lastY = e.y
                 }
             }
-            MotionEvent.ACTION_UP -> {
-                // Tap on the compass: back to driving direction / north.
-                if (!dragging && !scaling && !rotating && renderer.compassBounds.contains(e.x, e.y)) {
-                    MapState.clearRotation()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                removeCallbacks(hold)
+                val tap = e.actionMasked == MotionEvent.ACTION_UP && !dragging && !scaling && !rotating && !held
+                when {
+                    // Tap on the compass: back to driving direction / north.
+                    tap && renderer.compassBounds.contains(e.x, e.y) -> MapState.clearRotation()
+                    tap -> renderer.placeAt(e.x, e.y)?.let { onPlaceTap?.invoke(it.place()) } ?: onMapTap?.invoke()
                 }
             }
         }
