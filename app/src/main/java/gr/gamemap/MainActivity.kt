@@ -1198,10 +1198,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             isChecked = on
             val onCol = Ui.onPanel(theme, accent, 3.0)
             val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
-            thumbTintList = android.content.res.ColorStateList(states, intArrayOf(onCol, Ui.mix(ink, panel, 0.15f)))
+            // off = plain grey, on = the theme's colour: easy to tell apart in every theme
+            val lightP = Ui.luminance(panel) > 0.4
+            val offThumb = if (lightP) Color.rgb(250, 250, 250) else Color.rgb(185, 185, 185)
+            val offTrack = if (lightP) Color.argb(120, 0, 0, 0) else Color.argb(110, 255, 255, 255)
+            thumbTintList = android.content.res.ColorStateList(states, intArrayOf(onCol, offThumb))
             trackTintList = android.content.res.ColorStateList(states, intArrayOf(
-                Color.argb(150, Color.red(onCol), Color.green(onCol), Color.blue(onCol)),
-                Color.argb(110, Color.red(ink), Color.green(ink), Color.blue(ink))))
+                Color.argb(150, Color.red(onCol), Color.green(onCol), Color.blue(onCol)), offTrack))
             setOnCheckedChangeListener { _, v -> onChange(v) }
         }
         addView(sw)
