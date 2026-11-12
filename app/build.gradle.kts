@@ -45,6 +45,7 @@ android {
                     System.getProperty(k)?.let { test.systemProperty(k, it) }
                 }
                 test.maxHeapSize = "2g"
+                test.setForkEvery(1) // each test class in a fresh JVM (the app keeps state in singletons)
             }
         }
     }
