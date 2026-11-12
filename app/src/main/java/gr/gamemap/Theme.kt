@@ -344,7 +344,9 @@ enum class Theme(
     );
 
     /** The light or dark version, as chosen in MapState. */
-    val look: Look get() = if (MapState.dark) dark else light
+    val look: Look get() = lookFor(MapState.dark)
+
+    fun lookFor(isDark: Boolean): Look = if (isDark) dark else light
 
     val style: MapStyle get() = look.style
     val route: Int get() = look.route
@@ -375,13 +377,13 @@ private fun gameBoy(dark: Boolean): MapStyle {
     val l0 = rgb(155, 188, 15); val l1 = rgb(139, 172, 15); val l2 = rgb(48, 98, 48); val l3 = rgb(15, 56, 15)
     return if (!dark) MapStyle(
         land = l0, water = l2, park = l1, wood = l1, sand = l0, farm = l0, urban = l1, pitch = l1,
-        building = l1, buildingEdge = l2, waterEdge = null,
+        building = l1, buildingEdge = null, waterEdge = null,
         motorway = l3, major = l3, minor = l2, path = l2, rail = l2,
         label = 0, labelHalo = 0, labels = false,
         trafficFree = l1, trafficSlow = l1, trafficJam = l0,
     ) else MapStyle(
         land = l3, water = l2, park = l2, wood = l2, sand = l3, farm = l3, urban = l2, pitch = l2,
-        building = l2, buildingEdge = l1, waterEdge = null,
+        building = l2, buildingEdge = null, waterEdge = null,
         motorway = l0, major = l0, minor = l1, path = l1, rail = l1,
         label = 0, labelHalo = 0, labels = false,
         trafficFree = l2, trafficSlow = l1, trafficJam = l0,

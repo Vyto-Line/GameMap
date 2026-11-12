@@ -60,7 +60,7 @@ object TileCache {
                 try {
                     if (System.currentTimeMillis() - (wanted[k] ?: 0) > 3000) return@execute
                     val bmp = if (theme == Theme.BLOCKY) BlockWorld.tile(z, x, y, tilePx, k.contains("/d/"))
-                    else VectorRenderer.render(theme, z, x, y, tilePx)
+                    else VectorRenderer.render(theme, z, x, y, tilePx, k.contains("/d/"))
                     if (bmp != null) {
                         mem.put(k, bmp)
                         failed.remove(k)
