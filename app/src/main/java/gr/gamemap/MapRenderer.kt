@@ -55,14 +55,6 @@ class MapRenderer {
     private val tileList = ArrayList<IntArray>(64)
     private val quarter = RectF()
 
-    // The route as a Path in world pixels around its first point, rebuilt only when the
-    // route or zoom level changes (big float values would lose precision, hence the origin).
-    private var routeRef: List<LatLng>? = null
-    private var routeZ = -1
-    private var routeOx = 0.0
-    private var routeOy = 0.0
-    private val routePath = Path()
-
     /** Where Athens is, until the first GPS fix arrives. */
     private val fallback = LatLng(37.9838, 23.7275)
 
@@ -78,6 +70,7 @@ class MapRenderer {
         animating = zoomAnim || moveAnim
 
         val theme = MapState.theme
+        MapState.fitRequest?.let { fit(it, area, d, theme) }
         c.drawColor(theme.background)
         text.typeface = theme.typeface
 
@@ -161,7 +154,9 @@ class MapRenderer {
         }
 
         drawSpeed(c, area, d, theme)
-        if (hud) drawBanner(c, area, d, theme)
+        bannerBottom = area.top.toFloat()
+        if (hud && !NavEngine.planning && NavEngine.offer == null) drawBanner(c, area, d, theme)
+        drawJamChip(c, area, d, theme, hud)
         if (hud && (MapState.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
         drawAttribution(c, area, d, theme)
     }
@@ -474,40 +469,105 @@ class MapRenderer {
 
     // ---------------------------------------------------------------- route
 
-    private fun drawRoute(c: Canvas, theme: Theme, world: Double, px: Double, py: Double, scale: Float, d: Float) {
-        val route = NavEngine.route
-        if (route.size > 1) {
-            val z = kotlin.math.round(kotlin.math.log2(world / TileCache.tilePx)).toInt()
-            if (route !== routeRef || z != routeZ) {
-                routeRef = route; routeZ = z
-                routeOx = Geo.x(route[0].lon, world); routeOy = Geo.y(route[0].lat, world)
-                routePath.reset()
-                route.forEachIndexed { i, p ->
-                    val x = (Geo.x(p.lon, world) - routeOx).toFloat(); val y = (Geo.y(p.lat, world) - routeOy).toFloat()
-                    if (i == 0) routePath.moveTo(x, y) else routePath.lineTo(x, y)
-                }
+    private class CachedPath(val path: Path, val ox: Double, val oy: Double)
+    private val pathCache = HashMap<List<LatLng>, CachedPath>()
+    private var pathCacheZ = -1
+
+    private fun pathFor(pts: List<LatLng>, world: Double, z: Int): CachedPath {
+        if (z != pathCacheZ || pathCache.size > 12) { pathCache.clear(); pathCacheZ = z }
+        return pathCache.getOrPut(pts) {
+            val ox = Geo.x(pts[0].lon, world); val oy = Geo.y(pts[0].lat, world)
+            val p = Path()
+            pts.forEachIndexed { i, q ->
+                val x = (Geo.x(q.lon, world) - ox).toFloat(); val y = (Geo.y(q.lat, world) - oy).toFloat()
+                if (i == 0) p.moveTo(x, y) else p.lineTo(x, y)
             }
-            c.save()
-            c.translate((routeOx - px).toFloat(), (routeOy - py).toFloat())
-            val path = routePath
-            routePaint.pathEffect = null
-            routePaint.isAntiAlias = theme.pixel == 1
-            routePaint.color = theme.routeGlow
-            routePaint.strokeWidth = 16 * d / scale
-            c.drawPath(path, routePaint)
-            routePaint.color = theme.route
-            routePaint.strokeWidth = 7 * d / scale
-            if (theme.dashedRoute) routePaint.pathEffect = DashPathEffect(floatArrayOf(14 * d / scale, 10 * d / scale), 0f)
-            c.drawPath(path, routePaint)
-            routePaint.pathEffect = null
-            c.restore()
+            CachedPath(p, ox, oy)
         }
-        NavEngine.destination?.let { dest ->
-            val x = (Geo.x(dest.lon, world) - px).toFloat(); val y = (Geo.y(dest.lat, world) - py).toFloat()
-            fill.color = theme.routeGlow; c.drawCircle(x, y, 18 * d / scale, fill)
-            fill.color = Color.rgb(255, 214, 0); c.drawCircle(x, y, 9 * d / scale, fill)
-            stroke.color = Color.BLACK; stroke.strokeWidth = 2 * d / scale; c.drawCircle(x, y, 9 * d / scale, stroke)
+    }
+
+    private fun strokeRoute(
+        c: Canvas, pts: List<LatLng>, world: Double, z: Int, px: Double, py: Double, scale: Float, d: Float,
+        color: Int, glow: Int, width: Float, dashed: Boolean, pixel: Boolean,
+    ) {
+        if (pts.size < 2) return
+        val cp = pathFor(pts, world, z)
+        c.save()
+        c.translate((cp.ox - px).toFloat(), (cp.oy - py).toFloat())
+        routePaint.pathEffect = null
+        routePaint.isAntiAlias = !pixel
+        if (Color.alpha(glow) > 0) {
+            routePaint.color = glow
+            routePaint.strokeWidth = (width + 9) * d / scale
+            c.drawPath(cp.path, routePaint)
         }
+        routePaint.color = color
+        routePaint.strokeWidth = width * d / scale
+        if (dashed) routePaint.pathEffect = DashPathEffect(floatArrayOf(14 * d / scale, 10 * d / scale), 0f)
+        c.drawPath(cp.path, routePaint)
+        routePaint.pathEffect = null
+        c.restore()
+    }
+
+    private fun withAlpha(col: Int, a: Int) = Color.argb(a, Color.red(col), Color.green(col), Color.blue(col))
+
+    private fun drawRoute(c: Canvas, theme: Theme, world: Double, px: Double, py: Double, scale: Float, d: Float) {
+        val z = kotlin.math.round(kotlin.math.log2(world / TileCache.tilePx)).toInt()
+        val pixel = theme.pixel != 1
+        if (NavEngine.planning) {
+            val opts = NavEngine.options
+            opts.forEachIndexed { i, o ->
+                if (i != NavEngine.selected) strokeRoute(c, o.points, world, z, px, py, scale, d,
+                    withAlpha(theme.route, 120), 0, 6f, false, pixel)
+            }
+            opts.getOrNull(NavEngine.selected)?.let {
+                strokeRoute(c, it.points, world, z, px, py, scale, d, theme.route, theme.routeGlow, 7f, theme.dashedRoute, pixel)
+            }
+            NavEngine.planPlace?.let { drawDestination(c, it.pos, world, px, py, scale, d, theme) }
+            return
+        }
+        val route = NavEngine.route
+        val offer = NavEngine.offer
+        if (route.size > 1) {
+            if (offer != null) {
+                strokeRoute(c, route, world, z, px, py, scale, d, withAlpha(theme.route, 110), 0, 6f, false, pixel)
+                strokeRoute(c, offer.option.points, world, z, px, py, scale, d,
+                    Color.rgb(61, 220, 132), Color.argb(90, 61, 220, 132), 8f, false, pixel)
+            } else {
+                strokeRoute(c, route, world, z, px, py, scale, d, theme.route, theme.routeGlow, 7f, theme.dashedRoute, pixel)
+            }
+        }
+        NavEngine.destination?.let { drawDestination(c, it, world, px, py, scale, d, theme) }
+    }
+
+    private fun drawDestination(c: Canvas, dest: LatLng, world: Double, px: Double, py: Double, scale: Float, d: Float, theme: Theme) {
+        val x = (Geo.x(dest.lon, world) - px).toFloat(); val y = (Geo.y(dest.lat, world) - py).toFloat()
+        fill.color = theme.routeGlow; c.drawCircle(x, y, 18 * d / scale, fill)
+        fill.color = Color.rgb(255, 214, 0); c.drawCircle(x, y, 9 * d / scale, fill)
+        stroke.color = Color.BLACK; stroke.strokeWidth = 2 * d / scale; c.drawCircle(x, y, 9 * d / scale, stroke)
+    }
+
+    /** Works out the centre and zoom that fit [pts] into [area], and hands them to MapState. */
+    private fun fit(pts: List<LatLng>, area: Rect, d: Float, theme: Theme) {
+        if (area.width() <= 0 || area.height() <= 0) return
+        var minX = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE
+        var minY = Double.MAX_VALUE; var maxY = -Double.MAX_VALUE
+        for (p in pts) {
+            val x = Geo.x(p.lon, 1.0); val y = Geo.y(p.lat, 1.0)
+            if (x < minX) minX = x; if (x > maxX) maxX = x
+            if (y < minY) minY = y; if (y > maxY) maxY = y
+        }
+        val pad = 48 * d
+        val k = 256.0 * d * 1.15
+        val dx = maxOf(maxX - minX, 1e-7); val dy = maxOf(maxY - minY, 1e-7)
+        val zx = kotlin.math.log2((area.width() - 2 * pad) / (dx * k))
+        val zy = kotlin.math.log2((area.height() - 2 * pad - 40 * d) / (dy * k))
+        val zoom = minOf(zx, zy).coerceIn(MapState.MIN_ZOOM, 17.5)
+        // the camera puts its centre at 55% of the height; shift so the routes sit in the middle
+        val camY = if (theme.radar) 0.5 else 0.55
+        val shift = (camY - 0.5) * area.height() / (k * 2.0.pow(zoom))
+        val cx = (minX + maxX) / 2; val cy = (minY + maxY) / 2 - shift
+        MapState.applyFit(LatLng(Geo.lat(cy, 1.0), Geo.lon(cx, 1.0)), zoom)
     }
 
     // ---------------------------------------------------------------- player & frames
@@ -654,50 +714,178 @@ class MapRenderer {
     private fun drawSpeed(c: Canvas, a: Rect, d: Float, t: Theme) {
         if (LocationTracker.last == null) return
         val kmh = (LocationTracker.speedMps * 3.6f).toInt()
+        val limit = if (NavEngine.active) NavEngine.speedLimit else null
+        val over = limit != null && kmh > limit + 4
         val pad = 14 * d
         text.textAlign = Paint.Align.CENTER
         text.textSize = 30 * d
         val big = kmh.toString()
         val bw = maxOf(text.measureText(big), text.measureText("88")) + 24 * d
         val box = RectF(a.left + pad, a.bottom - pad - 58 * d, a.left + pad + bw, a.bottom - pad)
-        panel(c, box, d, t, outline = false)
-        text.color = t.hudText
+        panel(c, box, d, t, outline = over)
+        text.color = if (over) Color.rgb(255, 92, 92) else t.hudText
         c.drawText(big, box.centerX(), box.top + 33 * d, text)
         text.textSize = 11 * d
         c.drawText("KM/H", box.centerX(), box.bottom - 9 * d, text)
+        if (limit != null) {
+            val r = 21 * d
+            val sx = box.right + 8 * d + r; val sy = box.bottom - r - 4 * d
+            fill.color = Color.WHITE; c.drawCircle(sx, sy, r, fill)
+            stroke.color = Color.rgb(208, 2, 27); stroke.strokeWidth = 4.5f * d; c.drawCircle(sx, sy, r - 2.2f * d, stroke)
+            text.color = Color.rgb(17, 20, 24); text.textSize = (if (limit >= 100) 14 else 16) * d
+            val tf = text.typeface; text.typeface = Typeface.DEFAULT_BOLD
+            c.drawText(limit.toString(), sx, sy + 5.5f * d, text)
+            text.typeface = tf
+        }
     }
+
+    /** Bottom of the turn banner on screen (for placing things below it). */
+    private var bannerBottom = 0f
 
     private fun drawBanner(c: Canvas, a: Rect, d: Float, t: Theme) {
         if (!NavEngine.active) return
+        val step = NavEngine.currentStep
         val (title, sub) = when {
             NavEngine.arrived -> "MISSION COMPLETE" to NavEngine.destinationName
             NavEngine.error != null -> (NavEngine.error ?: "") to NavEngine.destinationName
-            NavEngine.loading -> "Plotting route…" to NavEngine.destinationName
+            NavEngine.loading || step == null -> "Plotting route…" to NavEngine.destinationName
             else -> {
-                val s = NavEngine.currentStep ?: return
-                NavEngine.formatDistance(NavEngine.distanceToNext) to s.text
+                val st = step!!
+                NavEngine.formatDistance(NavEngine.distanceToNext) to
+                    (if (st.road.isNotBlank() && st.type != "arrive") st.road else st.text)
             }
         }
+        val detail = if (!NavEngine.arrived && !NavEngine.loading && NavEngine.error == null && step != null &&
+            step.road.isNotBlank() && step.type != "arrive") step.text.substringBefore(" onto ") else null
+        val lanes = step?.lanes?.takeIf { NavEngine.distanceToNext < 900 && !NavEngine.loading }
         val pad = 12 * d
-        val box = RectF(a.left + pad, a.top + pad, a.right - pad, a.top + pad + 78 * d)
+        val mainH = if (detail != null) 96 * d else 80 * d
+        val lanesH = if (lanes != null) 44 * d else 0f
+        val box = RectF(a.left + pad, a.top + pad, a.right - pad, a.top + pad + mainH + lanesH)
         panel(c, box, d, t, outline = true)
 
-        val iconX = box.left + 40 * d; val iconY = box.centerY()
+        val iconX = box.left + 42 * d; val iconY = box.top + mainH / 2
         when {
-            NavEngine.arrived -> drawTurnArrow(c, iconX, iconY, 20 * d, "arrive", t)
-            !NavEngine.loading && NavEngine.error == null ->
-                drawTurnArrow(c, iconX, iconY, 20 * d, NavEngine.currentStep?.direction ?: "straight", t)
+            NavEngine.arrived -> drawTurnArrow(c, iconX, iconY, 22 * d, "arrive", t)
+            !NavEngine.loading && NavEngine.error == null && step != null -> drawTurnArrow(c, iconX, iconY, 22 * d, step.direction, t)
         }
+        val tx = box.left + 82 * d
+        val maxW = box.right - tx - 12 * d
         text.textAlign = Paint.Align.LEFT
         text.color = t.hudText
-        text.textSize = 26 * d
-        c.drawText(title, box.left + 76 * d, box.top + 34 * d, text)
-        text.textSize = 15 * d
-        text.typeface = if (t.serif) Typeface.create(Typeface.SERIF, Typeface.NORMAL) else Typeface.DEFAULT_BOLD
-        val maxW = box.width() - 90 * d
-        var line = sub
+        text.textSize = 30 * d
+        c.drawText(title, tx, box.top + 36 * d, text)
+        text.textSize = 18 * d
+        text.typeface = if (t.serif) Typeface.create(Typeface.SERIF, Typeface.BOLD) else Typeface.DEFAULT_BOLD
+        c.drawText(ellipsize(sub, maxW), tx, box.top + 62 * d, text)
+        if (detail != null) {
+            text.textSize = 14 * d
+            text.typeface = if (t.serif) Typeface.create(Typeface.SERIF, Typeface.NORMAL) else Typeface.DEFAULT
+            text.color = withAlpha(t.hudText, 190)
+            c.drawText(ellipsize(detail, maxW), tx, box.top + 84 * d, text)
+        }
+        text.typeface = t.typeface
+        if (lanes != null) drawLanes(c, RectF(box.left, box.top + mainH, box.right, box.bottom), lanes, step?.direction ?: "straight", d, t)
+        bannerBottom = box.bottom
+
+        // "Then …" tab under the banner
+        val then = NavEngine.followingStep
+        if (then != null && !NavEngine.arrived) {
+            text.textSize = 15 * d
+            text.typeface = Typeface.DEFAULT_BOLD
+            val label = ellipsize(if (then.road.isNotBlank() && then.type != "arrive") then.road else then.text, box.width() - 110 * d)
+            val w = text.measureText(label) + 82 * d
+            val tab = RectF(box.left + 14 * d, box.bottom - 2 * d, box.left + 14 * d + w, box.bottom + 38 * d)
+            panel(c, tab, d, t, outline = false)
+            text.color = withAlpha(t.hudText, 190)
+            c.drawText("Then", tab.left + 12 * d, tab.centerY() + 5.5f * d, text)
+            drawTurnArrow(c, tab.left + 62 * d, tab.centerY(), 9 * d, then.direction, t)
+            text.color = t.hudText
+            c.drawText(label, tab.left + 76 * d, tab.centerY() + 5.5f * d, text)
+            text.typeface = t.typeface
+            bannerBottom = tab.bottom
+        }
+    }
+
+    private fun ellipsize(s: String, maxW: Float): String {
+        var line = s
         while (line.length > 3 && text.measureText(line) > maxW) line = line.dropLast(2) + "…"
-        c.drawText(line, box.left + 76 * d, box.top + 61 * d, text)
+        return line
+    }
+
+    /** One small arrow per lane: bright for lanes to use, faint for the others. */
+    private fun drawLanes(c: Canvas, r: RectF, lanes: List<Lane>, maneuver: String, d: Float, t: Theme) {
+        fill.color = withAlpha(t.hudText, 22)
+        c.drawRect(r.left + 8 * d, r.top, r.right - 8 * d, r.bottom - 6 * d, fill)
+        val cell = minOf(40 * d, (r.width() - 24 * d) / lanes.size)
+        var x = r.centerX() - cell * lanes.size / 2 + cell / 2
+        val y = r.centerY() - 3 * d
+        for (lane in lanes) {
+            val dir = lane.directions.firstOrNull { lane.valid && it == maneuver }
+                ?: lane.directions.firstOrNull { lane.valid && it != "none" }
+                ?: lane.directions.firstOrNull() ?: "straight"
+            drawLaneArrow(c, x, y, 13 * d, if (dir == "none") "straight" else dir, if (lane.valid) t.hudText else withAlpha(t.hudText, 70), d)
+            x += cell
+        }
+    }
+
+    private fun drawLaneArrow(c: Canvas, x: Float, y: Float, s: Float, dir: String, color: Int, d: Float) {
+        stroke.color = color; stroke.strokeWidth = 3 * d; stroke.strokeCap = Paint.Cap.ROUND; stroke.strokeJoin = Paint.Join.ROUND
+        val ang = when {
+            dir == "uturn" -> 180f
+            dir.contains("sharp left") -> -135f
+            dir.contains("slight left") -> -40f
+            dir.contains("left") -> -90f
+            dir.contains("sharp right") -> 135f
+            dir.contains("slight right") -> 40f
+            dir.contains("right") -> 90f
+            else -> 0f
+        }
+        path.reset()
+        path.moveTo(x, y + s)
+        if (ang == 0f) {
+            path.lineTo(x, y - s)
+            c.drawPath(path, stroke)
+            path.reset(); path.moveTo(x - s * 0.45f, y - s * 0.5f); path.lineTo(x, y - s); path.lineTo(x + s * 0.45f, y - s * 0.5f)
+        } else {
+            path.lineTo(x, y)
+            val a = Math.toRadians((ang - 90).toDouble())
+            val ex = x + (s * cos(a)).toFloat(); val ey = y + (s * sin(a)).toFloat()
+            path.lineTo(ex, ey)
+            c.drawPath(path, stroke)
+            val back = a + Math.PI
+            path.reset()
+            path.moveTo(ex + (s * 0.5f * cos(back + 0.6)).toFloat(), ey + (s * 0.5f * sin(back + 0.6)).toFloat())
+            path.lineTo(ex, ey)
+            path.lineTo(ex + (s * 0.5f * cos(back - 0.6)).toFloat(), ey + (s * 0.5f * sin(back - 0.6)).toFloat())
+        }
+        c.drawPath(path, stroke)
+        stroke.strokeCap = Paint.Cap.BUTT; stroke.strokeJoin = Paint.Join.MITER
+    }
+
+    /** "Jam in 800 m · +2 min", under the banner (phone) or at the top of the map (car). */
+    private fun drawJamChip(c: Canvas, a: Rect, d: Float, t: Theme, hud: Boolean) {
+        if (!NavEngine.active || NavEngine.arrived || NavEngine.offer != null) return
+        val (dist, delay) = NavEngine.jamAhead ?: return
+        val mins = (delay + 30) / 60
+        val label = (if (dist < 100) "Jam ahead" else "Jam in ${NavEngine.formatDistance(dist)}") + (if (mins >= 1) " · +$mins min" else "")
+        text.textSize = 15 * d
+        text.typeface = Typeface.DEFAULT_BOLD
+        text.textAlign = Paint.Align.LEFT
+        val w = text.measureText(label) + 44 * d
+        val h = 38 * d
+        val top = if (hud) bannerBottom + 10 * d else a.top + 12 * d
+        val left = if (hud) a.right - 12 * d - w else a.left + 12 * d
+        val r = RectF(left, top, left + w, top + h)
+        fill.color = Color.rgb(251, 227, 227)
+        c.drawRoundRect(r, h / 2, h / 2, fill)
+        // warning triangle
+        path.reset()
+        val tx = r.left + 20 * d; val ty = r.centerY()
+        path.moveTo(tx, ty - 8 * d); path.lineTo(tx + 9 * d, ty + 7 * d); path.lineTo(tx - 9 * d, ty + 7 * d); path.close()
+        fill.color = Color.rgb(196, 30, 36); c.drawPath(path, fill)
+        text.color = Color.rgb(122, 16, 16)
+        c.drawText(label, r.left + 34 * d, r.centerY() + 5.5f * d, text)
         text.typeface = t.typeface
     }
 
@@ -738,7 +926,7 @@ class MapRenderer {
     private fun drawCompass(c: Canvas, a: Rect, bearing: Float, d: Float, t: Theme) {
         val r = 22 * d
         val x = a.left + 14 * d + r
-        val y = a.top + (if (NavEngine.active) 110 * d else 14 * d) + r
+        val y = maxOf(a.top + 14 * d, bannerBottom + 12 * d) + r
         compassBounds.set(x - r, y - r, x + r, y + r)
         fill.color = t.hudPanel; c.drawCircle(x, y, r, fill)
         stroke.color = t.route; stroke.strokeWidth = 2 * d; c.drawCircle(x, y, r, stroke)

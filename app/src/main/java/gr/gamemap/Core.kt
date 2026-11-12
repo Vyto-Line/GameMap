@@ -24,6 +24,8 @@ class GameMapApp : Application() {
         MapState.init(this)
         TileCache.init(this)
         Places.init(this)
+        NavEngine.init(this)
+        Voice.init(this)
     }
 }
 
@@ -210,6 +212,43 @@ object MapState {
         following = true
         freeCenter = null
         userBearing = null
+        overview = false
+        fitRequest = null
+        savedZoom?.let { targetZoom = it; savedZoom = null }
+        changed.fire()
+    }
+
+    // ---------------------------------------------------------------- fitting routes on screen
+
+    /** Points the next frame should fit on screen (route preview, overview). */
+    var fitRequest: List<LatLng>? = null
+        private set
+    /** True while showing the whole route instead of following. */
+    var overview = false
+        private set
+    private var savedZoom: Double? = null
+
+    fun requestFit(points: List<LatLng>) {
+        if (points.isEmpty()) return
+        fitRequest = points
+        changed.fire()
+    }
+
+    /** Whole-route view while driving; [recenter] goes back. */
+    fun showOverview(points: List<LatLng>) {
+        overview = true
+        requestFit(points)
+    }
+
+    /** Called by a renderer once it has worked out where [fitRequest] fits. */
+    fun applyFit(center: LatLng, z: Double) {
+        fitRequest = null
+        if (savedZoom == null) savedZoom = targetZoom
+        following = false
+        freeCenter = center
+        freeBearing = 0f
+        zoom = z.coerceIn(MIN_ZOOM, 17.5)
+        targetZoom = zoom
         changed.fire()
     }
 

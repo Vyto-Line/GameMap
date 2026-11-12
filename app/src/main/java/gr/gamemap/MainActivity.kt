@@ -58,8 +58,32 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var recenterBtn: TextView
     private lateinit var navCard: LinearLayout
     private lateinit var etaBig: TextView
+    private lateinit var etaTraffic: TextView
     private lateinit var etaSmall: TextView
     private lateinit var endBtn: TextView
+    private lateinit var shareBtn: TextView
+    private lateinit var muteBtn: TextView
+    private lateinit var overviewBtn: TextView
+    private lateinit var zoomInBtn: TextView
+    private lateinit var zoomOutBtn: TextView
+    private lateinit var preview: LinearLayout
+    private lateinit var previewTitle: TextView
+    private lateinit var previewSub: TextView
+    private lateinit var previewList: LinearLayout
+    private lateinit var previewClose: TextView
+    private lateinit var laterBtn: TextView
+    private lateinit var startBtn: TextView
+    private lateinit var offerCard: LinearLayout
+    private lateinit var offerTitle: TextView
+    private lateinit var offerSub: TextView
+    private lateinit var offerVia: TextView
+    private lateinit var keepBtn: TextView
+    private lateinit var switchBtn: TextView
+    private val ticker = object : Runnable {
+        override fun run() {
+            if (NavEngine.offer != null) { refreshChrome(); main.postDelayed(this, 1000) }
+        }
+    }
     private val fabs = mutableListOf<TextView>()
 
     private val io = Executors.newFixedThreadPool(2)
@@ -87,12 +111,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         buildSearch()
         buildControls()
         buildNavCard()
+        buildPreview()
+        buildOffer()
 
         val root = FrameLayout(this).apply {
             addView(map, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
             addView(topArea, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
             addView(controls, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL))
             addView(navCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
+            addView(preview, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
+            addView(offerCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
         }
         setContentView(root)
 
@@ -104,14 +132,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             topArea.setPadding(bars.left + p, bars.top + p / 2, bars.right + p, 0)
             controls.setPadding(0, 0, bars.right + p, 0)
             navCard.setPadding(bars.left + 2 * p, p + p / 2, bars.right + 2 * p, bars.bottom + p + p / 2)
+            preview.setPadding(bars.left + p + p / 2, p, bars.right + p + p / 2, bars.bottom + p + p / 2)
+            (offerCard.layoutParams as FrameLayout.LayoutParams).setMargins(bars.left + p, bars.top + p, bars.right + p, 0)
+            offerCard.requestLayout()
             updateMapInsets()
             wi
         }
         topArea.viewTreeObserver.addOnGlobalLayoutListener { updateMapInsets() }
+        preview.viewTreeObserver.addOnGlobalLayoutListener { updateMapInsets() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (suggestScroll.visibility == View.VISIBLE) closeSearch()
+                else if (NavEngine.planning) NavEngine.cancelPlan()
                 else { isEnabled = false; onBackPressedDispatcher.onBackPressed() }
             }
         })
@@ -193,28 +226,42 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun buildControls() {
         recenterBtn = fab("◎") { MapState.recenter() }
+        muteBtn = fab("🔊") { Voice.muted = !Voice.muted }
+        overviewBtn = fab("🗺") {
+            val r = NavEngine.route
+            if (r.size > 1) MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last())
+        }
+        zoomInBtn = fab("+") { MapState.zoomBy(1.0) }
+        zoomOutBtn = fab("−") { MapState.zoomBy(-1.0) }
         controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(fab("🎮") { pickTheme() })
-            addView(fab("+") { MapState.zoomBy(1.0) })
-            addView(fab("−") { MapState.zoomBy(-1.0) })
+            addView(zoomInBtn)
+            addView(zoomOutBtn)
+            addView(muteBtn)
+            addView(overviewBtn)
             addView(recenterBtn)
             addView(fab("⋮") { showMenu() })
         }
     }
 
+    private fun pill(label: String, onClick: () -> Unit) = TextView(this).apply {
+        text = label
+        textSize = 16f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        val p = (12 * d).toInt()
+        setPadding(p + p / 2, p, p + p / 2, p)
+        minHeight = (48 * d).toInt()
+        setOnClickListener { onClick() }
+    }
+
     private fun buildNavCard() {
-        etaBig = TextView(this).apply { textSize = 26f; typeface = Typeface.DEFAULT_BOLD }
-        etaSmall = TextView(this).apply { textSize = 15f }
-        endBtn = TextView(this).apply {
-            text = "END"
-            textSize = 16f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            val p = (14 * d).toInt()
-            setPadding(p * 2, p, p * 2, p)
-            setOnClickListener { NavEngine.stop() }
-        }
+        etaBig = TextView(this).apply { textSize = 28f; typeface = Typeface.DEFAULT_BOLD }
+        etaTraffic = TextView(this).apply { textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setPadding((10 * d).toInt(), 0, 0, 0) }
+        etaSmall = TextView(this).apply { textSize = 15f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        shareBtn = pill("Share") { shareEta() }
+        endBtn = pill("End") { NavEngine.stop() }
         navCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -222,10 +269,189 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             visibility = View.GONE
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(etaBig); addView(etaSmall)
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.BOTTOM
+                    addView(etaBig); addView(etaTraffic)
+                })
+                addView(etaSmall)
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(shareBtn, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = (8 * d).toInt() })
             addView(endBtn)
         }
+    }
+
+    private fun shareEta() {
+        val mins = (NavEngine.remainingSeconds / 60).toInt().coerceAtLeast(1)
+        val msg = "On my way to ${NavEngine.destinationName}: arriving around ${NavEngine.arrivalClock()} (about $mins min)."
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, msg)
+        }
+        startActivity(android.content.Intent.createChooser(send, "Share arrival time"))
+    }
+
+    // ------------------------------------------------------------------ route preview
+
+    private fun buildPreview() {
+        previewTitle = TextView(this).apply { textSize = 20f; typeface = Typeface.DEFAULT_BOLD }
+        previewSub = TextView(this).apply { textSize = 13f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        previewClose = pill("✕") { NavEngine.cancelPlan() }
+        previewList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        laterBtn = pill("Leave later") { pickDeparture() }
+        startBtn = pill("Start") { NavEngine.startPlanned() }
+        preview = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            elevation = 10 * d
+            visibility = View.GONE
+            isClickable = true
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(previewTitle); addView(previewSub)
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(previewClose)
+            })
+            addView(previewList, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (8 * d).toInt() })
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(laterBtn, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = (10 * d).toInt() })
+                addView(startBtn, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (12 * d).toInt() })
+        }
+    }
+
+    private fun pickDeparture() {
+        if (NavEngine.departAt != null) { NavEngine.setDeparture(null); return }
+        val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.MINUTE, 30) }
+        android.app.TimePickerDialog(this, { _, h, m ->
+            val t = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, h); set(java.util.Calendar.MINUTE, m); set(java.util.Calendar.SECOND, 0)
+                if (timeInMillis < System.currentTimeMillis() - 60_000) add(java.util.Calendar.DAY_OF_MONTH, 1)
+            }
+            NavEngine.setDeparture(t.timeInMillis)
+        }, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), true).show()
+    }
+
+    private fun renderPreview(panel: Int, ink: Int, accent: Int, radius: Float) {
+        val dim = Color.argb(185, Color.red(ink), Color.green(ink), Color.blue(ink))
+        val opts = NavEngine.options
+        val place = NavEngine.planPlace
+        previewTitle.setTextColor(ink); previewSub.setTextColor(dim); previewClose.setTextColor(ink)
+        previewTitle.text = when {
+            NavEngine.planError != null -> NavEngine.planError
+            NavEngine.planLoading -> "Finding routes…"
+            opts.size == 1 -> "1 route"
+            else -> "${opts.size} routes"
+        }
+        val depart = NavEngine.departAt
+        previewSub.text = listOfNotNull(
+            place?.name,
+            if (depart != null) "leaving ${NavEngine.clock(depart)}" else if (Traffic.active) "live traffic" else null,
+        ).joinToString(" · ")
+        previewList.removeAllViews()
+        val fastest = NavEngine.fastestIndex()
+        val p = (12 * d).toInt()
+        opts.forEachIndexed { i, o ->
+            val sel = i == NavEngine.selected
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(p, p - p / 4, p, p)
+                isClickable = true
+                setOnClickListener { NavEngine.select(i) }
+                background = panelBg(radius * 0.7f).apply {
+                    setColor(if (sel) Color.argb(40, Color.red(accent), Color.green(accent), Color.blue(accent)) else Color.TRANSPARENT)
+                    setStroke((if (sel) 2f else 1f).let { (it * d).toInt() }, if (sel) accent else Color.argb(70, Color.red(ink), Color.green(ink), Color.blue(ink)))
+                }
+            }
+            val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
+            top.addView(TextView(this).apply {
+                text = NavEngine.formatDuration(o.seconds); textSize = if (sel) 22f else 19f; typeface = MapState.theme.typeface
+                setTextColor(if (sel) accent else ink)
+            })
+            top.addView(TextView(this).apply {
+                text = "  ${NavEngine.formatDistance(o.distance)} · arrive ${NavEngine.optionArrival(o)}"; textSize = 14f; setTextColor(dim)
+            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            val tag = when {
+                o.trafficSeconds != null && i == fastest && opts.size > 1 -> "FASTEST"
+                o.delaySeconds >= 60 -> "+${o.delaySeconds / 60} min traffic"
+                else -> null
+            }
+            if (tag != null) top.addView(TextView(this).apply {
+                text = tag; textSize = 12f; typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (tag == "FASTEST") accent else Color.rgb(255, 120, 90))
+            })
+            row.addView(top)
+            if (o.via.isNotBlank()) row.addView(TextView(this).apply {
+                text = "via ${o.via}"; textSize = 13f; setTextColor(dim); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            })
+            row.addView(TrafficBar(this, o), LinearLayout.LayoutParams(MATCH_PARENT, (5 * d).toInt()).apply { topMargin = (7 * d).toInt() })
+            previewList.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (8 * d).toInt() })
+        }
+        preview.background = GradientDrawable().apply {
+            setColor(panel)
+            val r = radius * 1.4f * d
+            cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+        }
+        laterBtn.text = if (depart != null) "Leave now" else "Leave later"
+        laterBtn.setTextColor(accent)
+        laterBtn.background = panelBg(radius).apply { setColor(Color.TRANSPARENT); setStroke((1.5f * d).toInt(), accent) }
+        startBtn.text = "Start"
+        startBtn.isEnabled = opts.isNotEmpty()
+        startBtn.alpha = if (opts.isNotEmpty()) 1f else 0.5f
+        startBtn.setTextColor(if (luminance(accent) > 0.45) Color.BLACK else Color.WHITE)
+        startBtn.background = panelBg(radius).apply { setColor(accent) }
+    }
+
+    private fun luminance(c: Int) = (0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255.0
+
+    // ------------------------------------------------------------------ faster route offer
+
+    private fun buildOffer() {
+        offerTitle = TextView(this).apply { textSize = 20f; typeface = Typeface.DEFAULT_BOLD; text = "⚡ Faster route found" }
+        offerSub = TextView(this).apply { textSize = 15f; typeface = Typeface.DEFAULT_BOLD }
+        offerVia = TextView(this).apply { textSize = 14f }
+        keepBtn = pill("Keep current") { NavEngine.declineOffer() }
+        switchBtn = pill("Switch") { NavEngine.acceptOffer() }
+        offerCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            elevation = 12 * d
+            visibility = View.GONE
+            isClickable = true
+            val p = (14 * d).toInt()
+            setPadding(p + p / 4, p, p + p / 4, p)
+            addView(offerTitle); addView(offerSub); addView(offerVia)
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(keepBtn, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = (10 * d).toInt() })
+                addView(switchBtn, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.3f))
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (12 * d).toInt() })
+        }
+    }
+
+    private fun renderOffer(panel: Int, ink: Int, radius: Float) {
+        val o = NavEngine.offer ?: return
+        val green = Color.rgb(61, 220, 132)
+        val dim = Color.argb(200, Color.red(ink), Color.green(ink), Color.blue(ink))
+        offerCard.background = panelBg(radius).apply { setColor(panel); setStroke((2 * d).toInt(), green) }
+        offerTitle.setTextColor(ink)
+        val arrive = NavEngine.clock(System.currentTimeMillis() + (o.option.seconds * 1000).toLong())
+        offerSub.text = "Saves ${(o.savingSeconds + 30) / 60} min · arrive $arrive"
+        offerSub.setTextColor(green)
+        val first = o.option.steps.firstOrNull { it.type != "depart" }
+        offerVia.text = listOfNotNull(
+            o.option.via.takeIf { it.isNotBlank() }?.let { "Via $it" },
+            first?.let { "Next: ${it.text}" },
+        ).joinToString("\n")
+        offerVia.setTextColor(dim)
+        keepBtn.setTextColor(ink)
+        keepBtn.background = panelBg(radius).apply { setColor(Color.TRANSPARENT); setStroke((1.5f * d).toInt(), dim) }
+        val left = (NavEngine.OFFER_SECONDS - (System.currentTimeMillis() - o.createdAt) / 1000).coerceAtLeast(0)
+        switchBtn.text = if (NavEngine.autoSwitch) "Switch · ${left}s" else "Switch"
+        switchBtn.setTextColor(Color.rgb(11, 36, 22))
+        switchBtn.background = panelBg(radius).apply { setColor(green) }
+        keepBtn.text = if (NavEngine.autoSwitch) "Keep current" else "Keep · ${left}s"
     }
 
     // ------------------------------------------------------------------ state → UI
@@ -254,39 +480,68 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val r = radius * 1.4f * d
             cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
         }
-        etaBig.setTextColor(ink); etaSmall.setTextColor(ink)
+        etaSmall.setTextColor(ink)
         etaBig.typeface = t.typeface
         endBtn.setTextColor(Color.WHITE)
         endBtn.background = panelBg(radius).apply { setColor(Color.rgb(200, 40, 40)) }
+        shareBtn.setTextColor(ink)
+        shareBtn.background = panelBg(radius).apply { setColor(Color.TRANSPARENT); setStroke((1.5f * d).toInt(), accent) }
 
         val nav = NavEngine.active
+        val planning = NavEngine.planning
         navCard.visibility = if (nav) View.VISIBLE else View.GONE
-        searchCard.visibility = if (nav) View.GONE else View.VISIBLE
-        if (nav && suggestScroll.visibility == View.VISIBLE) closeSearch()
-        recenterBtn.visibility = if (MapState.following && MapState.userBearing == null) View.GONE else View.VISIBLE
+        preview.visibility = if (planning) View.VISIBLE else View.GONE
+        searchCard.visibility = if (nav || planning) View.GONE else View.VISIBLE
+        if ((nav || planning) && suggestScroll.visibility == View.VISIBLE) closeSearch()
+        recenterBtn.visibility = if (MapState.following && MapState.userBearing == null || planning) View.GONE else View.VISIBLE
+        muteBtn.visibility = if (nav) View.VISIBLE else View.GONE
+        muteBtn.text = if (Voice.muted) "🔇" else "🔊"
+        overviewBtn.visibility = if (nav && !MapState.overview && NavEngine.route.size > 1) View.VISIBLE else View.GONE
+        zoomInBtn.visibility = if (nav) View.GONE else View.VISIBLE
+        zoomOutBtn.visibility = if (nav) View.GONE else View.VISIBLE
+        controls.visibility = if (planning) View.GONE else View.VISIBLE
+        if (planning) renderPreview(panel, ink, accent, radius)
+        val showOffer = nav && NavEngine.offer != null
+        if (showOffer && offerCard.visibility != View.VISIBLE) { main.removeCallbacks(ticker); main.postDelayed(ticker, 1000) }
+        offerCard.visibility = if (showOffer) View.VISIBLE else View.GONE
+        if (showOffer) renderOffer(panel, ink, radius)
         if (nav) {
+            etaTraffic.text = ""
             when {
-                NavEngine.arrived -> { etaBig.text = "Mission complete"; etaSmall.text = NavEngine.destinationName }
+                NavEngine.arrived -> { etaBig.text = "Mission complete"; etaBig.setTextColor(ink); etaSmall.text = NavEngine.destinationName }
                 NavEngine.loading || NavEngine.error != null -> {
-                    etaBig.text = NavEngine.error ?: "Plotting route…"; etaSmall.text = NavEngine.destinationName
+                    etaBig.text = NavEngine.error ?: "Plotting route…"; etaBig.setTextColor(ink); etaSmall.text = NavEngine.destinationName
                 }
                 else -> {
-                    val mins = (NavEngine.remainingSeconds / 60).toInt().coerceAtLeast(1)
-                    val dur = if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"
-                    etaBig.text = "${NavEngine.arrivalClock()} arrival"
                     val delay = NavEngine.trafficDelaySeconds / 60
-                    val traffic = if (delay >= 1) " · +$delay min traffic" else ""
-                    etaSmall.text = "${NavEngine.formatDistance(NavEngine.remainingDistance)} · $dur$traffic · ${NavEngine.destinationName}"
+                    etaBig.text = NavEngine.arrivalClock()
+                    etaBig.setTextColor(when {
+                        delay >= 10 -> Color.rgb(255, 110, 110)
+                        delay >= 3 -> Color.rgb(255, 184, 107)
+                        else -> Color.rgb(123, 227, 160)
+                    }.let { if (luminance(panel) > 0.6) darken(it) else it })
+                    etaTraffic.text = if (delay >= 1) "+$delay min traffic" else ""
+                    etaTraffic.setTextColor(Color.rgb(255, 140, 90).let { if (luminance(panel) > 0.6) darken(it) else it })
+                    etaSmall.text = "${NavEngine.formatDuration(NavEngine.remainingSeconds)} · ${NavEngine.formatDistance(NavEngine.remainingDistance)} · ${NavEngine.destinationName}"
                 }
             }
         }
         updateMapInsets()
     }
 
+    private fun darken(c: Int) = Color.rgb(Color.red(c) * 6 / 10, Color.green(c) * 6 / 10, Color.blue(c) * 6 / 10)
+
     private fun updateMapInsets() {
-        val top = if (searchCard.visibility == View.VISIBLE) searchCard.bottom + topArea.paddingTop / 2 + (6 * d).toInt()
-        else insets.top
-        val bottom = if (navCard.visibility == View.VISIBLE) navCard.height else insets.bottom
+        val top = when {
+            offerCard.visibility == View.VISIBLE -> offerCard.bottom
+            searchCard.visibility == View.VISIBLE -> searchCard.bottom + topArea.paddingTop / 2 + (6 * d).toInt()
+            else -> insets.top
+        }
+        val bottom = when {
+            preview.visibility == View.VISIBLE -> preview.height
+            navCard.visibility == View.VISIBLE -> navCard.height
+            else -> insets.bottom
+        }
         if (map.insetTop != top || map.insetBottom != bottom) {
             map.insetTop = top
             map.insetBottom = bottom
@@ -385,7 +640,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private fun choose(pl: Place) {
         closeSearch()
         search.setText("")
-        NavEngine.start(this, pl)
+        NavEngine.plan(this, pl)
     }
 
     private fun closeSearch() {
@@ -412,9 +667,34 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun showMenu() {
-        val items = arrayOf("🌗  Light / dark: ${MapState.lightMode.label}", "🚦  Live traffic", "⬆  Check for updates", "ℹ  About")
+        val items = arrayOf(
+            "🌗  Light / dark: ${MapState.lightMode.label}", "🚦  Live traffic", "⬆  Check for updates", "ℹ  About",
+            "🔊  Voice: " + (if (Voice.muted) "off" else if (Voice.lang == Phrases.GREEK) "Ελληνικά" else "English"),
+            "⚡  Faster routes: " + (if (NavEngine.autoSwitch) "switch automatically" else "ask me"),
+        )
         AlertDialog.Builder(this).setItems(items) { _, i ->
             when (i) {
+                4 -> {
+                    val opts = arrayOf("English", "Ελληνικά", "Off")
+                    val cur = if (Voice.muted) 2 else if (Voice.lang == Phrases.GREEK) 1 else 0
+                    AlertDialog.Builder(this).setTitle("Spoken directions")
+                        .setSingleChoiceItems(opts, cur) { dlg, k ->
+                            when (k) {
+                                0 -> { Voice.lang = Phrases.ENGLISH; Voice.muted = false }
+                                1 -> { Voice.lang = Phrases.GREEK; Voice.muted = false }
+                                else -> Voice.muted = true
+                            }
+                            dlg.dismiss()
+                            if (k < 2) Voice.say(if (k == 1) "Οι οδηγίες θα ακούγονται στα ελληνικά" else "Directions will be spoken in English")
+                        }.show()
+                }
+                5 -> {
+                    val opts = arrayOf("Switch automatically", "Ask me (keep my route)")
+                    AlertDialog.Builder(this).setTitle("When a faster route is found")
+                        .setSingleChoiceItems(opts, if (NavEngine.autoSwitch) 0 else 1) { dlg, k ->
+                            NavEngine.autoSwitch = k == 0; dlg.dismiss()
+                        }.show()
+                }
                 0 -> {
                     val modes = MapState.LightMode.entries
                     AlertDialog.Builder(this)
@@ -528,12 +808,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         super.onStart()
         NavEngine.changed += stateListener
         MapState.changed += stateListener
+        Voice.changed += stateListener
         refreshChrome()
     }
 
     override fun onStop() {
         NavEngine.changed -= stateListener
         MapState.changed -= stateListener
+        Voice.changed -= stateListener
+        main.removeCallbacks(ticker)
         super.onStop()
     }
 
@@ -671,5 +954,27 @@ class GameMapView(ctx: Context) : View(ctx) {
         area.set(0, insetTop, width, height - insetBottom)
         renderer.draw(canvas, width, height, area, resources.displayMetrics.density, hud = true)
         if (renderer.animating) postInvalidateOnAnimation()
+    }
+}
+
+/** A thin bar showing where along a route the traffic is. */
+class TrafficBar(ctx: Context, private val o: RouteOption) : View(ctx) {
+    private val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    override fun onDraw(c: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        val r = h / 2
+        p.color = if (o.trafficSeconds != null) Color.rgb(47, 210, 122) else Color.argb(90, 150, 150, 150)
+        c.drawRoundRect(0f, 0f, w, h, r, r, p)
+        val len = o.length.takeIf { it > 0 } ?: return
+        for (s in o.traffic) {
+            p.color = when {
+                s.value >= 4 -> Color.rgb(140, 20, 30)
+                s.value == 3 -> Color.rgb(230, 50, 60)
+                s.value == 2 -> Color.rgb(255, 140, 40)
+                else -> Color.rgb(255, 200, 60)
+            }
+            val a = (s.start / len * w).toFloat(); val b = maxOf((s.end / len * w).toFloat(), a + h)
+            c.drawRect(a, 0f, b.coerceAtMost(w), h, p)
+        }
     }
 }

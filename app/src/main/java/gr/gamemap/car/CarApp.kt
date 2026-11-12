@@ -14,15 +14,31 @@ import androidx.car.app.Screen
 import androidx.car.app.Session
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.text.SpannableString
+import android.text.Spanned
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
+import androidx.car.app.model.Alert
+import androidx.car.app.model.AlertCallback
+import androidx.car.app.model.CarColor
 import androidx.car.app.model.CarIcon
+import androidx.car.app.model.CarText
 import androidx.car.app.model.DateTimeWithZone
 import androidx.car.app.model.Distance
+import androidx.car.app.model.DistanceSpan
+import androidx.car.app.model.DurationSpan
 import androidx.car.app.model.ItemList
 import androidx.car.app.model.Row
 import androidx.car.app.model.SearchTemplate
 import androidx.car.app.model.Template
+import androidx.car.app.navigation.model.Lane
+import androidx.car.app.navigation.model.LaneDirection
+import androidx.car.app.navigation.model.RoutePreviewNavigationTemplate
 import androidx.car.app.navigation.NavigationManager
 import androidx.car.app.navigation.NavigationManagerCallback
 import androidx.car.app.navigation.model.Maneuver
@@ -40,10 +56,12 @@ import gr.gamemap.LocationTracker
 import gr.gamemap.MapRenderer
 import gr.gamemap.MapState
 import gr.gamemap.NavEngine
+import gr.gamemap.NavStep
 import gr.gamemap.Place
 import gr.gamemap.Places
 import gr.gamemap.R
 import gr.gamemap.TileCache
+import gr.gamemap.Voice
 import java.util.TimeZone
 import java.util.concurrent.Executors
 
@@ -127,8 +145,17 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
     private val refresh = Runnable { lastInvalidate = System.currentTimeMillis(); invalidate() }
 
     /** Template updates are throttled to once a second. */
+    private var previewShown = false
+    private var alertFor: NavEngine.Offer? = null
+
     private val onNav: () -> Unit = {
         syncNavigationState()
+        // a route preview started from the phone or the car search shows here too
+        if (NavEngine.planning && !previewShown) {
+            previewShown = true
+            screenManager.push(RoutePreviewScreen(carContext))
+        } else if (!NavEngine.planning) previewShown = false
+        syncOfferAlert()
         main.removeCallbacks(refresh)
         val wait = 1000 - (System.currentTimeMillis() - lastInvalidate)
         if (wait <= 0) refresh.run() else main.postDelayed(refresh, wait)
@@ -146,6 +173,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 MapState.changed += surface.redraw
                 NavEngine.changed += surface.redraw
                 NavEngine.changed += onNav
+                Voice.changed += onNav
                 ensureLocation()
                 if (gr.gamemap.Updater.dueForCheck(carContext)) Executors.newSingleThreadExecutor().execute {
                     val r = try { gr.gamemap.Updater.check(carContext) } catch (e: Exception) { null }
@@ -161,6 +189,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 MapState.changed -= surface.redraw
                 NavEngine.changed -= surface.redraw
                 NavEngine.changed -= onNav
+                Voice.changed -= onNav
                 if (navigating) nav.navigationEnded()
             }
         })
@@ -188,6 +217,38 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
         }
     }
 
+    /** "Faster route found" as an Android Auto alert with Switch / Keep (needs a newer car host). */
+    private fun syncOfferAlert() {
+        val o = NavEngine.offer
+        val am = carContext.getCarService(AppManager::class.java)
+        if (o == null) {
+            if (alertFor != null) {
+                alertFor = null
+                if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_5) try { am.dismissAlert(OFFER_ALERT) } catch (_: Exception) {}
+            }
+            return
+        }
+        if (alertFor === o) return
+        alertFor = o
+        if (carContext.carAppApiLevel < CarAppApiLevels.LEVEL_5) {
+            CarToast.makeText(carContext, "Faster route: saves ${(o.savingSeconds + 30) / 60} min" +
+                if (NavEngine.autoSwitch) ", switching" else "", CarToast.LENGTH_LONG).show()
+            return
+        }
+        val via = o.option.via.takeIf { it.isNotBlank() }?.let { "Via $it" } ?: "Avoids traffic on your route"
+        val alert = Alert.Builder(OFFER_ALERT, CarText.create("Faster route · saves ${(o.savingSeconds + 30) / 60} min"), NavEngine.OFFER_SECONDS * 1000L)
+            .setSubtitle(CarText.create(via))
+            .setIcon(icon(carContext, R.drawable.ic_bolt))
+            .addAction(Action.Builder().setTitle("Switch").setOnClickListener { NavEngine.acceptOffer() }.build())
+            .addAction(Action.Builder().setTitle("Keep").setOnClickListener { NavEngine.declineOffer() }.build())
+            .setCallback(object : AlertCallback {
+                override fun onCancel(reason: Int) {}
+                override fun onDismiss() {}
+            })
+            .build()
+        try { am.showAlert(alert) } catch (_: Exception) {}
+    }
+
     private fun action(res: Int, onClick: () -> Unit) =
         Action.Builder().setIcon(icon(carContext, res)).setOnClickListener(onClick).build()
 
@@ -202,12 +263,17 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
 
         val b = NavigationTemplate.Builder().setActionStrip(strip.build())
         if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_2) {
-            b.setMapActionStrip(
-                ActionStrip.Builder()
-                    .addAction(action(R.drawable.ic_zoom_in) { MapState.zoomBy(1.0) })
-                    .addAction(action(R.drawable.ic_zoom_out) { MapState.zoomBy(-1.0) })
-                    .build()
-            )
+            val m = ActionStrip.Builder()
+                .addAction(action(R.drawable.ic_zoom_in) { MapState.zoomBy(1.0) })
+                .addAction(action(R.drawable.ic_zoom_out) { MapState.zoomBy(-1.0) })
+            if (NavEngine.active) {
+                m.addAction(action(if (Voice.muted) R.drawable.ic_volume_off else R.drawable.ic_volume_on) { Voice.muted = !Voice.muted })
+                m.addAction(action(R.drawable.ic_overview) {
+                    if (MapState.overview || !MapState.following) MapState.recenter()
+                    else NavEngine.route.takeIf { it.size > 1 }?.let { r -> MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last()) }
+                })
+            }
+            b.setMapActionStrip(m.build())
         }
 
         if (NavEngine.active) {
@@ -222,17 +288,24 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 )
                 NavEngine.loading || step == null -> b.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
                 else -> {
-                    b.setNavigationInfo(
-                        RoutingInfo.Builder()
-                            .setCurrentStep(toCarStep(step), distance(NavEngine.distanceToNext))
-                            .build()
-                    )
+                    val ri = RoutingInfo.Builder()
+                        .setCurrentStep(toCarStep(step, withLanes = NavEngine.distanceToNext < 900), distance(NavEngine.distanceToNext))
+                    NavEngine.followingStep?.let { ri.setNextStep(toCarStep(it, withLanes = false)) }
+                    b.setNavigationInfo(ri.build())
                     val arrival = System.currentTimeMillis() + (NavEngine.remainingSeconds * 1000).toLong()
+                    val delay = NavEngine.trafficDelaySeconds / 60
+                    val color = when {
+                        delay >= 10 -> CarColor.RED
+                        delay >= 3 -> CarColor.YELLOW
+                        else -> CarColor.GREEN
+                    }
                     b.setDestinationTravelEstimate(
                         TravelEstimate.Builder(
                             distance(NavEngine.remainingDistance),
                             DateTimeWithZone.create(arrival, TimeZone.getDefault())
-                        ).setRemainingTimeSeconds(NavEngine.remainingSeconds.toLong().coerceAtLeast(0)).build()
+                        ).setRemainingTimeSeconds(NavEngine.remainingSeconds.toLong().coerceAtLeast(0))
+                            .setRemainingTimeColor(color)
+                            .build()
                     )
                 }
             }
@@ -247,9 +320,14 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
         else -> Distance.create(((m / 10).toInt() * 10).toDouble(), Distance.UNIT_METERS)
     }
 
-    private fun toCarStep(s: NavEngine.Step): Step {
+    private var lanesFor: NavStep? = null
+    private var lanesIcon: CarIcon? = null
+
+    private fun toCarStep(s: NavStep, withLanes: Boolean): Step {
+        val roundabout = (s.type == "roundabout" || s.type == "rotary") && s.exit in 1..12
         val (type, res) = when {
             s.direction == "arrive" -> Maneuver.TYPE_DESTINATION to R.drawable.ic_flag
+            roundabout -> Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CCW to R.drawable.ic_roundabout
             s.direction == "uturn" -> Maneuver.TYPE_U_TURN_LEFT to R.drawable.ic_uturn
             s.direction == "sharp left" -> Maneuver.TYPE_TURN_SHARP_LEFT to R.drawable.ic_turn_left
             s.direction == "slight left" -> Maneuver.TYPE_TURN_SLIGHT_LEFT to R.drawable.ic_turn_left
@@ -259,10 +337,153 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             s.direction.contains("right") -> Maneuver.TYPE_TURN_NORMAL_RIGHT to R.drawable.ic_turn_right
             else -> Maneuver.TYPE_STRAIGHT to R.drawable.ic_straight
         }
-        val b = Step.Builder(s.text).setManeuver(Maneuver.Builder(type).setIcon(icon(carContext, res)).build())
+        val mb = Maneuver.Builder(type).setIcon(icon(carContext, res))
+        if (roundabout) mb.setRoundaboutExitNumber(s.exit)
+        val b = Step.Builder(s.text).setManeuver(mb.build())
         if (s.road.isNotBlank()) b.setRoad(s.road)
+        val lanes = s.lanes
+        if (withLanes && lanes != null) {
+            for (l in lanes) {
+                val lb = Lane.Builder()
+                val dirs = l.directions.ifEmpty { listOf("straight") }
+                for (dname in dirs) lb.addDirection(LaneDirection.create(laneShape(dname), l.valid && (dname == s.direction || dirs.size == 1)))
+                b.addLane(lb.build())
+            }
+            if (lanesFor !== s) { lanesFor = s; lanesIcon = CarIcon.Builder(IconCompat.createWithBitmap(laneBitmap(lanes, s.direction))).build() }
+            lanesIcon?.let { b.setLanesImage(it) }
+        }
         return b.build()
     }
+
+    private fun laneShape(d: String) = when (d) {
+        "uturn" -> LaneDirection.SHAPE_U_TURN_LEFT
+        "sharp left" -> LaneDirection.SHAPE_SHARP_LEFT
+        "left" -> LaneDirection.SHAPE_NORMAL_LEFT
+        "slight left" -> LaneDirection.SHAPE_SLIGHT_LEFT
+        "sharp right" -> LaneDirection.SHAPE_SHARP_RIGHT
+        "right" -> LaneDirection.SHAPE_NORMAL_RIGHT
+        "slight right" -> LaneDirection.SHAPE_SLIGHT_RIGHT
+        "straight", "none" -> LaneDirection.SHAPE_STRAIGHT
+        else -> LaneDirection.SHAPE_UNKNOWN
+    }
+
+    /** Picture of the lanes for the car's turn card: white arrows on lanes to use, grey on others. */
+    private fun laneBitmap(lanes: List<gr.gamemap.Lane>, maneuver: String): Bitmap {
+        val cell = 64
+        val h = 64
+        val bmp = Bitmap.createBitmap(cell * lanes.size, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 6f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        }
+        lanes.forEachIndexed { i, l ->
+            val dir = l.directions.firstOrNull { l.valid && it == maneuver }
+                ?: l.directions.firstOrNull { l.valid && it != "none" } ?: l.directions.firstOrNull() ?: "straight"
+            p.color = if (l.valid) Color.WHITE else Color.argb(110, 255, 255, 255)
+            val x = i * cell + cell / 2f; val y = h / 2f; val s = 22f
+            val ang = when {
+                dir == "uturn" -> 180.0
+                dir.contains("sharp left") -> -135.0
+                dir.contains("slight left") -> -40.0
+                dir.contains("left") -> -90.0
+                dir.contains("sharp right") -> 135.0
+                dir.contains("slight right") -> 40.0
+                dir.contains("right") -> 90.0
+                else -> 0.0
+            }
+            val path = Path()
+            path.moveTo(x, y + s)
+            val a = Math.toRadians(ang - 90)
+            val ex: Float; val ey: Float
+            if (ang == 0.0) { ex = x; ey = y - s } else {
+                path.lineTo(x, y)
+                ex = x + (s * Math.cos(a)).toFloat(); ey = y + (s * Math.sin(a)).toFloat()
+            }
+            path.lineTo(ex, ey)
+            val back = a + Math.PI
+            path.moveTo(ex + (s * 0.5 * Math.cos(back + 0.6)).toFloat(), ey + (s * 0.5 * Math.sin(back + 0.6)).toFloat())
+            path.lineTo(ex, ey)
+            path.lineTo(ex + (s * 0.5 * Math.cos(back - 0.6)).toFloat(), ey + (s * 0.5 * Math.sin(back - 0.6)).toFloat())
+            c.drawPath(path, p)
+        }
+        return bmp
+    }
+
+    companion object {
+        const val OFFER_ALERT = 7
+    }
+}
+
+/** Route choices on the car screen: pick one and Start (the map shows them all). */
+class RoutePreviewScreen(carContext: CarContext) : Screen(carContext) {
+    private var started = false
+    private val main = Handler(Looper.getMainLooper())
+    private var lastInvalidate = 0L
+    private val refresh = Runnable { lastInvalidate = System.currentTimeMillis(); invalidate() }
+    private val listener: () -> Unit = {
+        if (!NavEngine.planning) {
+            started = true
+            finish()
+        } else {
+            main.removeCallbacks(refresh)
+            val wait = 800 - (System.currentTimeMillis() - lastInvalidate)
+            if (wait <= 0) refresh.run() else main.postDelayed(refresh, wait)
+        }
+    }
+
+    init {
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onCreate(owner: LifecycleOwner) { NavEngine.changed += listener }
+            override fun onDestroy(owner: LifecycleOwner) {
+                NavEngine.changed -= listener
+                main.removeCallbacks(refresh)
+                if (!started && NavEngine.planning) NavEngine.cancelPlan()
+            }
+        })
+    }
+
+    override fun onGetTemplate(): Template {
+        val b = RoutePreviewNavigationTemplate.Builder()
+            .setTitle(NavEngine.planPlace?.name ?: "Route")
+            .setHeaderAction(Action.BACK)
+        val opts = NavEngine.options
+        if (opts.isEmpty()) {
+            b.setLoading(true)
+            return b.build()
+        }
+        val list = ItemList.Builder()
+        val fastest = NavEngine.fastestIndex()
+        opts.forEachIndexed { i, o ->
+            val title = SpannableString(" ")
+            title.setSpan(DurationSpan.create(o.seconds.toLong()), 0, 1, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+            val line = SpannableString(" · " + (if (o.via.isNotBlank()) "via ${o.via}" else "route ${i + 1}"))
+            line.setSpan(DistanceSpan.create(carDistance(o.distance)), 0, 1, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+            val row = Row.Builder().setTitle(title).addText(line)
+            when {
+                o.trafficSeconds != null && i == fastest && opts.size > 1 -> row.addText("Fastest")
+                o.delaySeconds >= 60 -> row.addText("+${o.delaySeconds / 60} min traffic")
+            }
+            list.addItem(row.build())
+        }
+        list.setSelectedIndex(NavEngine.selected.coerceIn(0, opts.size - 1))
+        list.setOnSelectedListener { NavEngine.select(it) }
+        b.setItemList(list.build())
+        b.setNavigateAction(
+            Action.Builder().setTitle("Start").setOnClickListener {
+                started = true
+                NavEngine.startPlanned()
+                screenManager.popToRoot()
+            }.build()
+        )
+        return b.build()
+    }
+}
+
+fun carDistance(m: Double): Distance = when {
+    m >= 10_000 -> Distance.create((m / 1000).toInt().toDouble(), Distance.UNIT_KILOMETERS)
+    m >= 1000 -> Distance.create(Math.round(m / 100) / 10.0, Distance.UNIT_KILOMETERS_P1)
+    m >= 100 -> Distance.create(((m / 50).toInt() * 50).toDouble(), Distance.UNIT_METERS)
+    else -> Distance.create(((m / 10).toInt() * 10).toDouble(), Distance.UNIT_METERS)
 }
 
 /** Destination search on the car screen: recents first, live suggestions while typing. */
@@ -301,8 +522,8 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
             val list = ItemList.Builder().setNoItemsMessage(message)
             results.take(6).forEach { p ->
                 val row = Row.Builder().setTitle(p.name).setOnClickListener {
-                    NavEngine.start(carContext, p)
                     screenManager.pop()
+                    NavEngine.plan(carContext, p)
                 }
                 val dist = near?.let { NavEngine.formatDistance(gr.gamemap.Geo.distance(it, p.pos)) }
                 val line = listOfNotNull(dist, p.address.takeIf { it.isNotBlank() }?.take(70)).joinToString(" · ")
