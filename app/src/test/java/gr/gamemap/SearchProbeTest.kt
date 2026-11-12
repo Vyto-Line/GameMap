@@ -19,6 +19,17 @@ class SearchProbeTest {
         val me = LatLng(37.9838, 23.7275) // ~3 km from Neos Kosmos
         log.append("greeklish: ${listOf("eggeli", "xalandri", "thiseio", "neos kosmos", "lykovrysi").map { it + "→" + Places.greeklish(it) }}\n")
         var t0 = System.currentTimeMillis()
+        val q = "[out:csv(name,::lat,::lon;false;\"\\t\")][timeout:60];way[highway~\"^(primary|secondary|tertiary|unclassified|residential|living_street|pedestrian|service)$\"][name](37.9,23.7,38.0,23.8);out center;"
+        for (ep in Alerts.overpass) {
+            t0 = System.currentTimeMillis()
+            val c = java.net.URL(ep).openConnection() as java.net.HttpURLConnection
+            c.connectTimeout = 10000; c.readTimeout = 90000; c.requestMethod = "POST"; c.doOutput = true
+            c.setRequestProperty("User-Agent", "GameMap/1.0 (probe)")
+            val code = try { c.outputStream.use { it.write(("data=" + java.net.URLEncoder.encode(q, "UTF-8")).toByteArray()) }; c.responseCode } catch (e: Exception) { log.append("overpass $ep $e\n"); -1 }
+            val body = try { (if (code == 200) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty() } catch (e: Exception) { e.toString() }
+            log.append("overpass $ep $code ${System.currentTimeMillis() - t0} ms ${body.length} chars, lines ${body.lines().size}, Εγγ: ${body.lines().filter { it.contains("γγελ") }.take(3)}\n   ${body.take(200)}\n")
+        }
+        t0 = System.currentTimeMillis()
         Places.prepareStreets(me)
         log.append("streets index ${System.currentTimeMillis() - t0} ms\n")
         for (q in listOf("eggeli 32 news kosmos", "eggeli", "Λυκοβριση", "lykovrysi", "Εγγέλη 32", "kallirois 50", "ikea")) {

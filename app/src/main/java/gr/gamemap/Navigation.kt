@@ -480,7 +480,7 @@ object Places {
                 "way[highway~\"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|pedestrian|service|road)$\"][name]($s,$w,$n,$e);out center;"
             var t: String? = null
             for (ep in Alerts.overpass) {
-                t = try { Http.post(ep, "data=" + URLEncoder.encode(q, "UTF-8"), "application/x-www-form-urlencoded") } catch (ex: Exception) { null }
+                t = try { Http.post(ep, "data=" + URLEncoder.encode(q, "UTF-8"), "application/x-www-form-urlencoded", timeout = 75_000) } catch (ex: Exception) { null }
                 if (t != null && !t.trimStart().startsWith("<")) break else t = null
             }
             if (t == null) return if (file.exists()) parseStreets(file.readText()) else null
@@ -602,9 +602,15 @@ object Places {
         return (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             val display = o.optString("display_name")
-            val name = o.optString("name").ifBlank { display.substringBefore(",") }
+            val parts = display.split(", ")
+            var name = o.optString("name").ifBlank { parts.first() }
+            var rest = display.removePrefix(name).trimStart(',', ' ')
+            // a house: "32, Έγγελη, Dourgouti…" → "Έγγελη 32", "Dourgouti…"
+            if (name.isNotEmpty() && name.all { it.isDigit() || it in "-/ΑΒΓαβγabc" } && parts.size > 1) {
+                name = "${parts[1]} ${parts[0]}"; rest = parts.drop(2).joinToString(", ")
+            }
             Place(
-                name, display.removePrefix(name).trimStart(',', ' '),
+                name, rest,
                 LatLng(o.getString("lat").toDouble(), o.getString("lon").toDouble()),
                 icon(o.optString("category"), o.optString("type")),
             )
@@ -809,10 +815,10 @@ object Http {
         }
     }
 
-    fun post(url: String, body: String, contentType: String = "application/json"): String {
+    fun post(url: String, body: String, contentType: String = "application/json", timeout: Int = 20000): String {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 10000
-        c.readTimeout = 20000
+        c.readTimeout = timeout
         c.requestMethod = "POST"
         c.doOutput = true
         c.setRequestProperty("Content-Type", contentType)
