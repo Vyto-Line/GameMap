@@ -68,6 +68,8 @@ object NavEngine {
     private var trafficAt = 0L
 
     val active get() = destination != null
+    /** Index of the route point just behind us (the line is only drawn ahead of it). */
+    val passedIndex: Int get() = nearest
     val currentStep: NavStep? get() = steps.getOrNull(nextStep)
 
     /** The maneuver after the next one, if it comes soon after it ("Then …"). */
@@ -329,7 +331,7 @@ object NavEngine {
             if (best == null || pr.second < best.second) { best = pr; seg = i }
         }
         val b = best ?: return null
-        if (b.second > 30) return null
+        if (b.second > 20) return null
         return b.first to Geo.bearing(route[seg], route[seg + 1])
     }
 
@@ -415,9 +417,14 @@ object NavEngine {
         r.steps.getOrNull(nextStep)?.let { distanceToNext = (r.cum[it.routeIndex] - along).coerceAtLeast(0.0) }
         currentStep?.let { Voice.progress(nextStep, it, distanceToNext, LocationTracker.speedMps, followingStep) }
 
+        // Off the route: 2 fixes in a row more than ~35 m away (or one fix far away),
+        // or driving the wrong way along it. Then ask for a new route straight away.
         val accuracy = if (l.hasAccuracy()) l.accuracy.toDouble() else 20.0
-        offRouteCount = if (bestD > maxOf(50.0, accuracy * 1.5)) offRouteCount + 1 else 0
-        if (offRouteCount >= 3 && !loading && System.currentTimeMillis() - lastRouteAt > 15_000) {
+        val far = bestD > maxOf(35.0, accuracy * 1.2)
+        val wrongWay = l.hasBearing() && l.speed > 4f && bestD < 30 &&
+            kotlin.math.abs(Geo.angleDiff(l.bearing, Geo.bearing(route[best], route[best + 1]))) > 120
+        offRouteCount = if (far || wrongWay) offRouteCount + (if (bestD > 120) 2 else 1) else 0
+        if (offRouteCount >= 2 && !loading && System.currentTimeMillis() - lastRouteAt > 6_000) {
             offRouteCount = 0
             offer = null
             fetchRoute(reroute = true)

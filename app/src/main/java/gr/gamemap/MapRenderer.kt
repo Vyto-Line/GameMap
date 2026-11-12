@@ -519,26 +519,70 @@ class MapRenderer(private val car: Boolean = false) {
         color: Int, glow: Int, width: Float, dashed: Boolean, pixel: Boolean,
     ) {
         if (pts.size < 2) return
-        val cp = pathFor(pts, world, z)
+        strokePath(c, pathFor(pts, world, z), px, py, scale, d, color, glow, width, dashed, pixel)
+    }
+
+    private fun strokePath(
+        c: Canvas, cp: CachedPath, px: Double, py: Double, scale: Float, d: Float,
+        color: Int, glow: Int, width: Float, dashed: Boolean, pixel: Boolean, extra: Path? = null,
+    ) {
         c.save()
         c.translate((cp.ox - px).toFloat(), (cp.oy - py).toFloat())
+        fun both() { c.drawPath(cp.path, routePaint); if (extra != null) c.drawPath(extra, routePaint) }
         routePaint.pathEffect = null
         routePaint.isAntiAlias = !pixel
         // a contrasting outline keeps the route readable over busy, same-coloured roads
         routePaint.color = if (MapState.dark) Color.argb(200, 0, 0, 0) else Color.argb(220, 255, 255, 255)
         routePaint.strokeWidth = (width + 5) * d / scale
-        c.drawPath(cp.path, routePaint)
+        both()
         if (Color.alpha(glow) > 0) {
             routePaint.color = glow
             routePaint.strokeWidth = (width + 9) * d / scale
-            c.drawPath(cp.path, routePaint)
+            both()
         }
         routePaint.color = color
         routePaint.strokeWidth = width * d / scale
         if (dashed) routePaint.pathEffect = DashPathEffect(floatArrayOf(14 * d / scale, 10 * d / scale), 0f)
-        c.drawPath(cp.path, routePaint)
+        both()
         routePaint.pathEffect = null
         c.restore()
+    }
+
+    // The part of the route still ahead: rebuilt when we pass a route point, plus a short
+    // piece from the arrow to that point drawn fresh each frame, so the line ends at the arrow.
+    private var aheadRoute: List<LatLng>? = null
+    private var aheadIndex = -1
+    private var aheadZ = -1
+    private var aheadPath: CachedPath? = null
+    private val headPath = Path()
+
+    private fun aheadPathFor(route: List<LatLng>, from: Int, world: Double, z: Int): CachedPath {
+        val cached = aheadPath
+        if (cached != null && route === aheadRoute && from == aheadIndex && z == aheadZ) return cached
+        val ox = Geo.x(route[from].lon, world); val oy = Geo.y(route[from].lat, world)
+        val p = Path()
+        for (i in from until route.size) {
+            val x = (Geo.x(route[i].lon, world) - ox).toFloat(); val y = (Geo.y(route[i].lat, world) - oy).toFloat()
+            if (i == from) p.moveTo(x, y) else p.lineTo(x, y)
+        }
+        return CachedPath(p, ox, oy).also { aheadPath = it; aheadRoute = route; aheadIndex = from; aheadZ = z }
+    }
+
+    /** The route from the arrow onwards (nothing behind you). */
+    private fun drawRouteAhead(
+        c: Canvas, route: List<LatLng>, world: Double, z: Int, px: Double, py: Double, scale: Float, d: Float,
+        color: Int, glow: Int, width: Float, dashed: Boolean, pixel: Boolean,
+    ) {
+        val idx = NavEngine.passedIndex.coerceIn(0, route.size - 2)
+        val next = idx + 1
+        val ahead = aheadPathFor(route, next, world, z)
+        // join from where the arrow is (its spot on the route) to the next route point
+        val me = LocationTracker.displayPosition()
+        val start = me?.let { NavEngine.snap(it)?.first } ?: route[idx]
+        headPath.reset()
+        val sx = (Geo.x(start.lon, world) - ahead.ox).toFloat(); val sy = (Geo.y(start.lat, world) - ahead.oy).toFloat()
+        headPath.moveTo(sx, sy); headPath.lineTo(0f, 0f)
+        strokePath(c, ahead, px, py, scale, d, color, glow, width, dashed, pixel, extra = headPath)
     }
 
     private fun withAlpha(col: Int, a: Int) = Color.argb(a, Color.red(col), Color.green(col), Color.blue(col))
@@ -562,11 +606,11 @@ class MapRenderer(private val car: Boolean = false) {
         val offer = NavEngine.offer
         if (route.size > 1) {
             if (offer != null) {
-                strokeRoute(c, route, world, z, px, py, scale, d, withAlpha(theme.route, 110), 0, 6f, false, pixel)
+                drawRouteAhead(c, route, world, z, px, py, scale, d, withAlpha(theme.route, 110), 0, 6f, false, pixel)
                 strokeRoute(c, offer.option.points, world, z, px, py, scale, d,
                     Color.rgb(61, 220, 132), Color.argb(90, 61, 220, 132), 8f, false, pixel)
             } else {
-                strokeRoute(c, route, world, z, px, py, scale, d, theme.route, theme.routeGlow, 7f, theme.dashedRoute, pixel)
+                drawRouteAhead(c, route, world, z, px, py, scale, d, theme.route, theme.routeGlow, 7f, theme.dashedRoute, pixel)
             }
         }
         NavEngine.destination?.let { drawDestination(c, it, world, px, py, scale, d, theme) }
