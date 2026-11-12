@@ -89,11 +89,11 @@ class TrafficMockTest {
         while (i < p.size) { lineTo(p[i], p[i + 1]); i += 2 }
     }
 
-    private fun drawTraffic(c: Canvas, segs: List<Seg>, theme: Theme, style: String, d: Float, scale: Float) {
+    private fun drawTraffic(c: Canvas, segs: List<Seg>, theme: Theme, mode: String, d: Float, scale: Float) {
         val st = theme.style
         val colors = intArrayOf(st.trafficFree, st.trafficSlow, st.trafficJam)
         val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-        when (style) {
+        when (mode) {
             "A" -> for (s in segs) {
                 val p = path(s.pts)
                 line.color = Color.argb(150, 0, 0, 0); line.strokeWidth = 5.5f * d; c.drawPath(p, line)
@@ -139,8 +139,8 @@ class TrafficMockTest {
         }
     }
 
-    private fun label(c: Canvas, theme: Theme, style: String, d: Float) {
-        val title = mapOf("A" to "A · Lines", "B" to "B · Painted roads", "C" to "C · Game style")[style]!!
+    private fun label(c: Canvas, theme: Theme, mode: String, d: Float) {
+        val title = mapOf("A" to "A · Lines", "B" to "B · Painted roads", "C" to "C · Game style")[mode]!!
         val bg = Paint().apply { color = Color.argb(215, 0, 0, 0) }
         c.drawRect(0f, 0f, 1080f, 160f, bg)
         val t = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 22f * d; isFakeBoldText = true }
