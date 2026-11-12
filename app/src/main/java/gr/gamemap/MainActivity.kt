@@ -142,6 +142,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         sheetHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; isClickable = true; elevation = 16 * d }
         sheetOverlay = FrameLayout(this).apply {
             visibility = View.GONE
+            elevation = 30 * d
             setBackgroundColor(Color.argb(110, 0, 0, 0))
             setOnClickListener { closeSheet() }
             addView(sheetHost, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
@@ -150,6 +151,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         tripCard = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; isClickable = true; elevation = 18 * d; gravity = Gravity.CENTER_HORIZONTAL }
         tripOverlay = FrameLayout(this).apply {
             visibility = View.GONE
+            elevation = 32 * d
             setBackgroundColor(Color.argb(120, 0, 0, 0))
             isClickable = true
             addView(tripCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.CENTER).apply {
