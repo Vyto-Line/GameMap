@@ -5,61 +5,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Probe APIs
-        env:
-          TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
         run: |
           set +e
-          echo "== OSRM =="
-          curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.7329,37.9990?alternatives=3&steps=true&annotations=duration&overview=false" > osrm.json
-          python3 - <<'P'
-          import json
-          o=json.load(open('osrm.json'))
-          print('code',o.get('code'),'routes',len(o.get('routes',[])))
-          r=o['routes'][0]; l=r['legs'][0]
-          print('annotation keys', list(l.get('annotation',{}).keys()))
-          print('maxspeed sample', l.get('annotation',{}).get('maxspeed',[])[:6])
-          for s in l['steps'][:6]:
-            for it in s.get('intersections',[]):
-              if 'lanes' in it: print('lanes', s['name'], it['lanes']); break
-          for i,rr in enumerate(o['routes']): print('route',i,rr['distance'],rr['duration'])
-          P
-          echo "== TomTom incidents =="
-          F='{incidents{type,geometry{type,coordinates},properties{iconCategory,magnitudeOfDelay,events{description,code},from,to,length,delay}}}'
-          curl -s -m 30 -G "https://api.tomtom.com/traffic/services/5/incidentDetails" --data-urlencode "key=$TOMTOM_KEY" --data-urlencode "bbox=23.68,37.95,23.78,38.02" --data-urlencode "fields=$F" --data-urlencode "language=en-GB" --data-urlencode "timeValidityFilter=present" > inc.json
-          python3 -c "
-          import json;o=json.load(open('inc.json'));i=o.get('incidents',o)
-          print(type(i), len(i) if isinstance(i,list) else str(i)[:300])
-          if isinstance(i,list):
-            for x in i[:4]: p=x['properties']; print(p.get('iconCategory'),p.get('magnitudeOfDelay'),p.get('events'),x['geometry']['type'],len(x['geometry']['coordinates']))
-          "
-          echo "== Overpass cameras =="
-          curl -s -m 60 --data-urlencode 'data=[out:json][timeout:25];node["highway"="speed_camera"](37.85,23.55,38.15,23.95);out;' https://overpass-api.de/api/interpreter | python3 -c "
-          import json,sys;o=json.load(sys.stdin);e=o['elements'];print('cameras',len(e));print([x.get('tags') for x in e[:3]])"
-          echo "== TomTom reconstruct =="
-          python3 - <<'P'
-          import json
-          o=json.load(open('osrm.json'))
-          P2=None
-          P
-          curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.7329,37.9990?overview=full&geometries=geojson" > full.json
-          python3 -c "
-          import json;c=json.load(open('full.json'))['routes'][0]['geometry']['coordinates']
-          step=max(1,len(c)//40); pts=c[::step]+[c[-1]]
-          json.dump({'supportingPoints':[{'latitude':y,'longitude':x} for x,y in pts]},open('body.json','w'))
-          print('points',len(pts),'first',pts[0],'last',pts[-1])"
-          FIRST=$(python3 -c "import json;b=json.load(open('body.json'))['supportingPoints'];print(f\"{b[0]['latitude']},{b[0]['longitude']}:{b[-1]['latitude']},{b[-1]['longitude']}\")")
-          for extra in "" "&departAt=2026-11-13T08:30:00"; do
-          curl -s -m 30 -X POST -H 'Content-Type: application/json' --data @body.json "https://api.tomtom.com/routing/1/calculateRoute/$FIRST/json?key=$TOMTOM_KEY&traffic=true&travelMode=car&routeRepresentation=polyline&sectionType=traffic&sectionType=speedLimit&computeTravelTimeFor=all$extra" > tt.json
-          python3 -c "
-          import json;o=json.load(open('tt.json'))
-          if 'routes' not in o: print('ERR',str(o)[:400])
-          else:
-            r=o['routes'][0];print('summary',r['summary']);print('npts',len(r['legs'][0]['points']));print('sections',[(s['sectionType'],s['startPointIndex'],s['endPointIndex'],s.get('magnitudeOfDelay'),s.get('delayInSeconds'),s.get('maxSpeedLimitInKmh')) for s in r['sections']])"
+          echo "== photon osm_tag =="
+          for q in fuel restaurant parking; do
+            tag=$( [ $q = fuel ] && echo amenity:fuel || ([ $q = restaurant ] && echo amenity:restaurant || echo amenity:parking) )
+            curl -s -m 20 "https://photon.komoot.io/api/?q=$q&osm_tag=$tag&lat=37.984&lon=23.728&limit=5&location_bias_scale=0.9&zoom=16" | python3 -c "
+          import json,sys;o=json.load(sys.stdin);f=o.get('features',[])
+          print('$q',len(f),[ (x['properties'].get('name'),x['properties'].get('osm_value'),x['geometry']['coordinates']) for x in f[:5]])"
           done
-          echo "== OSRM lanes demo (highway) =="
-          curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.80,38.04?steps=true&overview=false" | python3 -c "
-          import json,sys;o=json.load(sys.stdin);n=0
-          for s in o['routes'][0]['legs'][0]['steps']:
-            for it in s.get('intersections',[]):
-              if 'lanes' in it and n<4: print(s['name'],s['maneuver'],it['lanes']); n+=1
-          print('lane intersections found', n)"
+          echo "== nominatim amenity =="
+          curl -s -m 20 -A "GameMap-probe" "https://nominatim.openstreetmap.org/search?amenity=fuel&viewbox=23.70,38.00,23.76,37.97&bounded=1&format=jsonv2&limit=5" | python3 -c "
+          import json,sys;a=json.load(sys.stdin);print(len(a),[(x.get('name'),x.get('type'),x['lat'],x['lon']) for x in a[:5]])"
+          echo "== osrm exclude =="
+          for ex in toll motorway "toll,motorway"; do
+            curl -s -m 20 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.65,37.94?overview=false&exclude=$ex" | python3 -c "
+          import json,sys;o=json.load(sys.stdin);print('$ex',o.get('code'),o.get('message'),[ (r['distance'],r['duration']) for r in o.get('routes',[])])"
+          done
