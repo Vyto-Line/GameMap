@@ -29,39 +29,6 @@ Map data © OpenStreetMap contributors via OpenFreeMap vector tiles, live traffi
 - **Game side:** arrival card with trip stats, XP and levels; Trailblazer landmarks to discover.
 - **Alerts:** speed cameras (OpenStreetMap), accidents and roadworks (TomTom), driver reports.
 
-## Driver reports (optional)
-
-Reports (police, accidents, hazards…) are shared through a free Firebase Realtime Database:
-
-1. console.firebase.google.com › Add project › "gamemap" (Analytics not needed).
-2. Build › Realtime Database › Create database › any location › **Start in locked mode**.
-3. Rules tab, paste and Publish:
-
-```json
-{
-  "rules": {
-    "reports": {
-      ".read": true,
-      ".indexOn": ["t"],
-      "$id": {
-        ".write": "!data.exists() && newData.hasChildren(['type','lat','lon','t'])",
-        "type": { ".validate": "newData.isString() && newData.val().matches(/^(police|accident|hazard|jam|closed|camera)$/)" },
-        "lat": { ".validate": "newData.isNumber()" },
-        "lon": { ".validate": "newData.isNumber()" },
-        "h": { ".validate": "newData.isNumber()" },
-        "t": { ".validate": "newData.val() == now" },
-        "yes": { "$v": { ".write": true, ".validate": "newData.val() == now" } },
-        "no": { "$v": { ".write": true, ".validate": "newData.val() == now" } },
-        "$other": { ".validate": false }
-      }
-    }
-  }
-}
-```
-
-4. Copy the database address (…firebasedatabase.app) and either paste it in the app
-   (Settings › Driver reports) or add it as the `REPORTS_URL` repository secret so every build has it.
-
 ## Install (Android Auto needs this exact way)
 Android Auto only shows apps it thinks came from Google Play, so install with **UnknownAuto**:
 1. Android Auto settings ▸ tap **Version** 10× ▸ ⋮ ▸ Developer settings ▸ **Unknown sources**: ON.
