@@ -94,14 +94,26 @@ class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
         MapState.zoomByFactor(scaleFactor)
     }
 
+    private var hardware = true
+
     private fun render() {
         val s = surface ?: return
         if (!s.isValid || w == 0) return
-        val c = try { s.lockCanvas(null) } catch (e: Exception) { return }
+        val c = try {
+            if (hardware) s.lockHardwareCanvas() else s.lockCanvas(null)
+        } catch (e: Exception) {
+            if (hardware) { hardware = false; redraw() }
+            return
+        }
         try {
             renderer.draw(c, w, h, if (visible.isEmpty) Rect(0, 0, w, h) else visible, density, hud = false)
         } finally {
             s.unlockCanvasAndPost(c)
+        }
+        // Keep animating (gliding arrow, smooth zoom) at ~30 fps while something moves.
+        if (renderer.animating) {
+            main.removeCallbacks(draw)
+            main.postDelayed(draw, 33)
         }
     }
 }
@@ -253,31 +265,48 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
     }
 }
 
-/** Destination search on the car screen. */
+/** Destination search on the car screen: recents first, live suggestions while typing. */
 class SearchScreen(carContext: CarContext) : Screen(carContext) {
-    private var results: List<Place>? = null
+    private var results: List<Place> = Places.recents()
     private var loading = false
     private var message = "Type a destination"
+    private var seq = 0
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
     override fun onGetTemplate(): Template {
         val b = SearchTemplate.Builder(object : SearchTemplate.SearchCallback {
-            override fun onSearchSubmitted(searchText: String) = search(searchText)
+            override fun onSearchTextChanged(searchText: String) {
+                main.removeCallbacksAndMessages(null)
+                if (searchText.trim().length < 2) {
+                    seq++
+                    results = Places.recents(); loading = false; invalidate()
+                } else {
+                    main.postDelayed({ search(searchText, full = false) }, 500)
+                }
+            }
+
+            override fun onSearchSubmitted(searchText: String) {
+                main.removeCallbacksAndMessages(null)
+                search(searchText, full = true)
+            }
         })
             .setHeaderAction(Action.BACK)
             .setSearchHint("Where to?")
-            .setShowKeyboardByDefault(results == null && !loading)
-        if (loading) {
+            .setShowKeyboardByDefault(false)
+        if (loading && results.isEmpty()) {
             b.setLoading(true)
         } else {
+            val near = LocationTracker.position
             val list = ItemList.Builder().setNoItemsMessage(message)
-            results?.take(6)?.forEach { p ->
+            results.take(6).forEach { p ->
                 val row = Row.Builder().setTitle(p.name).setOnClickListener {
-                    NavEngine.start(carContext, p.pos, p.name)
+                    NavEngine.start(carContext, p)
                     screenManager.pop()
                 }
-                if (p.address.isNotBlank()) row.addText(p.address.take(80))
+                val dist = near?.let { NavEngine.formatDistance(gr.gamemap.Geo.distance(it, p.pos)) }
+                val line = listOfNotNull(dist, p.address.takeIf { it.isNotBlank() }?.take(70)).joinToString(" · ")
+                if (line.isNotBlank()) row.addText(line)
                 list.addItem(row.build())
             }
             b.setItemList(list.build())
@@ -285,14 +314,16 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
         return b.build()
     }
 
-    private fun search(q: String) {
+    private fun search(q: String, full: Boolean) {
         if (q.isBlank()) return
+        val my = ++seq
         loading = true
         invalidate()
         val near = LocationTracker.position
         io.execute {
-            val r = try { Places.search(q, near) } catch (e: Exception) { null }
+            val r = try { if (full) Places.search(q, near) else Places.suggest(q, near) } catch (e: Exception) { null }
             main.post {
+                if (my != seq) return@post
                 loading = false
                 results = r ?: emptyList()
                 message = if (r == null) "Search failed: no internet?" else "Nothing found"

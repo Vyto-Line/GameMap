@@ -8,7 +8,9 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingDeque
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * Downloads base map tiles (cached on disk) and keeps theme-processed tiles in memory.
@@ -27,7 +29,14 @@ object TileCache {
     }
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val failed = ConcurrentHashMap<String, Long>()
-    private val pool = Executors.newFixedThreadPool(4)
+    /** Last time each tile was asked for: loads nobody asked for recently are skipped. */
+    private val wanted = ConcurrentHashMap<String, Long>()
+
+    /** Newest request first, so the tiles on screen right now load before older ones. */
+    private class Lifo : LinkedBlockingDeque<Runnable>() {
+        override fun offer(e: Runnable) = offerFirst(e)
+    }
+    private val pool = ThreadPoolExecutor(4, 4, 30, TimeUnit.SECONDS, Lifo())
 
     fun init(ctx: Context) {
         dir = File(ctx.cacheDir, "tiles-v2")
@@ -51,9 +60,11 @@ object TileCache {
         mem.get(k)?.let { return it }
         val f = failed[k]
         if (f != null && System.currentTimeMillis() - f < 15_000) return null
+        wanted[k] = System.currentTimeMillis()
         if (inFlight.add(k)) {
             pool.execute {
                 try {
+                    if (System.currentTimeMillis() - (wanted[k] ?: 0) > 3000) return@execute
                     val raw = loadRaw(z, x, y)
                     if (raw != null) {
                         mem.put(k, theme.process(raw))
