@@ -1,12 +1,10 @@
 package gr.gamemap
 
 import android.graphics.Bitmap
-import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PathMeasure
 import android.graphics.RectF
 import kotlin.math.PI
 import kotlin.math.cos
@@ -140,14 +138,14 @@ object VectorRenderer {
 
         // glow or casing underneath everything, so junctions stay clean
         if (s.glow && aa) {
-            line.maskFilter = BlurMaskFilter(5f, BlurMaskFilter.Blur.NORMAL)
-            for ((cls, kind) in visible) {
+            // two soft passes instead of a blur filter (blurs are very slow in software)
+            for ((alpha, extra) in listOf(40 to 9f, 70 to 4f)) for ((cls, kind) in visible) {
                 if (cls == "path" || cls == "track" || cls == "service") continue
-                line.color = roadColor(cls); line.alpha = if (z >= 17) 110 else 70
-                line.strokeWidth = px(width(kind) * 1.25f + 4f)
+                line.color = roadColor(cls); line.alpha = alpha
+                line.strokeWidth = px(width(kind) + extra)
                 for (f in roads) if (f["class"] == cls) c.drawPath(pathOf(f), line)
             }
-            line.maskFilter = null; line.alpha = 255
+            line.alpha = 255
         }
         s.casing?.let { cas ->
             line.color = cas
@@ -166,8 +164,6 @@ object VectorRenderer {
         }
         line.pathEffect = null
 
-        // ---- names
-        if (s.labels && aa) drawLabels(c, vt, theme, z, k, ox, oy, span)
         return bmp
     }
 
@@ -184,95 +180,6 @@ object VectorRenderer {
         }
         f.path = p
         return p
-    }
-
-    // ---------------------------------------------------------------- labels
-
-    private fun drawLabels(c: Canvas, vt: VectorTile, theme: Theme, z: Int, k: Float, ox: Float, oy: Float, span: Float) {
-        val s = theme.style
-        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = if (theme.serif) android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD_ITALIC)
-            else android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD)
-            color = s.label
-        }
-        val halo = Paint(text).apply {
-            style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND
-            color = s.labelHalo; strokeWidth = 3.2f / k
-        }
-        val taken = ArrayList<RectF>()
-        fun free(rf: RectF): Boolean {
-            for (o in taken) if (RectF.intersects(o, rf)) return false
-            taken += rf
-            return true
-        }
-        val inner = RectF(ox, oy, ox + span, oy + span)
-
-        // place names
-        for (f in vt.features) {
-            if (f.layer != "place" || f.type != 1) continue
-            val name = f["name"] ?: continue
-            val cls = f["class"] ?: continue
-            val (size, minZ, maxZ) = when (cls) {
-                "city" -> Triple(34f, 4, 14)
-                "town" -> Triple(28f, 9, 15)
-                "village" -> Triple(24f, 12, 16)
-                "suburb" -> Triple(24f, 12, 15)
-                "quarter", "neighbourhood" -> Triple(20f, 14, 17)
-                else -> continue
-            }
-            if (z < minZ || z > maxZ) continue
-            val pt = f.parts.firstOrNull() ?: continue
-            if (!inner.contains(pt[0], pt[1])) continue
-            val label = if (cls == "city" || cls == "town") name.uppercase() else name
-            text.textSize = size / k; halo.textSize = text.textSize
-            text.textAlign = Paint.Align.CENTER; halo.textAlign = Paint.Align.CENTER
-            val w = text.measureText(label) / 2
-            val box = RectF(pt[0] - w, pt[1] - text.textSize, pt[0] + w, pt[1] + text.textSize * 0.3f)
-            if (box.left < ox || box.right > ox + span || box.top < oy || box.bottom > oy + span) continue
-            if (!free(box)) continue
-            c.drawText(label, pt[0], pt[1], halo)
-            c.drawText(label, pt[0], pt[1], text)
-        }
-
-        // street names, along the street
-        if (z < 15) return
-        text.textAlign = Paint.Align.LEFT; halo.textAlign = Paint.Align.LEFT
-        text.textSize = 19f / k; halo.textSize = text.textSize
-        val pm = PathMeasure()
-        val pos = FloatArray(2)
-        for (f in vt.features) {
-            if (f.layer != "transportation_name" || f.type != 2) continue
-            val name = f["name"] ?: continue
-            if (f["class"] == "path" && z < 17) continue
-            if (!f.intersects(ox, oy, ox + span, oy + span)) continue
-            val part = f.parts.maxByOrNull { it.size } ?: continue
-            if (part.size < 4) continue
-            // read left to right
-            val pts = if (part[part.size - 2] < part[0]) reversed(part) else part
-            val p = Path().apply {
-                moveTo(pts[0], pts[1]); var i = 2
-                while (i < pts.size) { lineTo(pts[i], pts[i + 1]); i += 2 }
-            }
-            pm.setPath(p, false)
-            val len = pm.length
-            val tw = text.measureText(name)
-            if (len < tw * 1.3f) continue
-            pm.getPosTan(len / 2, pos, null)
-            val box = RectF(pos[0] - tw / 2, pos[1] - tw / 2, pos[0] + tw / 2, pos[1] + tw / 2)
-            if (box.left < ox || box.right > ox + span || box.top < oy || box.bottom > oy + span) continue
-            if (!free(box)) continue
-            val off = (len - tw) / 2
-            val v = text.textSize * 0.35f
-            c.drawTextOnPath(name, p, off, v, halo)
-            c.drawTextOnPath(name, p, off, v, text)
-        }
-    }
-
-    private fun reversed(p: FloatArray): FloatArray {
-        val out = FloatArray(p.size)
-        var i = 0
-        while (i < p.size) { out[p.size - 2 - i] = p[i]; out[p.size - 1 - i] = p[i + 1]; i += 2 }
-        return out
     }
 
     @Suppress("unused")

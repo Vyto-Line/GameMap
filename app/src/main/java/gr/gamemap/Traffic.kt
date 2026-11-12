@@ -31,6 +31,8 @@ object Traffic {
     private class Entry(val bmp: Bitmap?, val at: Long)
     private val tiles = object : LruCache<String, Entry>(80) {}
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
+    /** Separate from the map-drawing threads, so slow downloads never hold up the map. */
+    private val net = java.util.concurrent.Executors.newFixedThreadPool(3)
 
     fun init(ctx: Context) {
         appContext = ctx.applicationContext
@@ -61,7 +63,7 @@ object Traffic {
         val e = tiles.get(k)
         val now = System.currentTimeMillis()
         if ((e == null || now - e.at > REFRESH_MS) && inFlight.add(k)) {
-            TileCache.background {
+            net.execute {
                 try {
                     val bmp = fetch(theme, z, x, y)
                     tiles.put(k, Entry(bmp, System.currentTimeMillis()))
@@ -93,14 +95,14 @@ object Traffic {
     }
 
     /**
-     * TomTom draws free-flowing roads green, slower ones orange and jams red. Free flow is
-     * left out (the map stays clean); slow and jammed traffic take the theme's colours.
+     * TomTom draws free-flowing roads green, slower ones orange and jams red; each is
+     * redrawn in the theme's own traffic colours.
      */
     private fun recolor(raw: Bitmap, theme: Theme): Bitmap? {
         val w = raw.width; val h = raw.height
         val px = IntArray(w * h)
         raw.getPixels(px, 0, w, 0, 0, w, h)
-        val slow = theme.style.trafficSlow; val jam = theme.style.trafficJam
+        val free = theme.style.trafficFree; val slow = theme.style.trafficSlow; val jam = theme.style.trafficJam
         var any = false
         for (i in px.indices) {
             val c = px[i]
@@ -108,12 +110,13 @@ object Traffic {
             if (a < 30) { px[i] = 0; continue }
             val r = Color.red(c); val g = Color.green(c); val b = Color.blue(c)
             val target = when {
-                g > r + 20 && g > b -> 0                     // green: moving freely
+                g > r + 20 && g > b -> free                  // green: moving freely
                 r > 150 && g > 90 -> slow                    // orange / yellow
                 r > g + 40 -> jam                            // red / dark red
                 else -> 0
             }
-            px[i] = if (target == 0) 0 else { any = true; (a shl 24) or (target and 0xffffff) }
+            val alpha = if (target == free) a * 3 / 4 else a
+            px[i] = if (target == 0) 0 else { any = true; (alpha shl 24) or (target and 0xffffff) }
         }
         if (!any) return null
         return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)

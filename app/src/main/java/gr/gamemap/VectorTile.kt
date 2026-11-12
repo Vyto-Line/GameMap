@@ -105,7 +105,24 @@ class VectorTile(bytes: ByteArray) {
             }
         }
         if (type == 1 && layer != "place") return // only place names are drawn as points
-        features += Feature(layer, props, type, decodeGeometry(geom), extent)
+        val parts = decodeGeometry(geom)
+        when {
+            // Polygons: one feature per outer ring (with its holes), so each gets a tight
+            // bounding box. OpenFreeMap packs thousands of buildings into one feature.
+            type == 3 && parts.size > 1 -> {
+                var group = ArrayList<FloatArray>()
+                for (part in parts) {
+                    if (signedArea(part) >= 0 && group.isNotEmpty()) {
+                        features += Feature(layer, props, type, group, extent)
+                        group = ArrayList()
+                    }
+                    group += part
+                }
+                if (group.isNotEmpty()) features += Feature(layer, props, type, group, extent)
+            }
+            type == 2 && parts.size > 1 -> for (part in parts) features += Feature(layer, props, type, listOf(part), extent)
+            else -> features += Feature(layer, props, type, parts, extent)
+        }
     }
 
     private fun decodeGeometry(g: IntArray): List<FloatArray> {
@@ -133,6 +150,17 @@ class VectorTile(bytes: ByteArray) {
         }
         flush()
         return parts
+    }
+
+    private fun signedArea(p: FloatArray): Float {
+        var a = 0f
+        var i = 0
+        while (i < p.size) {
+            val j = (i + 2) % p.size
+            a += p[i] * p[j + 1] - p[j] * p[i + 1]
+            i += 2
+        }
+        return a / 2
     }
 
     private fun zz(n: Int) = (n ushr 1) xor -(n and 1)

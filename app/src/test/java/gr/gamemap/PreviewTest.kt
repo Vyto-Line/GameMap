@@ -20,23 +20,46 @@ class PreviewTest {
     fun renderPreviews() {
         val data = File(System.getProperty("previewData") ?: "../previewdata")
         val out = File(System.getProperty("previewOut") ?: "build/previews").apply { mkdirs() }
-        val tiles = mapOf("athens" to intArrayOf(9272, 6322), "coast" to intArrayOf(9268, 6324))
-        for ((name, t) in tiles) {
-            val f = File(data, "$name.pbf")
-            if (f.exists()) VectorSource.put(14, t[0], t[1], VectorTile(f.readBytes()))
+        data.listFiles()?.filter { it.name.endsWith(".pbf") }?.forEach { f ->
+            val (x, y) = f.nameWithoutExtension.split("_").map { it.toInt() }
+            VectorSource.put(14, x, y, VectorTile(f.readBytes()))
         }
-        // a 2x2 block of zoom-16 tiles in central Athens, and one at zoom 17, per theme
+        val timings = StringBuilder()
         for (theme in Theme.entries) {
-            for ((z, x0, y0) in listOf(Triple(16, 37089, 25289), Triple(17, 74179, 50579), Triple(15, 18536, 12649))) {
-                val sheet = Bitmap.createBitmap(1024, 1024, Bitmap.Config.ARGB_8888)
-                val c = Canvas(sheet)
-                for (dy in 0..1) for (dx in 0..1) {
-                    val bmp = if (theme == Theme.BLOCKY) BlockWorld.tile(z, x0 + dx, y0 + dy, 512)
-                    else VectorRenderer.render(theme, z, x0 + dx, y0 + dy, 512)
-                    if (bmp != null) c.drawBitmap(bmp, null, Rect(dx * 512, dy * 512, dx * 512 + 512, dy * 512 + 512), Paint().apply { isFilterBitmap = theme.pixel == 1 })
+            MapState.setTheme(theme)
+            // full phone-sized frames at two zoom levels (default position: central Athens)
+            for (zoom in listOf(16.0, 17.3)) {
+                MapState.zoomBy(zoom - MapState.targetZoom)
+                repeat(400) { MapState.tick(); Thread.sleep(2) }
+                val r = MapRenderer()
+                val frame = Bitmap.createBitmap(1080, 1920, Bitmap.Config.ARGB_8888)
+                val c = Canvas(frame)
+                val t0 = System.nanoTime()
+                // draw until every tile is ready (tiles are drawn on background threads)
+                for (i in 0 until 200) {
+                    r.draw(c, 1080, 1920, Rect(0, 160, 1080, 1920), 2.75f, hud = true)
+                    Thread.sleep(50)
+                    org.robolectric.shadows.ShadowLooper.idleMainLooper()
+                    if (i > 5 && VectorSource.busy.get() == 0 && allTilesReady(theme)) break
                 }
-                File(out, "${theme.name.lowercase()}_z$z.png").outputStream().use { sheet.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                r.draw(c, 1080, 1920, Rect(0, 160, 1080, 1920), 2.75f, hud = true)
+                timings.append("${theme.name} zoom $zoom: ${(System.nanoTime() - t0) / 1_000_000} ms\n")
+                File(out, "${theme.name.lowercase()}_frame_${zoom.toInt()}.png").outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 90, it) }
             }
         }
+        // per-tile render cost
+        val t1 = System.nanoTime()
+        for (dx in 0..3) for (dy in 0..3) VectorRenderer.render(Theme.OPEN_WORLD, 16, 37084 + dx, 25284 + dy, 512)
+        timings.append("16 z16 tiles (Open World): ${(System.nanoTime() - t1) / 1_000_000} ms\n")
+        File(out, "timings.txt").writeText(timings.toString())
+    }
+
+    private var lastCount = -1
+    private fun allTilesReady(theme: Theme): Boolean {
+        // simple heuristic: wait until a few frames pass with no new tiles arriving
+        val n = (0..3).sumOf { dx -> (0..3).count { dy -> TileCache.peek(theme, 16, 37084 + dx, 25284 + dy) != null } }
+        val stable = n == lastCount
+        lastCount = n
+        return stable && n > 0
     }
 }

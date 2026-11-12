@@ -51,6 +51,7 @@ class MapRenderer {
     private val dst = RectF()
     private val path = Path()
     private var paperTex: Bitmap? = null
+    private val labels = Labels()
     private val tileList = ArrayList<IntArray>(64)
     private val quarter = RectF()
 
@@ -124,6 +125,9 @@ class MapRenderer {
         }
         c.restore()
 
+        // names on top of the map, laid out on screen (never overlapping, always upright)
+        labels.draw(c, camera!!, z, area, d, theme)
+
         if (VectorSource.busy.get() > 0) {
             animating = true
             text.textAlign = Paint.Align.CENTER; text.textSize = 13 * d
@@ -184,13 +188,8 @@ class MapRenderer {
         val ty1 = floor((py + reach) / tilePx).toInt().coerceAtMost(n - 1)
         val paint = if (theme.pixel > 1) pixelPaint else tilePaint
 
-        // Ask for the coarser level first, then the visible tiles far-to-near: the loader
-        // works newest-first, so the nearest tiles arrive first and the coarse ones are
-        // ready as stand-ins when zooming out.
-        if (z > 2) {
-            for (ty in ty0 / 2..ty1 / 2) for (tx in floor(tx0 / 2.0).toInt()..floor(tx1 / 2.0).toInt())
-                TileCache.get(theme, z - 1, tx.mod(n / 2), ty)
-        }
+        // Ask for the visible tiles far-to-near: the loader works newest-first, so the
+        // tiles nearest the player are drawn first.
         val tiles = tileList
         tiles.clear()
         for (ty in ty0..ty1) for (tx in tx0..tx1) tiles += intArrayOf(tx, ty)

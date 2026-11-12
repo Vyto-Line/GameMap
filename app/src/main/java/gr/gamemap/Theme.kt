@@ -33,7 +33,8 @@ class MapStyle(
     val label: Int,
     val labelHalo: Int,
     val labels: Boolean = true,
-    /** Traffic colours: moving slowly / jammed. */
+    /** Traffic colours: moving freely / slowly / jammed. */
+    val trafficFree: Int = Color.rgb(46, 204, 96),
     val trafficSlow: Int = Color.rgb(255, 170, 0),
     val trafficJam: Int = Color.rgb(230, 30, 30),
 )
@@ -92,7 +93,7 @@ enum class Theme(
             motorway = Color.rgb(0, 255, 240), major = Color.rgb(32, 196, 214), minor = Color.rgb(16, 96, 112),
             path = Color.rgb(14, 70, 82), rail = Color.rgb(255, 51, 120), glow = true,
             label = Color.rgb(190, 250, 255), labelHalo = Color.rgb(0, 6, 8),
-            trafficSlow = Color.rgb(255, 160, 0), trafficJam = Color.rgb(255, 30, 90),
+            trafficFree = Color.rgb(0, 230, 140), trafficSlow = Color.rgb(255, 160, 0), trafficJam = Color.rgb(255, 30, 90),
         ),
     ),
     NEON_RACER(
@@ -109,7 +110,7 @@ enum class Theme(
             motorway = Color.rgb(255, 150, 240), major = Color.rgb(255, 43, 214), minor = Color.rgb(140, 30, 160),
             path = Color.rgb(90, 20, 110), rail = Color.rgb(0, 200, 230), glow = true,
             label = Color.rgb(170, 245, 255), labelHalo = Color.rgb(10, 0, 22),
-            trafficSlow = Color.rgb(255, 200, 0), trafficJam = Color.rgb(255, 40, 40),
+            trafficFree = Color.rgb(0, 255, 170), trafficSlow = Color.rgb(255, 200, 0), trafficJam = Color.rgb(255, 40, 40),
         ),
     ),
     BLOCKY(
@@ -122,7 +123,7 @@ enum class Theme(
             land = Color.rgb(94, 158, 58), water = Color.rgb(63, 118, 228), park = 0, wood = 0, sand = 0, farm = 0,
             urban = 0, pitch = 0, building = 0, buildingEdge = null, waterEdge = null,
             motorway = 0, major = 0, minor = 0, path = 0, rail = 0, label = 0, labelHalo = 0, labels = false,
-            trafficSlow = Color.rgb(255, 200, 40), trafficJam = Color.rgb(200, 20, 10),
+            trafficFree = Color.rgb(80, 220, 60), trafficSlow = Color.rgb(255, 200, 40), trafficJam = Color.rgb(200, 20, 10),
         ),
     ),
     PARCHMENT_QUEST(
@@ -139,7 +140,7 @@ enum class Theme(
             motorway = Color.rgb(222, 150, 110), major = Color.rgb(246, 234, 200), minor = Color.rgb(246, 236, 206),
             path = Color.rgb(120, 90, 55), rail = Color.rgb(90, 66, 40), casing = Color.rgb(110, 80, 48),
             label = Color.rgb(74, 52, 32), labelHalo = Color.rgb(240, 226, 186),
-            trafficSlow = Color.rgb(214, 140, 30), trafficJam = Color.rgb(160, 24, 20),
+            trafficFree = Color.rgb(96, 140, 60), trafficSlow = Color.rgb(214, 140, 30), trafficJam = Color.rgb(160, 24, 20),
         ),
     ),
     LOOKOUT(
@@ -173,7 +174,7 @@ enum class Theme(
             motorway = Color.rgb(15, 56, 15), major = Color.rgb(15, 56, 15), minor = Color.rgb(48, 98, 48),
             path = Color.rgb(48, 98, 48), rail = Color.rgb(48, 98, 48),
             label = 0, labelHalo = 0, labels = false,
-            trafficSlow = Color.rgb(48, 98, 48), trafficJam = Color.rgb(15, 56, 15),
+            trafficFree = Color.rgb(139, 172, 15), trafficSlow = Color.rgb(48, 98, 48), trafficJam = Color.rgb(15, 56, 15),
         ),
     ),
     NIGHT_VISION(
@@ -190,7 +191,7 @@ enum class Theme(
             motorway = Color.rgb(180, 255, 150), major = Color.rgb(120, 230, 90), minor = Color.rgb(40, 130, 40),
             path = Color.rgb(28, 90, 28), rail = Color.rgb(60, 160, 60),
             label = Color.rgb(160, 255, 130), labelHalo = Color.rgb(0, 10, 0),
-            trafficSlow = Color.rgb(230, 255, 60), trafficJam = Color.rgb(255, 255, 255),
+            trafficFree = Color.rgb(60, 200, 60), trafficSlow = Color.rgb(230, 255, 60), trafficJam = Color.rgb(255, 255, 255),
         ),
     ),
     TRAILBLAZER(
@@ -206,7 +207,7 @@ enum class Theme(
             motorway = Color.rgb(255, 236, 150), major = Color.rgb(206, 246, 236), minor = Color.rgb(198, 240, 228),
             path = Color.rgb(226, 246, 214), rail = Color.rgb(130, 170, 130), casing = Color.rgb(255, 255, 255),
             label = Color.rgb(28, 84, 64), labelHalo = Color.rgb(236, 252, 236),
-            trafficSlow = Color.rgb(255, 160, 40), trafficJam = Color.rgb(240, 60, 60),
+            trafficFree = Color.rgb(40, 190, 90), trafficSlow = Color.rgb(255, 160, 40), trafficJam = Color.rgb(240, 60, 60),
         ),
     );
 

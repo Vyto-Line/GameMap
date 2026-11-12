@@ -37,6 +37,9 @@ object VectorSource {
     /** For tests: use already-parsed data for a tile. */
     fun put(z: Int, x: Int, y: Int, vt: VectorTile) { parsed.put("$z/$x/$y", vt) }
 
+    /** Already-parsed data only (never downloads; safe on the UI thread). */
+    fun peek(z: Int, x: Int, y: Int): VectorTile? = parsed.get("$z/$x/$y")
+
     fun get(z: Int, x: Int, y: Int): VectorTile? {
         val key = "$z/$x/$y"
         parsed.get(key)?.let { return it }
