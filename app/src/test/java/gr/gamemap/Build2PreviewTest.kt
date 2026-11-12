@@ -53,6 +53,16 @@ class Build2PreviewTest {
         MapState.setLightMode(MapState.LightMode.LIGHT); MapState.setTheme(Theme.RETRO)
         shot("ui2_home_retro")
 
+        for ((th, mode) in listOf(Theme.OPEN_WORLD to MapState.LightMode.DARK, Theme.NEON_NOIR to MapState.LightMode.DARK)) {
+            MapState.setLightMode(mode); MapState.setTheme(th)
+            val w = 1920; val h = 720
+            val rr = MapRenderer(car = true).apply { carButtons = true }
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val c = Canvas(bmp)
+            repeat(50) { rr.draw(c, w, h, android.graphics.Rect(0, 0, w, h), 1.6f, hud = true); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(60) }
+            rr.draw(c, w, h, android.graphics.Rect(0, 0, w, h), 1.6f, hud = true)
+            File(out, "ui2_car_idle_${th.name.lowercase()}.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
         MapState.setLightMode(MapState.LightMode.LIGHT); MapState.setTheme(Theme.OPEN_WORLD)
         activity.showStylePicker()
         shot("ui2_style_picker")

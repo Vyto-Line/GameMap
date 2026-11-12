@@ -104,7 +104,7 @@ class Build1PreviewTest {
         MapState.setTheme(Theme.OPEN_WORLD); MapState.setLightMode(MapState.LightMode.DARK)
         run {
             val w = 1920; val h = 720
-            val rr = MapRenderer(car = true)
+            val rr = MapRenderer(car = true).apply { carButtons = true }
             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             val c = Canvas(bmp)
             val area = Rect(0, 0, w - 140, h)

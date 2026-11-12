@@ -80,7 +80,13 @@ fun icon(ctx: CarContext, res: Int) = CarIcon.Builder(IconCompat.createWithResou
 
 /** Draws the game map onto the car's screen surface. */
 class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
-    private val renderer = MapRenderer(car = true)
+    private val renderer = MapRenderer(car = true).apply {
+        // our own see-through buttons need the car to report taps (Car App API 5+)
+        carButtons = ctx.carAppApiLevel >= CarAppApiLevels.LEVEL_5
+    }
+    /** Called with the id of a GameMap button tapped on the car screen. */
+    var onButton: ((String) -> Unit)? = null
+    val ownButtons get() = renderer.carButtons
     private val main = Handler(Looper.getMainLooper())
     private var surface: Surface? = null
     private var w = 0
@@ -120,6 +126,10 @@ class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
     }
 
     override fun onFling(velocityX: Float, velocityY: Float) {}
+
+    override fun onClick(x: Float, y: Float) {
+        renderer.carButtonAt(x, y)?.let { onButton?.invoke(it) }
+    }
 
     private var hardware = true
 
@@ -196,6 +206,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
 
     init {
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(surface)
+        surface.onButton = { onCarButton(it) }
         nav.setNavigationManagerCallback(object : NavigationManagerCallback {
             override fun onStopNavigation() = NavEngine.stop()
         })
@@ -289,7 +300,36 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
     private fun action(res: Int, onClick: () -> Unit) =
         Action.Builder().setIcon(icon(carContext, res)).setOnClickListener(onClick).build()
 
+    /** A GameMap button drawn on the car map was tapped. */
+    private fun onCarButton(id: String) {
+        when (id) {
+            "style" -> CarToast.makeText(carContext, MapState.nextCarTheme().title, CarToast.LENGTH_SHORT).show()
+            "traffic" -> {
+                gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer
+                CarToast.makeText(carContext, if (gr.gamemap.Traffic.showLayer) "Traffic shown" else "Traffic hidden", CarToast.LENGTH_SHORT).show()
+            }
+            "mute", "unmute" -> Voice.muted = !Voice.muted
+            "report" -> screenManager.push(ReportScreen(carContext))
+            "zoomin" -> MapState.zoomBy(1.0)
+            "zoomout" -> MapState.zoomBy(-1.0)
+            "recenter" -> MapState.recenter()
+            "overview" -> NavEngine.route.takeIf { it.size > 1 }?.let { r -> MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last()) }
+            "end" -> NavEngine.stop()
+            "search" -> screenManager.push(SearchScreen(carContext))
+            "home", "work" -> Places.saved(id)?.let { NavEngine.plan(carContext, it) }
+        }
+        surface.redraw()
+    }
+
     override fun onGetTemplate(): Template {
+        if (surface.ownButtons) {
+            // GameMap draws its own see-through buttons; Android Auto keeps one: the ☰ menu
+            val b = NavigationTemplate.Builder().setActionStrip(
+                ActionStrip.Builder().addAction(action(R.drawable.ic_menu) { screenManager.push(CarMenuScreen(carContext)) }).build()
+            )
+            b.setMapActionStrip(ActionStrip.Builder().addAction(Action.PAN).build())
+            return b.build()
+        }
         val strip = ActionStrip.Builder()
         if (NavEngine.active) {
             strip.addAction(action(if (Voice.muted) R.drawable.ic_volume_off else R.drawable.ic_volume_on) { Voice.muted = !Voice.muted })
@@ -584,5 +624,25 @@ class ReportScreen(carContext: CarContext) : Screen(carContext) {
             }.build())
         }
         return ListTemplate.Builder().setTitle("Report").setHeaderAction(Action.BACK).setSingleList(list.build()).build()
+    }
+}
+
+/** The ☰ menu: everything the map buttons do, as a list (also for cars that don't report taps). */
+class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
+    override fun onGetTemplate(): Template {
+        val list = ItemList.Builder()
+        fun row(title: String, text: String? = null, onClick: () -> Unit) {
+            val r = Row.Builder().setTitle(title).setOnClickListener(onClick)
+            if (text != null) r.addText(text)
+            list.addItem(r.build())
+        }
+        if (NavEngine.active) row("End navigation", NavEngine.destinationName) { NavEngine.stop(); screenManager.pop() }
+        else row("Search") { screenManager.pop(); screenManager.push(SearchScreen(carContext)) }
+        if (!MapState.following || MapState.userBearing != null) row("Recenter") { MapState.recenter(); screenManager.pop() }
+        row("Map style", (MapState.carTheme ?: MapState.theme).title) { MapState.nextCarTheme(); invalidate() }
+        row("Traffic", if (gr.gamemap.Traffic.showLayer) "On" else "Off") { gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer; invalidate() }
+        row("Spoken directions", if (Voice.muted) "Off" else "On") { Voice.muted = !Voice.muted; invalidate() }
+        row("Report") { screenManager.pop(); screenManager.push(ReportScreen(carContext)) }
+        return ListTemplate.Builder().setTitle("GameMap").setHeaderAction(Action.BACK).setSingleList(list.build()).build()
     }
 }

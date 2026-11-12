@@ -169,6 +169,8 @@ class MapRenderer(private val car: Boolean = false) {
 
         drawSpeed(c, area, d, theme)
         if (car && hud) drawCarEta(c, area, d, theme)
+        carHits.clear()
+        if (car && hud && carButtons && !NavEngine.planning) drawCarButtons(c, area, d, theme)
         bannerBottom = area.top.toFloat()
         if (hud && !NavEngine.planning && NavEngine.offer == null) drawBanner(c, area, d, theme)
         drawJamChip(c, area, d, theme, hud)
@@ -771,6 +773,146 @@ class MapRenderer(private val car: Boolean = false) {
         }
     }
 
+    // ------------------------------------------------------------ car buttons drawn on the map
+
+    /** Draw GameMap's own see-through buttons on the car screen (hosts that report taps). */
+    var carButtons = false
+    /** Where each car button is on screen, for the car's tap callback. */
+    val carHits = ArrayList<Pair<RectF, String>>()
+    private var etaRight = 0f
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+
+    /** The id of the car button under (x, y), if any. */
+    fun carButtonAt(x: Float, y: Float): String? = carHits.lastOrNull { it.first.contains(x, y) }?.second
+
+    private fun glassButton(c: Canvas, r: RectF, d: Float, t: Theme, fillCol: Int? = null) {
+        val base = fillCol ?: Ui.panel(t).let { Color.argb(140, Color.red(it), Color.green(it), Color.blue(it)) }
+        fill.color = base
+        stroke.color = withAlpha(t.route, 230); stroke.strokeWidth = 1.8f * d
+        when (t.hud) {
+            HudShape.ROUND -> {
+                val rad = minOf(r.width(), r.height()) / 2
+                c.drawRoundRect(r, rad, rad, fill)
+                if (fillCol == null) c.drawRoundRect(r, rad, rad, stroke)
+            }
+            HudShape.CHAMFER -> {
+                val k = minOf(10 * d, r.height() / 3)
+                val p = Path().apply {
+                    moveTo(r.left + k, r.top); lineTo(r.right, r.top); lineTo(r.right, r.bottom - k)
+                    lineTo(r.right - k, r.bottom); lineTo(r.left, r.bottom); lineTo(r.left, r.top + k); close()
+                }
+                c.drawPath(p, fill); if (fillCol == null) c.drawPath(p, stroke)
+            }
+            HudShape.PIXEL -> {
+                val k = 4 * d
+                c.drawRect(r.left + k, r.top, r.right - k, r.bottom, fill)
+                c.drawRect(r.left, r.top + k, r.right, r.bottom - k, fill)
+                if (fillCol == null) { stroke.isAntiAlias = false; c.drawRect(r, stroke); stroke.isAntiAlias = true }
+            }
+        }
+    }
+
+    /** Simple white line icons. */
+    private fun icon(c: Canvas, id: String, cx: Float, cy: Float, s: Float, col: Int) {
+        iconPaint.color = col; iconPaint.strokeWidth = s * 0.16f
+        iconPaint.style = Paint.Style.STROKE
+        val h = s / 2
+        val p = Path()
+        when (id) {
+            "style" -> { p.moveTo(cx, cy - h); p.lineTo(cx + h, cy - h * 0.4f); p.lineTo(cx, cy + h * 0.2f); p.lineTo(cx - h, cy - h * 0.4f); p.close()
+                p.moveTo(cx - h, cy + h * 0.25f); p.lineTo(cx, cy + h * 0.85f); p.lineTo(cx + h, cy + h * 0.25f) }
+            "report" -> { p.moveTo(cx, cy - h); p.lineTo(cx + h, cy + h * 0.8f); p.lineTo(cx - h, cy + h * 0.8f); p.close()
+                p.moveTo(cx, cy - h * 0.3f); p.lineTo(cx, cy + h * 0.25f); p.moveTo(cx, cy + h * 0.52f); p.lineTo(cx, cy + h * 0.56f) }
+            "mute", "unmute" -> { p.moveTo(cx - h, cy - h * 0.35f); p.lineTo(cx - h * 0.45f, cy - h * 0.35f); p.lineTo(cx + h * 0.1f, cy - h * 0.85f)
+                p.lineTo(cx + h * 0.1f, cy + h * 0.85f); p.lineTo(cx - h * 0.45f, cy + h * 0.35f); p.lineTo(cx - h, cy + h * 0.35f); p.close()
+                if (id == "mute") { p.moveTo(cx + h * 0.45f, cy - h * 0.4f); p.quadTo(cx + h * 0.8f, cy, cx + h * 0.45f, cy + h * 0.4f) }
+                else { p.moveTo(cx + h * 0.4f, cy - h * 0.35f); p.lineTo(cx + h, cy + h * 0.35f); p.moveTo(cx + h, cy - h * 0.35f); p.lineTo(cx + h * 0.4f, cy + h * 0.35f) } }
+            "traffic" -> { val r = RectF(cx - h * 0.45f, cy - h, cx + h * 0.45f, cy + h); p.addRoundRect(r, h * 0.3f, h * 0.3f, Path.Direction.CW)
+                for (k in -1..1) p.addCircle(cx, cy + k * h * 0.58f, h * 0.15f, Path.Direction.CW) }
+            "zoomin" -> { p.moveTo(cx - h * 0.8f, cy); p.lineTo(cx + h * 0.8f, cy); p.moveTo(cx, cy - h * 0.8f); p.lineTo(cx, cy + h * 0.8f) }
+            "zoomout" -> { p.moveTo(cx - h * 0.8f, cy); p.lineTo(cx + h * 0.8f, cy) }
+            "overview" -> { p.moveTo(cx - h, cy - h * 0.6f); p.lineTo(cx - h * 0.35f, cy - h * 0.85f); p.lineTo(cx + h * 0.35f, cy - h * 0.6f)
+                p.lineTo(cx + h, cy - h * 0.85f); p.lineTo(cx + h, cy + h * 0.6f); p.lineTo(cx + h * 0.35f, cy + h * 0.85f)
+                p.lineTo(cx - h * 0.35f, cy + h * 0.6f); p.lineTo(cx - h, cy + h * 0.85f); p.close()
+                p.moveTo(cx - h * 0.35f, cy - h * 0.85f); p.lineTo(cx - h * 0.35f, cy + h * 0.6f); p.moveTo(cx + h * 0.35f, cy - h * 0.6f); p.lineTo(cx + h * 0.35f, cy + h * 0.85f) }
+            "recenter" -> { iconPaint.style = Paint.Style.FILL
+                p.moveTo(cx, cy - h); p.lineTo(cx + h * 0.7f, cy + h); p.lineTo(cx, cy + h * 0.55f); p.lineTo(cx - h * 0.7f, cy + h); p.close() }
+            "search" -> { p.addCircle(cx - h * 0.15f, cy - h * 0.15f, h * 0.6f, Path.Direction.CW); p.moveTo(cx + h * 0.3f, cy + h * 0.3f); p.lineTo(cx + h * 0.85f, cy + h * 0.85f) }
+            "home" -> { p.moveTo(cx - h, cy - h * 0.05f); p.lineTo(cx, cy - h * 0.85f); p.lineTo(cx + h, cy - h * 0.05f)
+                p.moveTo(cx - h * 0.7f, cy - h * 0.25f); p.lineTo(cx - h * 0.7f, cy + h * 0.8f); p.lineTo(cx + h * 0.7f, cy + h * 0.8f); p.lineTo(cx + h * 0.7f, cy - h * 0.25f) }
+            "work" -> { p.addRect(cx - h, cy - h * 0.45f, cx + h, cy + h * 0.8f, Path.Direction.CW); p.moveTo(cx - h * 0.35f, cy - h * 0.45f)
+                p.lineTo(cx - h * 0.35f, cy - h * 0.8f); p.lineTo(cx + h * 0.35f, cy - h * 0.8f); p.lineTo(cx + h * 0.35f, cy - h * 0.45f) }
+        }
+        c.drawPath(p, iconPaint)
+        iconPaint.style = Paint.Style.STROKE
+    }
+
+    private fun drawCarButtons(c: Canvas, a: Rect, d: Float, t: Theme) {
+        val size = 48 * d
+        val gap = 10 * d
+        val x = a.right - 14 * d - size
+        val white = Color.WHITE
+        fun btn(id: String, y: Float, iconId: String = id, filled: Boolean = false) {
+            val r = RectF(x, y, x + size, y + size)
+            glassButton(c, r, d, t, if (filled) withAlpha(t.route, 235) else null)
+            icon(c, iconId, r.centerX(), r.centerY(), size * 0.46f, if (filled) Ui.ink(t).let { if (Ui.contrast(it, t.route) < 3) Color.BLACK else it } else white)
+            carHits += r to id
+        }
+        // right: style, traffic / voice, report (below Android Auto's ☰ menu button)
+        var y = maxOf(a.top + 12 * d, 74 * d)
+        btn("style", y); y += size + gap
+        if (NavEngine.active) btn(if (Voice.muted) "unmute" else "mute", y) else btn("traffic", y)
+        y += size + gap
+        btn("report", y)
+        // bottom right: zoom and recenter / overview
+        var b = a.bottom - 14 * d - size
+        when {
+            !MapState.following || MapState.userBearing != null -> { btn("recenter", b, filled = true); b -= size + gap }
+            NavEngine.active && NavEngine.route.size > 1 -> { btn("overview", b); b -= size + gap }
+        }
+        btn("zoomout", b); b -= size + gap
+        btn("zoomin", b)
+
+        text.typeface = Typeface.DEFAULT_BOLD
+        text.textAlign = Paint.Align.LEFT
+        if (NavEngine.active && !NavEngine.arrived) {
+            // End, next to the arrival panel
+            text.textSize = 18 * d
+            val w = text.measureText("End") + 44 * d
+            val left = if (etaRight > 0) etaRight + 10 * d else a.left + 160 * d
+            val r = RectF(left, a.bottom - 14 * d - 66 * d, left + w, a.bottom - 14 * d)
+            glassButton(c, r, d, t, Color.argb(225, 229, 72, 77))
+            text.color = white
+            c.drawText("End", r.left + 22 * d, r.centerY() + 6.5f * d, text)
+            carHits += r to "end"
+        } else if (!NavEngine.active && NavEngine.lastTrip == null) {
+            // "Where to?" and saved places, top left
+            val r = RectF(a.left + 14 * d, a.top + 12 * d, a.left + 14 * d + 300 * d, a.top + 12 * d + 50 * d)
+            glassButton(c, r, d, t)
+            icon(c, "search", r.left + 26 * d, r.centerY(), 20 * d, Ui.onPanel(t, t.route, 3.0))
+            text.textSize = 18 * d; text.typeface = t.typeface; text.color = white
+            c.drawText("Where to?", r.left + 50 * d, r.centerY() + 6.5f * d, text)
+            carHits += r to "search"
+            var cxp = r.left
+            text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d
+            for (k in listOf("home", "work")) {
+                val pl = Places.saved(k) ?: continue
+                val label = (if (k == "home") "Home" else "Work") + (Places.cachedEta(pl)?.let { " · ${(it.seconds + 30) / 60} min" } ?: "")
+                val w = text.measureText(label) + 52 * d
+                val cr = RectF(cxp, r.bottom + 10 * d, cxp + w, r.bottom + 10 * d + 44 * d)
+                glassButton(c, cr, d, t)
+                icon(c, k, cr.left + 22 * d, cr.centerY(), 16 * d, white)
+                text.color = white
+                c.drawText(label, cr.left + 38 * d, cr.centerY() + 5.5f * d, text)
+                carHits += cr to k
+                cxp = cr.right + 10 * d
+            }
+        }
+        text.typeface = t.typeface
+    }
+
     /** Car: "17 min · 18:02 · 4.5 km" next to the speed box, in the theme's see-through panel. */
     private fun drawCarEta(c: Canvas, a: Rect, d: Float, t: Theme) {
         if (!NavEngine.active || NavEngine.arrived || NavEngine.loading || NavEngine.error != null) return
@@ -788,6 +930,7 @@ class MapRenderer(private val car: Boolean = false) {
         val h = 66 * d
         val left = a.left + 14 * d + 136 * d
         val box = RectF(left, a.bottom - 14 * d - h, left + w, a.bottom - 14 * d)
+        etaRight = box.right
         panel(c, box, d, t, outline = false)
         text.typeface = tf; text.textSize = 26 * d
         text.color = Ui.onPanel(t, when { delay >= 10 -> Color.rgb(255, 110, 110); delay >= 3 -> Color.rgb(255, 184, 107); else -> Color.rgb(123, 227, 160) })
