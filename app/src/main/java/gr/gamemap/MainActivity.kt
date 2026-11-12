@@ -78,8 +78,13 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.START
             setPadding(pad, pad, pad, pad * 2)
             addView(button("🎮 THEME", d) {
-                val t = MapState.nextTheme()
-                Toast.makeText(this@MainActivity, t.title, Toast.LENGTH_SHORT).show()
+                val all = Theme.entries
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Map theme")
+                    .setSingleChoiceItems(all.map { it.title }.toTypedArray(), MapState.theme.ordinal) { dlg, i ->
+                        MapState.setTheme(all[i]); dlg.dismiss()
+                    }
+                    .show()
             })
             addView(button("−", d) { MapState.zoomBy(-1.0) })
             addView(button("+", d) { MapState.zoomBy(1.0) })

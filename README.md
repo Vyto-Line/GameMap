@@ -2,10 +2,14 @@
 
 Turn-by-turn navigation for Android and **Android Auto** that looks like a video game minimap.
 
-**Themes** (🎮 button, on the phone or the car screen):
-- **Open World**: round radar minimap, purple GPS line, north marker on the rim
+**Themes** (🎮 button; a list on the phone, cycles on the car screen). Original designs in the spirit of different game genres:
+- **Open World**: round radar minimap, asphalt-grey streets, purple GPS line
+- **Neon Noir**: teal megacity grid, yellow route, cut-corner HUD, scanlines
 - **Neon Racer**: neon roads, grid and horizon glow
-- **8-Bit**: chunky pixel map in Game Boy greens
+- **Blocky**: big square pixels: grass, dirt paths, stone roads, blue water
+- **Parchment Quest**: old paper map, ink roads, red dashed route, serif lettering
+- **Lookout**: dusk palette from purple to sunset orange, warm light from above
+- **8-Bit**: handheld-console greens
 - **Night Vision**: green scanlines
 
 Search a destination, get a route, follow the turn arrows. Arriving says **MISSION COMPLETE**.

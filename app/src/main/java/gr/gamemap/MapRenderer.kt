@@ -3,6 +3,7 @@ package gr.gamemap
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
@@ -49,6 +50,7 @@ class MapRenderer {
     fun draw(c: Canvas, w: Int, h: Int, area: Rect, d: Float, hud: Boolean) {
         val theme = MapState.theme
         c.drawColor(theme.background)
+        text.typeface = theme.typeface
 
         val pos = LocationTracker.position ?: fallback
         val bearing = LocationTracker.heading
@@ -105,13 +107,18 @@ class MapRenderer {
                 val x = (Geo.x(p.lon, world) - px).toFloat(); val y = (Geo.y(p.lat, world) - py).toFloat()
                 if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
+            routePaint.pathEffect = null
             routePaint.color = theme.routeGlow
             routePaint.strokeWidth = 16 * d / scale
             routePaint.isAntiAlias = theme.pixel == 1
             c.drawPath(path, routePaint)
             routePaint.color = theme.route
             routePaint.strokeWidth = 7 * d / scale
+            if (theme.dashedRoute) {
+                routePaint.pathEffect = DashPathEffect(floatArrayOf(14 * d / scale, 10 * d / scale), 0f)
+            }
             c.drawPath(path, routePaint)
+            routePaint.pathEffect = null
         }
         // destination blip
         NavEngine.destination?.let { dest ->
@@ -126,9 +133,8 @@ class MapRenderer {
             text.textAlign = Paint.Align.CENTER
             text.color = theme.hudText
             text.textSize = 16 * d
-            fill.color = theme.hudPanel
             val bx = RectF(area.exactCenterX() - 170 * d, area.top + 20 * d, area.exactCenterX() + 170 * d, area.top + 82 * d)
-            c.drawRoundRect(bx, 10 * d, 10 * d, fill)
+            panel(c, bx, d, theme, outline = false)
             c.drawText("MAP KEY NEEDED", bx.centerX(), bx.top + 26 * d, text)
             text.textSize = 12 * d
             c.drawText("Open GameMap on the phone ▸ KEY", bx.centerX(), bx.top + 48 * d, text)
@@ -136,7 +142,9 @@ class MapRenderer {
 
         // ---- theme overlays ----
         if (theme.grid) drawGrid(c, area, d)
-        if (theme.scanlines) drawScanlines(c, area, d)
+        if (theme.scanlines) drawScanlines(c, area, d, theme)
+        if (theme.paper) drawPaper(c, area, d)
+        if (theme.sunGlow) drawSunGlow(c, area)
         if (theme.radar) drawRadarFrame(c, cx, cy, radius, bearing, d, theme)
 
         drawPlayer(c, cx, cy, d, theme)
@@ -149,6 +157,83 @@ class MapRenderer {
         val hw = parent.width / 2; val hh = parent.height / 2
         src.set(qx * hw, qy * hh, qx * hw + hw, qy * hh + hh)
         c.drawBitmap(parent, src, dst, paint)
+    }
+
+    /** A HUD panel in the theme's shape: rounded, cut-corner, or pixel-stepped. */
+    private fun panel(c: Canvas, r: RectF, d: Float, t: Theme, outline: Boolean) {
+        fill.color = t.hudPanel
+        stroke.color = t.route; stroke.strokeWidth = 2 * d
+        when (t.hud) {
+            HudShape.ROUND -> {
+                c.drawRoundRect(r, 12 * d, 12 * d, fill)
+                if (outline) c.drawRoundRect(r, 12 * d, 12 * d, stroke)
+            }
+            HudShape.CHAMFER -> {
+                val k = minOf(14 * d, r.height() / 3)
+                val p = Path().apply {
+                    moveTo(r.left + k, r.top); lineTo(r.right, r.top)
+                    lineTo(r.right, r.bottom - k); lineTo(r.right - k, r.bottom)
+                    lineTo(r.left, r.bottom); lineTo(r.left, r.top + k); close()
+                }
+                c.drawPath(p, fill)
+                if (outline) {
+                    c.drawPath(p, stroke)
+                    fill.color = t.route
+                    c.drawRect(r.left + k + 4 * d, r.top - 2 * d, r.left + k + 44 * d, r.top + 2 * d, fill)
+                }
+            }
+            HudShape.PIXEL -> {
+                val k = 4 * d
+                c.drawRect(r.left + k, r.top, r.right - k, r.bottom, fill)
+                c.drawRect(r.left, r.top + k, r.right, r.bottom - k, fill)
+                if (outline) {
+                    stroke.strokeWidth = k
+                    stroke.isAntiAlias = false
+                    c.drawRect(r.left + k / 2, r.top + k / 2, r.right - k / 2, r.bottom - k / 2, stroke)
+                    stroke.isAntiAlias = true
+                }
+            }
+        }
+    }
+
+    private var paperTex: android.graphics.Bitmap? = null
+
+    /** Speckled paper grain and burnt edges for the old-map look. */
+    private fun drawPaper(c: Canvas, a: Rect, d: Float) {
+        val tex = paperTex ?: android.graphics.Bitmap.createBitmap(128, 128, android.graphics.Bitmap.Config.ARGB_8888).also { b ->
+            val rnd = java.util.Random(7)
+            for (y in 0 until 128) for (x in 0 until 128) {
+                val v = rnd.nextInt(100)
+                b.setPixel(x, y, when {
+                    v < 4 -> Color.argb(60, 90, 60, 30)
+                    v < 12 -> Color.argb(25, 120, 90, 50)
+                    v > 96 -> Color.argb(40, 255, 250, 235)
+                    else -> Color.TRANSPARENT
+                })
+            }
+            paperTex = b
+        }
+        fill.shader = android.graphics.BitmapShader(tex, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        c.drawRect(a, fill)
+        val r = hypot(a.width().toFloat(), a.height().toFloat()) / 2
+        fill.shader = RadialGradient(
+            a.exactCenterX(), a.exactCenterY(), r,
+            intArrayOf(Color.TRANSPARENT, Color.argb(70, 120, 80, 30), Color.argb(190, 80, 45, 15)),
+            floatArrayOf(0.5f, 0.85f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawRect(a, fill)
+        fill.shader = null
+    }
+
+    /** Warm evening light falling from the top of the screen. */
+    private fun drawSunGlow(c: Canvas, a: Rect) {
+        fill.shader = android.graphics.LinearGradient(
+            0f, a.top.toFloat(), 0f, a.top + a.height() * 0.5f,
+            intArrayOf(Color.argb(150, 247, 160, 70), Color.argb(60, 232, 100, 80), Color.TRANSPARENT),
+            floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawRect(a.left.toFloat(), a.top.toFloat(), a.right.toFloat(), a.top + a.height() * 0.5f, fill)
+        fill.shader = null
     }
 
     private fun drawPlayer(c: Canvas, x: Float, y: Float, d: Float, t: Theme) {
@@ -200,9 +285,10 @@ class MapRenderer {
         fill.shader = null
     }
 
-    private fun drawScanlines(c: Canvas, a: Rect, d: Float) {
+    private fun drawScanlines(c: Canvas, a: Rect, d: Float, t: Theme) {
         stroke.color = Color.argb(50, 0, 0, 0); stroke.strokeWidth = 1.2f * d
         var y = a.top.toFloat(); while (y < a.bottom) { c.drawLine(a.left.toFloat(), y, a.right.toFloat(), y, stroke); y += 3 * d }
+        if (t != Theme.NIGHT_VISION) return
         val r = hypot(a.width().toFloat(), a.height().toFloat()) / 2
         fill.shader = RadialGradient(
             a.exactCenterX(), a.exactCenterY(), r,
@@ -222,7 +308,7 @@ class MapRenderer {
         val bw = text.measureText(big)
         text.textSize = 13 * d
         val box = RectF(a.right - pad - bw - 26 * d, a.bottom - pad - 58 * d, a.right - pad, a.bottom - pad)
-        fill.color = t.hudPanel; c.drawRoundRect(box, 10 * d, 10 * d, fill)
+        panel(c, box, d, t, outline = false)
         text.color = t.hudText
         text.textSize = 34 * d
         c.drawText(big, box.right - 13 * d, box.top + 36 * d, text)
@@ -243,8 +329,7 @@ class MapRenderer {
         }
         val pad = 12 * d
         val box = RectF(a.left + pad, a.top + pad, a.right - pad, a.top + pad + 74 * d)
-        fill.color = t.hudPanel; c.drawRoundRect(box, 12 * d, 12 * d, fill)
-        stroke.color = t.route; stroke.strokeWidth = 2 * d; c.drawRoundRect(box, 12 * d, 12 * d, stroke)
+        panel(c, box, d, t, outline = true)
 
         val iconX = box.left + 40 * d; val iconY = box.centerY()
         if (!NavEngine.loading && !NavEngine.arrived) drawTurnArrow(c, iconX, iconY, 20 * d, NavEngine.currentStep?.direction ?: "straight", t)
@@ -253,12 +338,12 @@ class MapRenderer {
         text.textSize = 24 * d
         c.drawText(title, box.left + 76 * d, box.top + 32 * d, text)
         text.textSize = 15 * d
-        text.typeface = Typeface.DEFAULT_BOLD
+        text.typeface = if (t.serif) Typeface.create(Typeface.SERIF, Typeface.NORMAL) else Typeface.DEFAULT_BOLD
         val maxW = box.right - box.left - 90 * d
         var line = sub
         while (line.length > 3 && text.measureText(line) > maxW) line = line.dropLast(2) + "…"
         c.drawText(line, box.left + 76 * d, box.top + 58 * d, text)
-        text.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        text.typeface = t.typeface
 
         // remaining distance / time in a small strip under the banner
         if (!NavEngine.loading && !NavEngine.arrived) {
@@ -267,7 +352,7 @@ class MapRenderer {
             text.textSize = 13 * d
             val w = text.measureText(info) + 20 * d
             val strip = RectF(box.left, box.bottom + 6 * d, box.left + w, box.bottom + 30 * d)
-            fill.color = t.hudPanel; c.drawRoundRect(strip, 8 * d, 8 * d, fill)
+            panel(c, strip, d, t, outline = false)
             c.drawText(info, strip.left + 10 * d, strip.bottom - 7 * d, text)
         }
     }

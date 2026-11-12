@@ -95,8 +95,10 @@ object MapState {
 
     private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
 
-    fun nextTheme(): Theme {
-        theme = Theme.entries[(theme.ordinal + 1) % Theme.entries.size]
+    fun nextTheme(): Theme = setTheme(Theme.entries[(theme.ordinal + 1) % Theme.entries.size])
+
+    fun setTheme(t: Theme): Theme {
+        theme = t
         prefs().edit().putInt("theme", theme.ordinal).apply()
         changed.fire()
         return theme
