@@ -323,7 +323,7 @@ class MapRenderer {
             trafficPaint.pathEffect = null
             c.restore()
         }
-        if (arrowsDrawn && look.animate) animating = true
+        if (arrowsDrawn) animating = true
         while (trafficCache.size > 48) trafficCache.remove(trafficCache.keys.first())
     }
 
@@ -342,7 +342,7 @@ class MapRenderer {
             val p = paths[sg.state]
             p.moveTo(pts[0], pts[1])
             for (i in 1 until n) p.lineTo(pts[i * 2], pts[i * 2 + 1])
-            if (sg.state != Traffic.FREE) {
+            if (sg.state == Traffic.JAM || sg.state == Traffic.CLOSED) { // arrows on red traffic only
                 var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
                 for (i in 0 until n) {
                     minX = minOf(minX, pts[i * 2]); maxX = maxOf(maxX, pts[i * 2])
@@ -370,18 +370,19 @@ class MapRenderer {
     }
 
     /**
-     * Arrows every ~40 dp along slow and jammed stretches (one in the middle of short ones).
-     * One-direction stretches crawl forward; stretches that cover both directions alternate.
+     * Arrows every ~40 dp along jammed (red) stretches, always moving: forward along
+     * one-direction jams, and in both directions (alternating) on two-way jams.
      */
     private fun drawArrows(c: Canvas, tp: TrafficPaths, look: TrafficLook, u: Float, vx: Double, vy: Double, reach: Double): Boolean {
-        val spacing = 40f * u
+        val spacing = (if (look.smooth) 40f else 44f) * u
         val size = (look.core + 2.5f) * u
         arrowShape.reset()
         arrowShape.moveTo(-size * 0.6f, -size); arrowShape.lineTo(size * 0.7f, 0f); arrowShape.lineTo(-size * 0.6f, size)
         arrowShape.lineTo(-size * 0.15f, 0f); arrowShape.close()
         arrowPaint.color = look.arrow
         arrowPaint.pathEffect = null
-        val crawl = if (look.animate) ((android.os.SystemClock.uptimeMillis() / 1000.0 * 12 * u) % spacing).toFloat() else 0f
+        // arrows flow along the jam at ~22 dp per second
+        val crawl = ((android.os.SystemClock.uptimeMillis() / 1000.0 * 22 * u) % spacing).toFloat()
         val l = (vx - reach).toFloat(); val r = (vx + reach).toFloat(); val t = (vy - reach).toFloat(); val b = (vy + reach).toFloat()
         var drawn = 0
         for (al in tp.arrows) {
@@ -391,35 +392,48 @@ class MapRenderer {
             var i = 2
             while (i < pts.size) { total += hypot(pts[i] - pts[i - 2], pts[i + 1] - pts[i - 1]); i += 2 }
             if (total < size * 2.5f) continue
-            // where the arrows go along this stretch
-            val first: Float; val step: Float
-            if (total < spacing * 1.5f) { first = total / 2; step = Float.MAX_VALUE }
-            else { first = (if (al.bothWays) spacing / 2 else crawl + spacing / 2) % spacing; step = spacing }
-            var at = first
-            var idx = 0
-            var walked = 0f
-            i = 2
-            while (i < pts.size && at <= total) {
-                val x0 = pts[i - 2]; val y0 = pts[i - 1]; val x1 = pts[i]; val y1 = pts[i + 1]
-                val len = hypot(x1 - x0, y1 - y0)
-                while (at <= walked + len && len > 0) {
-                    val f = (at - walked) / len
-                    var ang = Math.toDegrees(kotlin.math.atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
-                    if (al.bothWays && idx % 2 == 1) ang += 180f
-                    c.save()
-                    c.translate(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f)
-                    c.rotate(ang)
-                    c.drawPath(arrowShape, arrowPaint)
-                    c.restore()
-                    drawn++; idx++
-                    at += step
-                    if (drawn > 500) return true
-                }
-                walked += len
-                i += 2
+            if (al.bothWays) {
+                // two-way jam: arrows alternate, each set flowing its own way
+                drawn += arrowRun(c, pts, total, crawl, spacing, false)
+                drawn += arrowRun(c, pts, total, (spacing / 2 - crawl + spacing) % spacing, spacing, true)
+            } else {
+                drawn += arrowRun(c, pts, total, crawl, spacing, false)
             }
+            if (drawn > 500) return true
         }
         return drawn > 0
+    }
+
+    /** Arrows along [pts] starting at [start], every [spacing]; [backwards] points them the other way. */
+    private fun arrowRun(c: Canvas, pts: FloatArray, total: Float, start: Float, spacing: Float, backwards: Boolean): Int {
+        var at = if (backwards) total - start else start
+        var n = 0
+        // walk the line once, placing arrows as we pass their distance
+        val positions = ArrayList<Float>()
+        while (at >= 0 && at <= total) { positions += at; at += if (backwards) -spacing else spacing }
+        if (positions.isEmpty()) return 0
+        positions.sort()
+        var walked = 0f
+        var pi = 0
+        var i = 2
+        while (i < pts.size && pi < positions.size) {
+            val x0 = pts[i - 2]; val y0 = pts[i - 1]; val x1 = pts[i]; val y1 = pts[i + 1]
+            val len = hypot(x1 - x0, y1 - y0)
+            while (pi < positions.size && positions[pi] <= walked + len && len > 0) {
+                val f = (positions[pi] - walked) / len
+                var ang = Math.toDegrees(kotlin.math.atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
+                if (backwards) ang += 180f
+                c.save()
+                c.translate(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f)
+                c.rotate(ang)
+                c.drawPath(arrowShape, arrowPaint)
+                c.restore()
+                n++; pi++
+            }
+            walked += len
+            i += 2
+        }
+        return n
     }
 
     // ---------------------------------------------------------------- route
