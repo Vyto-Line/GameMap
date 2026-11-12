@@ -100,7 +100,11 @@ object Osrm {
             "?overview=full&geometries=geojson&steps=true"
         if (alternatives) url += "&alternatives=3"
         if (heading != null) url += "&bearings=${heading.toInt().coerceIn(0, 359)},60;"
-        val o = JSONObject(Http.get(url))
+        return parseAll(Http.get(url))
+    }
+
+    fun parseAll(json: String): List<RouteOption> {
+        val o = JSONObject(json)
         if (o.optString("code") != "Ok") throw RuntimeException(o.optString("code"))
         val arr = o.getJSONArray("routes")
         return (0 until arr.length()).map { parse(arr.getJSONObject(it)) }

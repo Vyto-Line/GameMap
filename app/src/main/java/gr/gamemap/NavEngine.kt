@@ -429,6 +429,29 @@ object NavEngine {
         changed.fire()
     }
 
+    // ============================================================= previews / tests
+
+    internal fun debugPlan(place: Place, opts: List<RouteOption>) {
+        planning = true; planPlace = place; options = opts; selected = fastestIndex()
+        planLoading = false; planError = null
+        MapState.requestFit(opts.flatMap { it.points } + place.pos)
+        changed.fire()
+    }
+
+    internal fun debugDrive(place: Place, r: RouteOption, delaySeconds: Int) {
+        planning = false
+        begin(place)
+        apply(r, announce = false)
+        trafficRatio = (r.duration + delaySeconds) / maxOf(r.duration, 1.0)
+        trafficDelaySeconds = delaySeconds
+        changed.fire()
+    }
+
+    internal fun debugOffer(o: RouteOption, saving: Int) {
+        offer = Offer(o, saving, System.currentTimeMillis())
+        changed.fire()
+    }
+
     // ============================================================= text helpers
 
     fun formatDistance(m: Double): String = when {

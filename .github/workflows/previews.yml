@@ -1,5 +1,10 @@
 name: Map previews
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "Test class to run"
+        default: "MockupBackgroundsTest"
 permissions:
   contents: write
 jobs:
@@ -14,14 +19,16 @@ jobs:
           for x in 9270 9271 9272; do for y in 6320 6321 6322; do
             curl -s --compressed -o previewdata/${x}_${y}.pbf "$(echo $T | sed "s/{z}/14/;s/{x}/$x/;s/{y}/$y/")"
           done; done
+          curl -s -m 30 -o previewdata/route.json "https://router.project-osrm.org/route/v1/driving/23.7268,37.9812;23.7329,37.9990?overview=full&geometries=geojson&steps=true&alternatives=3"
           ls -la previewdata
       - name: Render
         env:
           TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
         run: |
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          gradle testDebugUnitTest --no-daemon -PbuildNumber=1 --tests gr.gamemap.MockupBackgroundsTest \
-            -DpreviewData=$PWD/previewdata -DpreviewOut=$PWD/previews || true
+          gradle testDebugUnitTest --no-daemon -PbuildNumber=1 --tests "gr.gamemap.${{ inputs.test }}" \
+            -DpreviewData=$PWD/previewdata -DpreviewOut=$PWD/previews || \
+            (find app/build/test-results -name '*.xml' | xargs grep -h -A12 '<failure' | head -80; true)
           # system properties for the test JVM
           ls previews 2>/dev/null | head -50; cat previews/timings.txt 2>/dev/null || true
       - name: Publish to previews branch
