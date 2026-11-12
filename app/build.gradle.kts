@@ -15,6 +15,8 @@ android {
         val build = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
         versionCode = build
         versionName = "build-$build"
+        // Built-in TomTom key, from the TOMTOM_KEY secret at build time (never stored in the code).
+        buildConfigField("String", "TOMTOM_KEY", "\"${System.getenv("TOMTOM_KEY") ?: ""}\"")
     }
     signingConfigs {
         // Fixed key in the repo so every build can update the previous one in place.
@@ -33,6 +35,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    buildFeatures { buildConfig = true }
     testOptions {
         unitTests {
             isIncludeAndroidResources = true

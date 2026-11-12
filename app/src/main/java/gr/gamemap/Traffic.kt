@@ -19,8 +19,10 @@ object Traffic {
     private const val REFRESH_MS = 120_000L
     private lateinit var appContext: Context
 
-    var key = ""
-        private set
+    /** A key typed into the app overrides the one built into the app. */
+    private var userKey = ""
+    val key: String get() = userKey.ifEmpty { BuildConfig.TOMTOM_KEY }
+    val builtIn: Boolean get() = userKey.isEmpty() && BuildConfig.TOMTOM_KEY.isNotEmpty()
     var enabled = true
         private set
 
@@ -33,15 +35,15 @@ object Traffic {
     fun init(ctx: Context) {
         appContext = ctx.applicationContext
         val p = prefs()
-        key = p.getString("tomtomKey", "") ?: ""
+        userKey = p.getString("tomtomKey", "") ?: ""
         enabled = p.getBoolean("traffic", true)
     }
 
     private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
 
     fun setKey(k: String) {
-        key = k.trim()
-        prefs().edit().putString("tomtomKey", key).apply()
+        userKey = k.trim().takeIf { it != BuildConfig.TOMTOM_KEY } ?: ""
+        prefs().edit().putString("tomtomKey", userKey).apply()
         tiles.evictAll()
         MapState.changed.fire()
     }

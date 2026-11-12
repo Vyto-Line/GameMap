@@ -15,6 +15,8 @@ jobs:
         run: git clone --depth 1 --branch "${{ github.ref_name }}" "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" src
       - name: Build APK
         working-directory: src
+        env:
+          TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
         run: |
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
           gradle assembleDebug --no-daemon -PbuildNumber=${{ github.run_number }}

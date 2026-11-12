@@ -427,8 +427,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun trafficSettings() {
         val input = EditText(this).apply {
-            hint = "Paste your TomTom API key"
-            setText(Traffic.key)
+            hint = if (Traffic.builtIn) "Built-in key in use (optional: your own)" else "Paste your TomTom API key"
+            setText(if (Traffic.builtIn) "" else Traffic.key)
             setSingleLine()
         }
         val toggle = android.widget.CheckBox(this).apply {
