@@ -395,7 +395,8 @@ class MapRenderer {
             if (al.bothWays) {
                 // two-way jam: arrows alternate, each set flowing its own way
                 drawn += arrowRun(c, pts, total, crawl, spacing, false)
-                drawn += arrowRun(c, pts, total, (spacing / 2 - crawl + spacing) % spacing, spacing, true)
+                // backward set: counted from the far end, so it moves the way it points
+                drawn += arrowRun(c, pts, total, (crawl + spacing / 2) % spacing, spacing, true)
             } else {
                 drawn += arrowRun(c, pts, total, crawl, spacing, false)
             }
