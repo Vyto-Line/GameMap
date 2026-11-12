@@ -51,7 +51,6 @@ enum class Theme(
         route = Color.rgb(177, 77, 255), routeGlow = Color.argb(110, 177, 77, 255),
         player = Color.WHITE, playerOutline = Color.BLACK,
         hudText = Color.WHITE, hudPanel = Color.argb(170, 0, 0, 0),
-        radar = true,
         ramp = intArrayOf(
             0, Color.rgb(54, 75, 92),     // water: slate blue
             14, Color.rgb(30, 36, 40),    // land: dark asphalt grey
@@ -83,9 +82,9 @@ enum class Theme(
     ),
     BLOCKY(
         "Blocky", Color.rgb(94, 158, 58),
-        route = Color.rgb(255, 216, 61), routeGlow = Color.argb(120, 60, 40, 10),
-        player = Color.WHITE, playerOutline = Color.rgb(40, 40, 40),
-        hudText = Color.WHITE, hudPanel = Color.argb(200, 55, 55, 55),
+        route = Color.rgb(255, 40, 24), routeGlow = Color.argb(130, 120, 0, 0),
+        player = Color.WHITE, playerOutline = Color.rgb(30, 30, 30),
+        hudText = Color.WHITE, hudPanel = Color.argb(200, 40, 40, 40),
         pixel = 8, quantize = true, hud = HudShape.PIXEL,
         ramp = intArrayOf(
             0, Color.rgb(63, 118, 228),   // water

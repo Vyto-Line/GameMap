@@ -39,6 +39,7 @@ object TileCache {
     private val pool = ThreadPoolExecutor(4, 4, 30, TimeUnit.SECONDS, Lifo())
 
     fun init(ctx: Context) {
+        BlockWorld.init(ctx)
         dir = File(ctx.cacheDir, "tiles-v2")
         File(ctx.cacheDir, "tiles").deleteRecursively()
         tilePx = if (ctx.resources.displayMetrics.density >= 1.5f) 512 else 256
@@ -55,7 +56,8 @@ object TileCache {
 
     /** Themed tile if ready; otherwise starts loading it and returns null. */
     fun get(theme: Theme, z: Int, x: Int, y: Int): Bitmap? {
-        if (MapState.mapKey.isEmpty()) return null
+        val blocky = theme == Theme.BLOCKY && z >= 15
+        if (MapState.mapKey.isEmpty() && !blocky) return null
         val k = key(theme, z, x, y)
         mem.get(k)?.let { return it }
         val f = failed[k]
@@ -64,9 +66,15 @@ object TileCache {
         if (inFlight.add(k)) {
             pool.execute {
                 try {
-                    if (System.currentTimeMillis() - (wanted[k] ?: 0) > 3000) return@execute
-                    val raw = loadRaw(z, x, y)
-                    if (raw != null) {
+                    if (!blocky && System.currentTimeMillis() - (wanted[k] ?: 0) > 3000) return@execute
+                    // Blocky close-ups are built from real map data; anything else recolours a base tile.
+                    val built = if (blocky) BlockWorld.tile(z, x, y, tilePx) else null
+                    val raw = if (built == null && MapState.mapKey.isNotEmpty()) loadRaw(z, x, y) else null
+                    if (built != null) {
+                        mem.put(k, built)
+                        failed.remove(k)
+                        loaded.fire()
+                    } else if (raw != null) {
                         mem.put(k, theme.process(raw))
                         failed.remove(k)
                         loaded.fire()
