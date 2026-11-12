@@ -10,12 +10,11 @@ Turn-by-turn navigation for Android and **Android Auto** that looks like a video
 - **Parchment Quest**: old paper map, ink roads, red dashed route, serif lettering
 - **Lookout**: dusk palette from purple to sunset orange, warm light from above
 - **8-Bit**: handheld-console greens
-- **Night Vision**: green scanlines
 - **Trailblazer**: bright outdoor-adventure look: lush green land, pale aqua roads with white edges, blue water
 
 Pinch to zoom, twist with two fingers to rotate (tap the compass to reset), drag to look around.
-Search a destination, get a route, follow the turn arrows. Arriving says **MISSION COMPLETE**.
-Map data © OpenStreetMap contributors via OpenFreeMap vector tiles, live traffic by TomTom (optional free key), routing by OSRM, search by Photon and Nominatim
+Search a destination, pick a route, follow the turn card and voice. Arriving shows a themed trip card with XP.
+Map data © OpenStreetMap contributors via OpenFreeMap vector tiles, live traffic, incidents and speed limits by TomTom, routing by OSRM, search by TomTom / Photon / Nominatim and the map data itself
 (all free services; please keep use personal and moderate).
 
 ## Features
