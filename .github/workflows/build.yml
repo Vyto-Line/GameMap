@@ -32,6 +32,7 @@ jobs:
         working-directory: src
         env:
           TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
+          REPORTS_URL: ${{ secrets.REPORTS_URL }}
         run: |
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
           gradle assembleDebug --no-daemon -PbuildNumber=${{ github.run_number }}

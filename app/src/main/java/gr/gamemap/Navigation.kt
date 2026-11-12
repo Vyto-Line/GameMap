@@ -143,6 +143,7 @@ object LocationTracker : LocationListener {
 
         NavEngine.onLocation(location)
         Explorer.onLocation(LatLng(location.latitude, location.longitude), speed)
+        Alerts.onLocation(p, speed, headingTarget)
         changed.fire()
     }
 
@@ -336,13 +337,13 @@ object Http {
         }
     }
 
-    fun post(url: String, body: String): String {
+    fun post(url: String, body: String, contentType: String = "application/json"): String {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 10000
         c.readTimeout = 20000
         c.requestMethod = "POST"
         c.doOutput = true
-        c.setRequestProperty("Content-Type", "application/json")
+        c.setRequestProperty("Content-Type", contentType)
         c.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
         try {
             c.outputStream.use { it.write(body.toByteArray()) }

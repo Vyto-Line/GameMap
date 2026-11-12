@@ -16,6 +16,7 @@ android {
         versionCode = build
         versionName = "build-$build"
         // Built-in TomTom key, from the TOMTOM_KEY secret at build time (never stored in the code).
+        buildConfigField("String", "REPORTS_URL", "\"${System.getenv("REPORTS_URL") ?: ""}\"")
         buildConfigField("String", "TOMTOM_KEY", "\"${System.getenv("TOMTOM_KEY") ?: ""}\"")
     }
     signingConfigs {

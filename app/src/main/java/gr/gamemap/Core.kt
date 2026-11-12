@@ -27,6 +27,7 @@ class GameMapApp : Application() {
         NavEngine.init(this)
         Voice.init(this)
         Explorer.init(this)
+        Alerts.init(this)
     }
 }
 

@@ -33,6 +33,7 @@ import androidx.car.app.model.Distance
 import androidx.car.app.model.DistanceSpan
 import androidx.car.app.model.DurationSpan
 import androidx.car.app.model.ItemList
+import androidx.car.app.model.ListTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.SearchTemplate
 import androidx.car.app.model.Template
@@ -145,6 +146,24 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
     private val refresh = Runnable { lastInvalidate = System.currentTimeMillis(); invalidate() }
 
     /** Template updates are throttled to once a second. */
+    private var askedFor: gr.gamemap.Alerts.Report? = null
+
+    /** "Police reported here: still there?" as a car alert. */
+    private val onAlerts: () -> Unit = {
+        surface.redraw()
+        val r = gr.gamemap.Alerts.askAbout
+        if (r != null && r !== askedFor && carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_5) {
+            askedFor = r
+            val t = gr.gamemap.Alerts.typeOf(r.type)
+            val alert = Alert.Builder(ASK_ALERT, CarText.create("${t.title} reported here"), 10_000L)
+                .setSubtitle(CarText.create("Is it still there?"))
+                .addAction(Action.Builder().setTitle("Still there").setOnClickListener { gr.gamemap.Alerts.vote(r, true); gr.gamemap.Alerts.clearAsk() }.build())
+                .addAction(Action.Builder().setTitle("Not there").setOnClickListener { gr.gamemap.Alerts.vote(r, false); gr.gamemap.Alerts.clearAsk() }.build())
+                .build()
+            try { carContext.getCarService(AppManager::class.java).showAlert(alert) } catch (_: Exception) {}
+        }
+    }
+
     private var previewShown = false
     private var alertFor: NavEngine.Offer? = null
 
@@ -174,6 +193,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 NavEngine.changed += surface.redraw
                 NavEngine.changed += onNav
                 Voice.changed += onNav
+                gr.gamemap.Alerts.changed += onAlerts
                 ensureLocation()
                 if (gr.gamemap.Updater.dueForCheck(carContext)) Executors.newSingleThreadExecutor().execute {
                     val r = try { gr.gamemap.Updater.check(carContext) } catch (e: Exception) { null }
@@ -190,6 +210,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 NavEngine.changed -= surface.redraw
                 NavEngine.changed -= onNav
                 Voice.changed -= onNav
+                gr.gamemap.Alerts.changed -= onAlerts
                 if (navigating) nav.navigationEnded()
             }
         })
@@ -259,6 +280,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 val t = MapState.nextCarTheme()
                 CarToast.makeText(carContext, t.title, CarToast.LENGTH_SHORT).show()
             })
+        strip.addAction(action(R.drawable.ic_report) { screenManager.push(ReportScreen(carContext)) })
         if (NavEngine.active) strip.addAction(action(R.drawable.ic_stop) { NavEngine.stop() })
 
         val b = NavigationTemplate.Builder().setActionStrip(strip.build())
@@ -416,6 +438,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
 
     companion object {
         const val OFFER_ALERT = 7
+        const val ASK_ALERT = 8
     }
 }
 
@@ -556,5 +579,23 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
                 invalidate()
             }
         }
+    }
+}
+
+/** Report police, accidents and hazards from the car. */
+class ReportScreen(carContext: CarContext) : Screen(carContext) {
+    override fun onGetTemplate(): Template {
+        val list = ItemList.Builder()
+        if (!gr.gamemap.Alerts.reportsReady) {
+            list.setNoItemsMessage("Driver reports aren't set up yet: open GameMap on your phone › Settings › Driver reports")
+        } else for (t in gr.gamemap.Alerts.reportTypes) {
+            list.addItem(Row.Builder().setTitle("${t.glyph}  ${t.title}").setOnClickListener {
+                gr.gamemap.Alerts.report(t.key) { ok ->
+                    CarToast.makeText(carContext, if (ok) "Thanks! ${t.title} reported" else "Couldn't send the report", CarToast.LENGTH_SHORT).show()
+                }
+                screenManager.pop()
+            }.build())
+        }
+        return ListTemplate.Builder().setTitle("Report").setHeaderAction(Action.BACK).setSingleList(list.build()).build()
     }
 }

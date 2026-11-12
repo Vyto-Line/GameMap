@@ -127,6 +127,7 @@ class MapRenderer(private val car: Boolean = false) {
         // names on top of the map, laid out on screen (never overlapping, always upright)
         labels.draw(c, camera!!, z, area, d, theme)
         if (theme == Theme.TRAILBLAZER && zoom >= 13.5) drawLandmarks(c, camera!!, center, area, d)
+        if (zoom >= 13.0) drawRoadAlerts(c, camera!!, center, area, d)
 
         if (VectorSource.busy.get() > 0) {
             animating = true
@@ -872,6 +873,31 @@ class MapRenderer(private val car: Boolean = false) {
         stroke.strokeCap = Paint.Cap.BUTT; stroke.strokeJoin = Paint.Join.MITER
     }
 
+    private fun alertIcon(c: Canvas, x: Float, y: Float, glyph: String, ring: Int, d: Float) {
+        fill.color = Color.WHITE; c.drawCircle(x, y, 14 * d, fill)
+        stroke.color = ring; stroke.strokeWidth = 3 * d; c.drawCircle(x, y, 13 * d, stroke)
+        text.textAlign = Paint.Align.CENTER; text.textSize = 15 * d; text.color = Color.BLACK
+        c.drawText(glyph, x, y + 5.5f * d, text)
+    }
+
+    /** Speed cameras, TomTom incidents and drivers' reports as small round icons. */
+    private fun drawRoadAlerts(c: Canvas, cam: Camera, center: LatLng, a: Rect, d: Float) {
+        val mpp = Geo.metersPerPixel(center.lat, cam.world) / cam.scale
+        val radius = kotlin.math.hypot(a.width().toDouble(), a.height().toDouble()) * mpp
+        fun visit(p: LatLng, glyph: String, ring: Int) {
+            if (Geo.distance(center, p) > radius) return
+            val (x, y) = toScreen(p, cam)
+            if (x < a.left - 20 || x > a.right + 20 || y < a.top - 20 || y > a.bottom + 20) return
+            alertIcon(c, x, y, glyph, ring, d)
+        }
+        val tf = text.typeface
+        text.typeface = Typeface.DEFAULT
+        for (cm in Alerts.cameras(center)) visit(cm.pos, "📷", Color.rgb(30, 110, 230))
+        for (i in Alerts.incidents) visit(i.pos, Alerts.incidentGlyph(i.category), Color.rgb(220, 50, 50))
+        for (r in Alerts.reports) visit(r.pos, Alerts.typeOf(r.type).glyph, Color.rgb(255, 150, 0))
+        text.typeface = tf
+    }
+
     /** Trailblazer: landmarks to discover (glowing) and ones already found (gold). */
     private fun drawLandmarks(c: Canvas, cam: Camera, center: LatLng, a: Rect, d: Float) {
         val mpp = Geo.metersPerPixel(center.lat, cam.world) / cam.scale
@@ -940,7 +966,33 @@ class MapRenderer(private val car: Boolean = false) {
 
     /** "Jam in 800 m · +2 min", under the banner (phone) or at the top of the map (car). */
     private fun drawJamChip(c: Canvas, a: Rect, d: Float, t: Theme, hud: Boolean) {
-        if (!NavEngine.active || NavEngine.arrived || NavEngine.offer != null) return
+        if (NavEngine.offer != null || NavEngine.arrived) return
+        // speed camera / incident / report ahead
+        Alerts.ahead?.let { al ->
+            text.textSize = 15 * d
+            text.typeface = Typeface.DEFAULT_BOLD
+            text.textAlign = Paint.Align.LEFT
+            val label = "${al.label} · ${NavEngine.formatDistance(al.dist)}"
+            val w = text.measureText(label) + 52 * d
+            val h = 40 * d
+            val top = bannerBottom + 10 * d
+            val left = if (hud) a.right - 12 * d - w else a.left + 12 * d
+            val r = RectF(left, top, left + w, top + h)
+            fill.color = Color.rgb(255, 244, 214); c.drawRoundRect(r, h / 2, h / 2, fill)
+            stroke.color = Color.rgb(255, 150, 0); stroke.strokeWidth = 2 * d; c.drawRoundRect(r, h / 2, h / 2, stroke)
+            text.typeface = Typeface.DEFAULT
+            text.textSize = 17 * d
+            text.textAlign = Paint.Align.CENTER
+            c.drawText(al.glyph, r.left + 22 * d, r.centerY() + 6 * d, text)
+            text.typeface = Typeface.DEFAULT_BOLD
+            text.textSize = 15 * d
+            text.textAlign = Paint.Align.LEFT
+            text.color = Color.rgb(110, 60, 0)
+            c.drawText(label, r.left + 40 * d, r.centerY() + 5.5f * d, text)
+            bannerBottom = r.bottom
+            text.typeface = t.typeface
+        }
+        if (!NavEngine.active) return
         val (dist, delay) = NavEngine.jamAhead ?: return
         val mins = (delay + 30) / 60
         val label = (if (dist < 100) "Jam ahead" else "Jam in ${NavEngine.formatDistance(dist)}") + (if (mins >= 1) " · +$mins min" else "")
@@ -949,7 +1001,7 @@ class MapRenderer(private val car: Boolean = false) {
         text.textAlign = Paint.Align.LEFT
         val w = text.measureText(label) + 44 * d
         val h = 38 * d
-        val top = if (hud) bannerBottom + 10 * d else a.top + 12 * d
+        val top = bannerBottom + 10 * d
         val left = if (hud) a.right - 12 * d - w else a.left + 12 * d
         val r = RectF(left, top, left + w, top + h)
         fill.color = Color.rgb(251, 227, 227)

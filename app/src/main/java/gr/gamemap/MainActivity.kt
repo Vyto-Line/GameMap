@@ -66,6 +66,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var muteBtn: TextView
     private lateinit var overviewBtn: TextView
     private lateinit var navMenuBtn: TextView
+    private lateinit var reportBtn: TextView
+    private lateinit var askCard: LinearLayout
+    private lateinit var askText: TextView
+    private var askShown: Alerts.Report? = null
     private lateinit var homeSheet: LinearLayout
     private lateinit var homeTitle: TextView
     private lateinit var homeCards: LinearLayout
@@ -161,6 +165,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(navCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
             addView(preview, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
             addView(offerCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
+            addView(askCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
             addView(sheetOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
             addView(tripOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
@@ -182,6 +187,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             homeSheet.setPadding(bars.left, p, bars.right, bars.bottom + p)
             sheetHost.setPadding(bars.left + 2 * p, p + p / 2, bars.right + 2 * p, bars.bottom + 2 * p)
             (offerCard.layoutParams as FrameLayout.LayoutParams).setMargins(bars.left + p, bars.top + p, bars.right + p, 0)
+            (askCard.layoutParams as FrameLayout.LayoutParams).setMargins(bars.left + p, 0, bars.right + p, bars.bottom + (120 * d).toInt())
             offerCard.requestLayout()
             updateMapInsets()
             wi
@@ -194,6 +200,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             override fun handleOnBackPressed() {
                 when {
                     tripOverlay.visibility == View.VISIBLE -> NavEngine.dismissTrip()
+                    askCard.visibility == View.VISIBLE -> Alerts.clearAsk()
                     sheetOverlay.visibility == View.VISIBLE -> closeSheet()
                     suggestScroll.visibility == View.VISIBLE || pickFor != null -> closeSearch()
                     NavEngine.planning -> NavEngine.cancelPlan()
@@ -497,9 +504,26 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             if (r.size > 1) MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last())
         }
         navMenuBtn = fab("☰", "Settings") { showSettings() }
+        reportBtn = fab("⚠", "Report") { openSheet("report") }
         controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(styleBtn); addView(muteBtn); addView(overviewBtn); addView(recenterBtn); addView(navMenuBtn)
+            addView(styleBtn); addView(reportBtn); addView(muteBtn); addView(overviewBtn); addView(recenterBtn); addView(navMenuBtn)
+        }
+        askText = label("", 16f, bold = true)
+        askCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            elevation = 12 * d
+            visibility = View.GONE
+            isClickable = true
+            val p = (14 * d).toInt(); setPadding(p, p, p, p)
+            addView(askText)
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(pill("Not there") { askShown?.let { Alerts.vote(it, false) }; Alerts.clearAsk() },
+                    LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = (10 * d).toInt() })
+                addView(pill("Still there") { askShown?.let { Alerts.vote(it, true) }; Alerts.clearAsk() },
+                    LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (10 * d).toInt() })
         }
     }
 
@@ -822,6 +846,23 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         muteBtn.text = if (Voice.muted) "🔇" else "🔊"
         overviewBtn.visibility = if (nav && !MapState.overview && NavEngine.route.size > 1) View.VISIBLE else View.GONE
         navMenuBtn.visibility = if (nav) View.VISIBLE else View.GONE
+        reportBtn.visibility = if (planning) View.GONE else View.VISIBLE
+        val ask = Alerts.askAbout
+        askCard.visibility = if (ask != null && !planning) View.VISIBLE else View.GONE
+        if (ask != null && ask !== askShown) {
+            askShown = ask
+            val tp = Alerts.typeOf(ask.type)
+            askText.text = "${tp.glyph}  ${tp.title} reported here: still there?"
+        }
+        if (ask != null) {
+            askCard.background = bg(panel, Color.rgb(255, 150, 0), 2f, 18f)
+            askText.setTextColor(ink)
+            for (i in 0 until (askCard.getChildAt(1) as LinearLayout).childCount) {
+                val b = (askCard.getChildAt(1) as LinearLayout).getChildAt(i) as TextView
+                b.setTextColor(if (i == 1) Color.BLACK else ink)
+                b.background = if (i == 1) bg(Color.rgb(255, 170, 40), radius = 14f) else bg(Color.TRANSPARENT, dim(160), 1.5f, 14f)
+            }
+        }
         controls.visibility = if (planning || searching) View.GONE else View.VISIBLE
         val homeKey = "${t.name}|${MapState.dark}|${MapState.imperial}|$etaVersion|${Explorer.version}|${Explorer.xp}|${Places.recents().joinToString { it.name }}|" +
             "${Places.saved("home")?.name}|${Places.saved("work")?.name}|${LocationTracker.position != null}"
@@ -843,6 +884,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (sheetOverlay.visibility == View.VISIBLE) when (sheetKind) {
             "style" -> renderStylePicker()
             "settings" -> renderSettings()
+            "report" -> renderReport()
         }
         val trip = NavEngine.lastTrip
         tripOverlay.visibility = if (trip != null) View.VISIBLE else View.GONE
@@ -1153,6 +1195,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         ) + group("Traffic",
             switchRow("Live traffic", Traffic.enabled) { Traffic.setEnabled(it) },
             settingRow("TomTom key", if (Traffic.builtIn) "Built-in" else if (Traffic.key.isNotEmpty()) "Your own" else "None") { trafficSettings() },
+        ) + group("Alerts",
+            switchRow("Speed cameras", Alerts.camerasOn) { Alerts.camerasOn = it },
+            switchRow("Accidents & roadworks", Alerts.incidentsOn) { Alerts.incidentsOn = it },
+            settingRow("Driver reports", if (Alerts.reportsReady) "On" else "Set up") { reportsSetup() },
         ) + group("Map",
             settingRow("Light / dark", MapState.lightMode.label) { chooseLightMode() },
             settingRow("Units", if (MapState.imperial) "Miles" else "Kilometres") { MapState.setImperial(!MapState.imperial) },
@@ -1213,7 +1259,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private fun showAbout() {
         AlertDialog.Builder(this)
             .setTitle("GameMap build ${Updater.currentVersion(this)}")
-            .setMessage("Map data © OpenStreetMap contributors\nVector tiles: OpenFreeMap\nTraffic, speed limits: TomTom\nRouting: OSRM\nSearch: Photon (komoot), Nominatim\nVoice: your phone's text-to-speech")
+            .setMessage("Map data and speed cameras © OpenStreetMap contributors\nVector tiles: OpenFreeMap\nTraffic, incidents, speed limits: TomTom\nRouting: OSRM\nSearch: Photon (komoot), Nominatim\nVoice: your phone's text-to-speech")
             .setPositiveButton("OK", null).show()
     }
 
@@ -1314,6 +1360,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         MapState.changed += stateListener
         Voice.changed += stateListener
         Explorer.changed += stateListener
+        Alerts.changed += stateListener
         refreshChrome()
     }
 
@@ -1322,6 +1369,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         MapState.changed -= stateListener
         Voice.changed -= stateListener
         Explorer.changed -= stateListener
+        Alerts.changed -= stateListener
         main.removeCallbacks(ticker)
         super.onStop()
     }
