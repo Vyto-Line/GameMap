@@ -136,7 +136,7 @@ class MapRenderer(private val car: Boolean = false) {
             val tw = text.measureText(msg) / 2 + 12 * d
             val bx = RectF(area.exactCenterX() - tw, area.bottom - 92 * d, area.exactCenterX() + tw, area.bottom - 64 * d)
             panel(c, bx, d, theme, outline = false)
-            text.color = theme.hudText
+            text.color = Ui.ink(theme)
             c.drawText(msg, bx.centerX(), bx.bottom - 9 * d, text)
         }
 
@@ -280,12 +280,15 @@ class MapRenderer(private val car: Boolean = false) {
         trafficPaint.isAntiAlias = look.smooth
         arrowPaint.isAntiAlias = look.smooth
         val u = d / scale // one dp in world pixels
-        var arrowsDrawn = false
+        val nowMs = android.os.SystemClock.uptimeMillis()
+        if (VectorSource.loadedCount != snapSeen && nowMs - snapEpochAt > 4000) {
+            snapSeen = VectorSource.loadedCount; snapEpoch++; snapEpochAt = nowMs
+        }
 
         for (ay in ay0..ay1) for (ax in ax0..ax1) {
             val t = Traffic.tile(dz, ax, ay) ?: continue
             // rebuilt when new map data arrives too, so lanes can lock onto the roads
-            val key = "$dz/$ax/$ay/$z/${t.fetchedAt}/${VectorSource.loadedCount}"
+            val key = "$dz/$ax/$ay/$z/${t.fetchedAt}/$snapEpoch"
             val tp = trafficCache.getOrPut(key) { buildTraffic(t, ax, ay, span, u, z) }
             c.save()
             c.translate((tp.ox - px).toFloat(), (tp.oy - py).toFloat())
@@ -321,14 +324,9 @@ class MapRenderer(private val car: Boolean = false) {
                 if (state == Traffic.CLOSED) trafficPaint.pathEffect = DashPathEffect(floatArrayOf(6 * u, 4 * u), 0f)
                 c.drawPath(p, trafficPaint)
             }
-            // arrows along slow and jammed stretches, pointing the way the traffic is going
-            if (!under && z >= 13 && tp.arrows.isNotEmpty()) {
-                if (drawArrows(c, tp, look, u, px - tp.ox, py - tp.oy, reach)) arrowsDrawn = true
-            }
             trafficPaint.pathEffect = null
             c.restore()
         }
-        if (arrowsDrawn) animating = true
         while (trafficCache.size > 48) trafficCache.remove(trafficCache.keys.first())
     }
 
@@ -348,7 +346,7 @@ class MapRenderer(private val car: Boolean = false) {
             val p = paths[state]
             p.moveTo(pts[0], pts[1])
             for (i in 1 until n) p.lineTo(pts[i * 2], pts[i * 2 + 1])
-            if (state == Traffic.JAM || state == Traffic.CLOSED) { // arrows on red traffic only
+            if (false) { // traffic arrows removed (performance)
                 var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
                 for (i in 0 until n) {
                     minX = minOf(minX, pts[i * 2]); maxX = maxOf(maxX, pts[i * 2])
@@ -473,6 +471,10 @@ class MapRenderer(private val car: Boolean = false) {
     }
 
     // ---------------------------------------------------------------- route
+
+    private var snapSeen = -1
+    private var snapEpoch = 0
+    private var snapEpochAt = 0L
 
     private class CachedPath(val path: Path, val ox: Double, val oy: Double)
     private val pathCache = HashMap<List<LatLng>, CachedPath>()
@@ -619,7 +621,7 @@ class MapRenderer(private val car: Boolean = false) {
 
     /** A HUD panel in the theme's shape: rounded, cut-corner, or pixel-stepped. */
     private fun panel(c: Canvas, r: RectF, d: Float, t: Theme, outline: Boolean) {
-        fill.color = t.hudPanel
+        fill.color = Ui.panel(t)
         stroke.color = t.route; stroke.strokeWidth = 2 * d
         when (t.hud) {
             HudShape.ROUND -> {
@@ -733,7 +735,7 @@ class MapRenderer(private val car: Boolean = false) {
         val bw = maxOf(text.measureText(big), text.measureText("88")) + 24 * d
         val box = RectF(a.left + pad, a.bottom - pad - 58 * d, a.left + pad + bw, a.bottom - pad)
         panel(c, box, d, t, outline = over)
-        text.color = if (over) Color.rgb(255, 92, 92) else t.hudText
+        text.color = if (over) Color.rgb(255, 92, 92) else Ui.ink(t)
         c.drawText(big, box.centerX(), box.top + 33 * d, text)
         text.textSize = 11 * d
         c.drawText(if (imp) "MPH" else "KM/H", box.centerX(), box.bottom - 9 * d, text)
@@ -782,7 +784,7 @@ class MapRenderer(private val car: Boolean = false) {
         val tx = box.left + 82 * d
         val maxW = box.right - tx - 12 * d
         text.textAlign = Paint.Align.LEFT
-        text.color = t.hudText
+        text.color = Ui.ink(t)
         text.textSize = 30 * d
         c.drawText(title, tx, box.top + 36 * d, text)
         text.textSize = 18 * d
@@ -791,7 +793,7 @@ class MapRenderer(private val car: Boolean = false) {
         if (detail != null) {
             text.textSize = 14 * d
             text.typeface = if (t.serif) Typeface.create(Typeface.SERIF, Typeface.NORMAL) else Typeface.DEFAULT
-            text.color = withAlpha(t.hudText, 190)
+            text.color = Ui.dim(t, 190)
             c.drawText(ellipsize(detail, maxW), tx, box.top + 84 * d, text)
         }
         text.typeface = t.typeface
@@ -807,10 +809,10 @@ class MapRenderer(private val car: Boolean = false) {
             val w = text.measureText(label) + 82 * d
             val tab = RectF(box.left + 14 * d, box.bottom - 2 * d, box.left + 14 * d + w, box.bottom + 38 * d)
             panel(c, tab, d, t, outline = false)
-            text.color = withAlpha(t.hudText, 190)
+            text.color = Ui.dim(t, 190)
             c.drawText("Then", tab.left + 12 * d, tab.centerY() + 5.5f * d, text)
             drawTurnArrow(c, tab.left + 62 * d, tab.centerY(), 9 * d, then.direction, t)
-            text.color = t.hudText
+            text.color = Ui.ink(t)
             c.drawText(label, tab.left + 76 * d, tab.centerY() + 5.5f * d, text)
             text.typeface = t.typeface
             bannerBottom = tab.bottom
@@ -825,7 +827,7 @@ class MapRenderer(private val car: Boolean = false) {
 
     /** One small arrow per lane: bright for lanes to use, faint for the others. */
     private fun drawLanes(c: Canvas, r: RectF, lanes: List<Lane>, maneuver: String, d: Float, t: Theme) {
-        fill.color = withAlpha(t.hudText, 22)
+        fill.color = withAlpha(Ui.ink(t), 22)
         c.drawRect(r.left + 8 * d, r.top, r.right - 8 * d, r.bottom - 6 * d, fill)
         val cell = minOf(40 * d, (r.width() - 24 * d) / lanes.size)
         var x = r.centerX() - cell * lanes.size / 2 + cell / 2
@@ -834,7 +836,7 @@ class MapRenderer(private val car: Boolean = false) {
             val dir = lane.directions.firstOrNull { lane.valid && it == maneuver }
                 ?: lane.directions.firstOrNull { lane.valid && it != "none" }
                 ?: lane.directions.firstOrNull() ?: "straight"
-            drawLaneArrow(c, x, y, 13 * d, if (dir == "none") "straight" else dir, if (lane.valid) t.hudText else withAlpha(t.hudText, 70), d)
+            drawLaneArrow(c, x, y, 13 * d, if (dir == "none") "straight" else dir, if (lane.valid) Ui.ink(t) else withAlpha(Ui.ink(t), 70), d)
             x += cell
         }
     }
@@ -905,8 +907,7 @@ class MapRenderer(private val car: Boolean = false) {
         // the nearest few, so a busy city centre doesn't turn into a sea of markers
         val list = Explorer.near(center, radius).sortedBy { Geo.distance(center, it.pos) }.take(30)
         if (list.isEmpty()) return
-        val pulse = ((android.os.SystemClock.uptimeMillis() % 1600) / 1600f)
-        animating = true
+        val pulse = 0.35f
         text.textAlign = Paint.Align.CENTER
         val tf = text.typeface
         text.typeface = Typeface.DEFAULT_BOLD
@@ -1055,21 +1056,21 @@ class MapRenderer(private val car: Boolean = false) {
         val x = a.left + 14 * d + r
         val y = maxOf(a.top + 14 * d, bannerBottom + 12 * d) + r
         compassBounds.set(x - r, y - r, x + r, y + r)
-        fill.color = t.hudPanel; c.drawCircle(x, y, r, fill)
+        fill.color = Ui.panel(t); c.drawCircle(x, y, r, fill)
         stroke.color = t.route; stroke.strokeWidth = 2 * d; c.drawCircle(x, y, r, stroke)
         c.save()
         c.rotate(-bearing, x, y)
         path.reset(); path.moveTo(x, y - r * 0.75f); path.lineTo(x + r * 0.28f, y); path.lineTo(x - r * 0.28f, y); path.close()
         fill.color = Color.rgb(230, 50, 40); c.drawPath(path, fill)
         path.reset(); path.moveTo(x, y + r * 0.75f); path.lineTo(x + r * 0.28f, y); path.lineTo(x - r * 0.28f, y); path.close()
-        fill.color = t.hudText; c.drawPath(path, fill)
+        fill.color = Ui.ink(t); c.drawPath(path, fill)
         c.restore()
     }
 
     private fun drawAttribution(c: Canvas, a: Rect, d: Float, t: Theme) {
         text.textAlign = Paint.Align.RIGHT
         text.textSize = 9 * d
-        text.color = Color.argb(170, Color.red(t.hudText), Color.green(t.hudText), Color.blue(t.hudText))
+        text.color = Color.argb(170, Color.red(Ui.ink(t)), Color.green(Ui.ink(t)), Color.blue(Ui.ink(t)))
         c.drawText(if (Traffic.active) "© OpenStreetMap · OpenFreeMap · TomTom" else "© OpenStreetMap · OpenFreeMap", a.right - 8 * d, a.bottom - 6 * d, text)
     }
 }

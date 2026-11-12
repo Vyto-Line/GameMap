@@ -133,6 +133,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         d = resources.displayMetrics.density
 
         map = GameMapView(this)
+        map.onTouchStart = {
+            if (search.hasFocus() || suggestScroll.visibility == View.VISIBLE || pickFor != null) closeSearch()
+        }
         buildSearch()
         buildControls()
         buildHomeSheet()
@@ -222,17 +225,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     // ------------------------------------------------------------------ look helpers
 
     private val theme get() = MapState.theme
-    private val ink get() = theme.hudText
-    private val panel: Int get() = theme.hudPanel.let { Color.argb(maxOf(Color.alpha(it), 235), Color.red(it), Color.green(it), Color.blue(it)) }
+    private val ink get() = Ui.ink(theme)
+    private val panel: Int get() = Ui.panel(theme)
     private val accent get() = theme.route
-    private fun dim(a: Int = 185) = Color.argb(a, Color.red(ink), Color.green(ink), Color.blue(ink))
+    /** Secondary text (strength 255 = full ink); thin lines and fills below 120 stay faint. */
+    private fun dim(a: Int = 185) = if (a < 120) Color.argb(a, Color.red(ink), Color.green(ink), Color.blue(ink)) else Ui.dim(theme, a)
     private fun bg(fill: Int, stroke: Int = 0, strokeDp: Float = 0f, radius: Float = 16f, topOnly: Boolean = false, pill: Boolean = false) =
         HudDrawable(theme.hud, fill, d, radius, stroke, strokeDp, topOnly, pill)
     private fun luminance(c: Int) = (0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255.0
     private fun onAccent(c: Int) = if (luminance(c) > 0.5) Color.rgb(15, 18, 22) else Color.WHITE
     private fun darken(c: Int) = Color.rgb(Color.red(c) * 6 / 10, Color.green(c) * 6 / 10, Color.blue(c) * 6 / 10)
     private val lightPanel get() = luminance(panel) > 0.6
-    private fun readable(c: Int) = if (lightPanel) darken(c) else c
+    private fun readable(c: Int) = Ui.onPanel(theme, c)
 
     private fun pill(label: String, onClick: () -> Unit) = TextView(this).apply {
         text = label
@@ -1487,6 +1491,8 @@ class GameMapView(ctx: Context) : View(ctx) {
     private val area = Rect()
     var insetTop = 0
     var insetBottom = 0
+    /** Called when a finger first touches the map (closes search). */
+    var onTouchStart: (() -> Unit)? = null
     private val redraw: () -> Unit = { postInvalidateOnAnimation() }
     private var lastX = 0f
     private var lastY = 0f
@@ -1529,6 +1535,7 @@ class GameMapView(ctx: Context) : View(ctx) {
         scaler.onTouchEvent(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                onTouchStart?.invoke()
                 lastX = e.x; lastY = e.y; downX = e.x; downY = e.y
                 dragging = false; scaling = false; rotating = false; twist = 0f
             }

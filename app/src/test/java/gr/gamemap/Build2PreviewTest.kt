@@ -58,8 +58,14 @@ class Build2PreviewTest {
         shot("ui2_style_picker")
         activity.onBackPressedDispatcher.onBackPressed()
 
-        MapState.setLightMode(MapState.LightMode.DARK); MapState.setTheme(Theme.LOOKOUT)
         activity.showSettings()
-        shot("ui2_settings")
+        for ((th, mode) in listOf(
+            Theme.LOOKOUT to MapState.LightMode.DARK, Theme.NEON_RACER to MapState.LightMode.DARK,
+            Theme.NEON_NOIR to MapState.LightMode.DARK, Theme.RETRO to MapState.LightMode.LIGHT,
+            Theme.OPEN_WORLD to MapState.LightMode.DARK, Theme.PARCHMENT_QUEST to MapState.LightMode.LIGHT,
+        )) {
+            MapState.setLightMode(mode); MapState.setTheme(th)
+            shot("ui2_settings_${th.name.lowercase()}")
+        }
     }
 }
