@@ -8,8 +8,9 @@ jobs:
         env:
           TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
         run: |
+          set +e
           echo "== OSRM =="
-          curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.7329,37.9990?alternatives=3&steps=true&annotations=maxspeed,duration&overview=false" > osrm.json
+          curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.7329,37.9990?alternatives=3&steps=true&annotations=duration&overview=false" > osrm.json
           python3 - <<'P'
           import json
           o=json.load(open('osrm.json'))
@@ -48,12 +49,12 @@ jobs:
           print('points',len(pts),'first',pts[0],'last',pts[-1])"
           FIRST=$(python3 -c "import json;b=json.load(open('body.json'))['supportingPoints'];print(f\"{b[0]['latitude']},{b[0]['longitude']}:{b[-1]['latitude']},{b[-1]['longitude']}\")")
           for extra in "" "&departAt=2026-11-13T08:30:00"; do
-          curl -s -m 30 -X POST -H 'Content-Type: application/json' --data @body.json "https://api.tomtom.com/routing/1/calculateRoute/$FIRST/json?key=$TOMTOM_KEY&traffic=true&travelMode=car&routeRepresentation=polyline&sectionType=traffic&computeTravelTimeFor=all$extra" > tt.json
+          curl -s -m 30 -X POST -H 'Content-Type: application/json' --data @body.json "https://api.tomtom.com/routing/1/calculateRoute/$FIRST/json?key=$TOMTOM_KEY&traffic=true&travelMode=car&routeRepresentation=polyline&sectionType=traffic&sectionType=speedLimit&computeTravelTimeFor=all$extra" > tt.json
           python3 -c "
           import json;o=json.load(open('tt.json'))
           if 'routes' not in o: print('ERR',str(o)[:400])
           else:
-            r=o['routes'][0];print('summary',r['summary']);print('npts',len(r['legs'][0]['points']));print('sections',[(s['sectionType'],s['startPointIndex'],s['endPointIndex'],s.get('magnitudeOfDelay'),s.get('delayInSeconds')) for s in r['sections']])"
+            r=o['routes'][0];print('summary',r['summary']);print('npts',len(r['legs'][0]['points']));print('sections',[(s['sectionType'],s['startPointIndex'],s['endPointIndex'],s.get('magnitudeOfDelay'),s.get('delayInSeconds'),s.get('maxSpeedLimitInKmh')) for s in r['sections']])"
           done
           echo "== OSRM lanes demo (highway) =="
           curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.80,38.04?steps=true&overview=false" | python3 -c "
