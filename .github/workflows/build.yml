@@ -13,6 +13,16 @@ jobs:
     steps:
       - name: Get code
         run: git clone --depth 1 --branch "${{ github.ref_name }}" "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" src
+      - name: Check TomTom key (prints status codes only)
+        env:
+          TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
+        run: |
+          if [ -z "$TOMTOM_KEY" ]; then echo "KEYCHECK secret TOMTOM_KEY: MISSING"; exit 0; fi
+          echo "KEYCHECK secret TOMTOM_KEY: present (${#TOMTOM_KEY} characters)"
+          t=$(curl -s -o /dev/null -w "%{http_code}" "https://api.tomtom.com/traffic/map/4/tile/flow/relative0/12/2338/1588.png?key=$TOMTOM_KEY")
+          r=$(curl -s -o /dev/null -w "%{http_code}" "https://api.tomtom.com/routing/1/calculateRoute/37.9755,23.7348:37.9420,23.6470/json?key=$TOMTOM_KEY&traffic=true&routeRepresentation=summaryOnly")
+          echo "KEYCHECK traffic tiles: HTTP $t"
+          echo "KEYCHECK routing: HTTP $r"
       - name: Build APK
         working-directory: src
         env:
