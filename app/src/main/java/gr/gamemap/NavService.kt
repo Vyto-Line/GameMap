@@ -35,10 +35,15 @@ class NavService : Service() {
                 this, 7, n,
                 if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
             )
-            LocationTracker.start(this)
+            LocationTracker.start(this, "nav")
         } catch (e: Exception) {
             stopSelf()
         }
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        LocationTracker.release(this, "nav")
+        super.onDestroy()
     }
 }

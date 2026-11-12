@@ -41,7 +41,7 @@ object Alerts {
     private val cameraCells = ConcurrentHashMap<String, List<Camera>>()
     private val cellBusy = ConcurrentHashMap.newKeySet<String>()
     private val cellFailedAt = ConcurrentHashMap<String, Long>()
-    private val overpass = listOf(
+    val overpass = listOf(
         "https://overpass-api.de/api/interpreter",
         "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     )

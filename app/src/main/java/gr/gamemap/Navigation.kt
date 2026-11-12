@@ -54,8 +54,29 @@ object LocationTracker : LocationListener {
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
+    private val users = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * [who] ("phone", "car", "nav") needs positions. GPS runs only while someone does, so GameMap
+     * left open in the background doesn't keep the GPS, network and voice busy.
+     */
+    fun start(ctx: Context, who: String = "phone") {
+        users += who
+        startUpdates(ctx)
+    }
+
+    fun release(ctx: Context, who: String) {
+        users -= who
+        if (users.isNotEmpty() || !started) return
+        val lm = ctx.applicationContext.getSystemService(LocationManager::class.java) ?: return
+        try { lm.removeUpdates(this) } catch (_: Exception) {}
+        started = false
+    }
+
+    val inUse: Boolean get() = users.isNotEmpty()
+
     @SuppressLint("MissingPermission")
-    fun start(ctx: Context) {
+    private fun startUpdates(ctx: Context) {
         if (started || !hasPermission(ctx)) return
         val lm = ctx.applicationContext.getSystemService(LocationManager::class.java) ?: return
         val looper = Looper.getMainLooper()
@@ -142,6 +163,7 @@ object LocationTracker : LocationListener {
         if (firstFix) heading = headingTarget
 
         NavEngine.onLocation(location)
+        Places.warmUp(p)
         Explorer.onLocation(LatLng(location.latitude, location.longitude), speed)
         Alerts.onLocation(p, speed, headingTarget)
         changed.fire()
@@ -228,6 +250,33 @@ object Places {
     fun norm(s: String): String = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
         .replace(Regex("\\p{Mn}+"), "").replace('ς', 'σ')
 
+    /** Greek typed in Latin letters ("eggeli", "xalandri", "thiseio") → Greek letters. */
+    fun greeklish(s: String): String {
+        val t = s.lowercase()
+        if (t.none { it in 'a'..'z' }) return s
+        val sb = StringBuilder()
+        var i = 0
+        val vowels = "aeiouyw"
+        while (i < t.length) {
+            val two = if (i + 1 < t.length) t.substring(i, i + 2) else ""
+            val g2 = when (two) {
+                "th" -> "θ"; "ch", "kh" -> "χ"; "ps" -> "ψ"; "ks" -> "ξ"; "ou" -> "ου"; else -> null
+            }
+            if (g2 != null) { sb.append(g2); i += 2; continue }
+            val ch = t[i]
+            sb.append(when (ch) {
+                'a' -> "α"; 'b', 'v' -> "β"; 'g' -> "γ"; 'd' -> "δ"; 'e' -> "ε"; 'z' -> "ζ"
+                'h' -> if (i + 1 < t.length && t[i + 1] in vowels) "χ" else "η"
+                'i' -> "ι"; 'k', 'c', 'q' -> "κ"; 'l' -> "λ"; 'm' -> "μ"; 'n' -> "ν"; 'x' -> "χ"
+                'o' -> "ο"; 'p' -> "π"; 'r' -> "ρ"; 's' -> "σ"; 't' -> "τ"; 'y' -> "υ"; 'u' -> "ου"
+                'f' -> "φ"; 'w' -> "ω"; 'j' -> "τζ"
+                else -> ch.toString()
+            })
+            i++
+        }
+        return sb.toString()
+    }
+
     /**
      * Greek spelling by sound, so small spelling slips still match: ι/η/υ/ει/οι all become ι,
      * ω→ο, αι→ε, double letters single ("Λυκοβριση" finds "Λυκόβρυση").
@@ -237,12 +286,15 @@ object Places {
         t = t.replace("αυ", "αβ").replace("ευ", "εβ").replace("ου", "\u0001")
             .replace("ει", "ι").replace("οι", "ι").replace("υι", "ι").replace("αι", "ε")
             .replace('η', 'ι').replace('υ', 'ι').replace('ω', 'ο').replace("\u0001", "ου")
+            // sounds Greeklish spells loosely: μπ/β (b), ντ/δ (d), γκ/γγ/νγ (g), ξ/χ (x), κσ (ks)
+            .replace("μπ", "β").replace("ντ", "δ").replace("γκ", "γ").replace("νγ", "γ")
+            .replace("κσ", "χ").replace('ξ', 'χ').replace("πσ", "ψ")
         return t.replace(Regex("(\\p{L})\\1"), "$1")
     }
 
     private fun indexTile(key: String, vt: VectorTile): List<Named> = nameIndex.getOrPut(key) {
         val (zs, xs, ys) = key.split("/")
-        val z = zs.toInt(); val tx = xs.toInt(); val ty = ys.toInt()
+        val z = zs.removePrefix("s").toInt(); val tx = xs.toInt(); val ty = ys.toInt()
         val n = (1 shl z).toDouble()
         val out = ArrayList<Named>()
         for (f in vt.features) {
@@ -301,25 +353,142 @@ object Places {
     }
 
     /** Names on the map data in memory that start with what was typed, nearest first. Instant, offline. */
-    fun local(query: String, near: LatLng?): List<Place> {
-        val words = sound(query.trim()).split(Regex("\\s+")).filter { it.isNotEmpty() }
-        if (words.isEmpty()) return emptyList()
-        val hits = ArrayList<Named>()
+    /** A search typed as words (numbers apart) and, if any, the house number in it. */
+    class Query(text: String) {
+        private val raw = text.trim().split(Regex("[\\s,]+")).filter { it.isNotEmpty() }
+        val number: String? = raw.firstOrNull { w -> w.any { it.isDigit() } && w.length <= 5 }
+        val words: List<String> = raw.filter { w -> w.none { it.isDigit() } }
+        /** Each word as typed and as Greek, by sound. */
+        val forms: List<List<String>> = words.map { listOf(sound(it), sound(greeklish(it))).filter { f -> f.isNotEmpty() }.distinct() }
+        fun matches(e: List<String>, k: Int) = forms[k].any { f -> e.any { it.startsWith(f) } }
+    }
+
+    fun local(query: String, near: LatLng?): List<Place> = localNamed(Query(query), near).map { e ->
+        Place(e.name, when (e.kind) { 0 -> "Area"; 2 -> "Street"; else -> "" }, e.pos, e.icon)
+    }
+
+    /**
+     * Names in the map data on the phone. Extra words that don't match (a misspelt area, "odos")
+     * don't hide a result; they only rank it lower. The first word must match, or most of them.
+     */
+    private fun localNamed(q: Query, near: LatLng?): List<Named> {
+        val n = q.words.size
+        if (n == 0) return emptyList()
+        val hits = ArrayList<Pair<Named, Int>>()
+        fun consider(e: Named) {
+            var m = 0
+            var first = false
+            for (k in 0 until n) if (q.matches(e.norm, k)) { m++; if (k == 0) first = true }
+            if (m > 0 && (first || m * 2 >= n)) hits += e to m
+        }
         for ((key, vt) in VectorSource.parsedTiles()) {
             if (!key.startsWith("${VectorSource.MAX_Z}/") && !key.startsWith("${VectorSource.MAX_Z - 1}/")) continue
-            for (e in indexTile(key, vt)) {
-                if (words.all { w -> e.norm.any { it.startsWith(w) } }) hits += e
-            }
+            for (e in indexTile(key, vt)) consider(e)
         }
-        for (e in gazetteer) if (words.all { w -> e.norm.any { it.startsWith(w) } }) hits += e
+        for (e in streets) consider(e)
+        for (e in gazetteer) consider(e)
         val from = near ?: LocationTracker.position
+        fun dist(e: Named) = if (from != null) Geo.distance(from, e.pos) else 0.0
         val best = LinkedHashMap<String, Named>()
-        for (e in hits.sortedBy { if (from != null) Geo.distance(from, it.pos) else 0.0 }) {
+        // most words matched first; with a house number, streets first; then the nearest
+        for ((e, _) in hits.sortedWith(compareBy<Pair<Named, Int>>({ -it.second }, { if (q.number != null && it.first.kind == 2) 0 else 1 }, { dist(it.first) }))) {
+            if (from != null && dist(e) > 80_000) continue
             best.putIfAbsent(norm(e.name) + e.kind, e) // a street once (its nearest piece)
         }
-        return best.values.take(8).map { e ->
-            Place(e.name, when (e.kind) { 0 -> "Area"; 2 -> "Street"; else -> "" }, e.pos, e.icon)
+        return best.values.take(8).toList()
+    }
+
+    /**
+     * A house number on a street found in the map data: OpenStreetMap's address points, looked up
+     * with the street's real (Greek) spelling right where the street is.
+     */
+    fun address(query: String, near: LatLng?): Place? {
+        val q = Query(query)
+        val num = q.number ?: return null
+        val street = localNamed(q, near).firstOrNull { it.kind == 2 } ?: return null
+        val d = 0.03
+        val url = "https://nominatim.openstreetmap.org/search?q=" + URLEncoder.encode("${street.name} $num", "UTF-8") +
+            "&format=jsonv2&limit=1&bounded=1&viewbox=${street.pos.lon - d},${street.pos.lat + d},${street.pos.lon + d},${street.pos.lat - d}"
+        val arr = try { JSONArray(Http.get(url, timeout = 5000)) } catch (e: Exception) { null }
+        val o = arr?.takeIf { it.length() > 0 }?.getJSONObject(0)
+        val area = o?.optString("display_name")?.split(", ")?.drop(2)?.take(2)?.joinToString(", ").orEmpty()
+        return if (o != null) Place("${street.name} $num", area, LatLng(o.getString("lat").toDouble(), o.getString("lon").toDouble()), "🏠")
+        else Place(street.name, "Street · number $num not on the map", street.pos, "🛣")
+    }
+
+    /**
+     * Local results, then the search services, merged: the nearest exact address first.
+     * Used by the phone and the car.
+     */
+    fun find(query: String, near: LatLng?, full: Boolean, local: List<Place> = local(query, near)): List<Place>? {
+        val addr = try { address(query, near) } catch (e: Exception) { null }
+        val net = try { nearFirst(if (full) search(query, near) else suggest(query, near), near) } catch (e: Exception) { null }
+        if (net == null && local.isEmpty() && addr == null) return null
+        fun same(a: Place, b: Place) = norm(a.name) == norm(b.name) && Geo.distance(a.pos, b.pos) < 300
+        val out = ArrayList<Place>()
+        addr?.let { out += it }
+        for (p in local.take(3) + net.orEmpty() + local.drop(3)) if (out.none { same(it, p) }) out += p
+        return out.take(10)
+    }
+
+    /**
+     * Every named street for ~15 km around, from OpenStreetMap (Overpass), in 0.1° squares kept
+     * on the phone for a month. The map tiles leave many small streets unnamed, so this is what
+     * lets "eggeli" find Εγγέλη 8 km away.
+     */
+    @Volatile private var streets: List<Named> = emptyList()
+    @Volatile private var streetsAt: LatLng? = null
+    private val streetCells = java.util.concurrent.ConcurrentHashMap<String, List<Named>>()
+
+    fun prepareStreets(near: LatLng) {
+        val at = streetsAt
+        if (at != null && Geo.distance(at, near) < 4_000) return
+        streetsAt = near
+        val cy = Math.floor(near.lat * 10).toInt(); val cx = Math.floor(near.lon * 10).toInt()
+        val cells = (cy - 1..cy + 1).flatMap { y -> (cx - 1..cx + 1).map { x -> y to x } }
+            .sortedBy { (y, x) -> Math.abs(y - cy) + Math.abs(x - cx) } // own square first
+        val keep = cells.map { "${it.first}_${it.second}" }.toSet()
+        streetCells.keys.retainAll(keep)
+        for ((y, x) in cells) {
+            val key = "${y}_$x"
+            if (streetCells[key] == null) streetCell(y, x)?.let { streetCells[key] = it }
+            streets = streetCells.values.flatten()
         }
+    }
+
+    private fun streetCell(y: Int, x: Int): List<Named>? {
+        val file = java.io.File(appContext.cacheDir, "streets/${y}_$x.tsv")
+        val text = if (file.exists() && System.currentTimeMillis() - file.lastModified() < 30L * 86_400_000) file.readText() else {
+            val s = y / 10.0; val w = x / 10.0; val n = s + 0.1; val e = w + 0.1
+            val q = "[out:csv(name,::lat,::lon;false;\"\\t\")][timeout:60];" +
+                "way[highway~\"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|pedestrian|service|road)$\"][name]($s,$w,$n,$e);out center;"
+            var t: String? = null
+            for (ep in Alerts.overpass) {
+                t = try { Http.post(ep, "data=" + URLEncoder.encode(q, "UTF-8"), "application/x-www-form-urlencoded") } catch (ex: Exception) { null }
+                if (t != null && !t.trimStart().startsWith("<")) break else t = null
+            }
+            if (t == null) return if (file.exists()) parseStreets(file.readText()) else null
+            file.parentFile?.mkdirs(); file.writeText(t)
+            t
+        }
+        return parseStreets(text)
+    }
+
+    /** "name<TAB>lat<TAB>lon" lines → one entry per street per neighbourhood. */
+    private fun parseStreets(tsv: String): List<Named> {
+        val byName = HashMap<String, MutableList<LatLng>>()
+        val out = ArrayList<Named>()
+        for (line in tsv.lineSequence()) {
+            val f = line.split('\t')
+            if (f.size < 3 || f[0].isBlank()) continue
+            val pos = LatLng(f[1].toDoubleOrNull() ?: continue, f[2].toDoubleOrNull() ?: continue)
+            val seen = byName.getOrPut(f[0]) { ArrayList() }
+            if (seen.any { Geo.distance(it, pos) < 1200 }) continue // same street, next piece
+            seen += pos
+            val full = sound(f[0])
+            out += Named(full.split(Regex("[\\s,.\\-()]+")).filter { it.isNotEmpty() }, full, f[0], pos, "🛣", 2)
+        }
+        return out
     }
 
     /** Set when TomTom says the key isn't allowed to search (Search API not ticked on the key). */
@@ -330,7 +499,8 @@ object Places {
     private fun tryTomtom(query: String, near: LatLng?, typeahead: Boolean): List<Place>? {
         if (!tomtomOk()) return null
         return try { tomtom(query, near, typeahead) } catch (e: Exception) {
-            if (e.message?.contains("403") == true) tomtomSearchBlockedUntil = System.currentTimeMillis() + 15 * 60_000
+            // 403 = the key has no Search API: don't keep paying the round trip
+            if (e.message?.contains("403") == true) tomtomSearchBlockedUntil = System.currentTimeMillis() + 6 * 3_600_000
             null
         }
     }
@@ -391,15 +561,28 @@ object Places {
         return nominatim(query, near)
     }
 
-    /** OpenStreetMap's Nominatim, nearby results first. */
+    /**
+     * OpenStreetMap's Nominatim. First only around the user (~25 km), also as Greek if typed in
+     * Latin letters; the wider region only if nothing is near.
+     */
     fun nominatim(query: String, near: LatLng?): List<Place> {
+        if (near != null) {
+            val local = nominatimOnce(query, near, 0.25, bounded = true)
+            if (local.isNotEmpty()) return local
+            val greek = greeklish(query)
+            if (greek != query) nominatimOnce(greek, near, 0.25, bounded = true).let { if (it.isNotEmpty()) return it }
+        }
+        return nominatimOnce(query, near, 0.6, bounded = false)
+    }
+
+    private fun nominatimOnce(query: String, near: LatLng?, d: Double, bounded: Boolean): List<Place> {
         val q = URLEncoder.encode(query, "UTF-8")
         var url = "https://nominatim.openstreetmap.org/search?q=$q&format=jsonv2&limit=8"
         if (near != null) {
-            val d = 0.6
             url += "&viewbox=${near.lon - d},${near.lat + d},${near.lon + d},${near.lat - d}"
+            if (bounded) url += "&bounded=1"
         }
-        val arr = JSONArray(Http.get(url))
+        val arr = JSONArray(Http.get(url, timeout = 6000))
         return (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             val display = o.optString("display_name")
@@ -438,6 +621,66 @@ object Places {
     // ---- places near me by category (Fuel, Food, Parking) ----
 
     /** Places of an OSM amenity type around [near], nearest first (TomTom, Nominatim as fallback). */
+    /**
+     * Car parks, fuel, food… straight from the map data on the phone (the tiles around [near]
+     * are usually already there, since the map just showed them): no waiting for the internet.
+     */
+    @Volatile private var nearbyCache: Triple<String, LatLng, List<Place>>? = null
+
+    /** Ready the car parks at the destination before arriving (called near the end of a trip). */
+    fun prefetchNearby(amenities: List<String>, near: LatLng) {
+        val key = amenities.joinToString()
+        nearbyCache?.let { (k, at, _) -> if (k == key && Geo.distance(at, near) < 150) return }
+        nearbyCache = Triple(key, near, nearbyLocal(amenities, near))
+    }
+
+    fun nearbyLocal(amenities: List<String>, near: LatLng): List<Place> {
+        val key = amenities.joinToString()
+        nearbyCache?.let { (k, at, list) ->
+            if (k == key && Geo.distance(at, near) < 400) return list.sortedBy { Geo.distance(near, it.pos) }
+        }
+        return scanNearby(amenities, near)
+    }
+
+    /** Local first, then the online services' extra places (not already listed). */
+    fun mergeNearby(local: List<Place>, online: List<Place>?, near: LatLng): List<Place> {
+        val out = ArrayList(local)
+        for (p in online.orEmpty()) if (out.none { Geo.distance(it.pos, p.pos) < 60 }) out += p
+        return out.sortedBy { Geo.distance(near, it.pos) }.take(12)
+    }
+
+    private fun scanNearby(amenities: List<String>, near: LatLng): List<Place> {
+        val classes = amenities.flatMap {
+            when (it) {
+                "restaurant", "fast_food" -> listOf("restaurant", "fast_food")
+                "charging_station" -> listOf("fuel", "charging_station")
+                else -> listOf(it)
+            }
+        }.toSet()
+        val z = VectorSource.MAX_Z; val n = 1 shl z
+        val fx = Geo.x(near.lon, 1.0) * n; val fy = Geo.y(near.lat, 1.0) * n
+        val out = ArrayList<Pair<Place, Double>>()
+        for (ty in fy.toInt() - 1..fy.toInt() + 1) for (tx in fx.toInt() - 1..fx.toInt() + 1) {
+            val vt = VectorSource.fetch(z, tx, ty) ?: continue
+            for (f in vt.features) {
+                if (f.layer != "poi" || f.type != 1) continue
+                val cls = f["class"]; val sub = f["subclass"]
+                if (cls !in classes && sub !in classes) continue
+                val part = f.parts.firstOrNull() ?: continue
+                if (part.size < 2) continue
+                val pos = LatLng(Geo.lat((ty + part[1] / f.extent.toDouble()) / n, 1.0), Geo.lon((tx + part[0] / f.extent.toDouble()) / n, 1.0))
+                val d = Geo.distance(near, pos)
+                if (d > 2500) continue
+                val kind = when (cls) { "parking" -> "Car park"; "fuel" -> "Fuel"; "cafe" -> "Café"; else -> "Food" }
+                val name = f["name"]?.takeIf { it.isNotBlank() } ?: kind
+                out += Place(name, kind, pos, icon("amenity", if (cls == "parking") "parking" else sub ?: cls)) to d
+            }
+        }
+        return out.sortedBy { it.second }.map { it.first }
+            .fold(ArrayList<Place>()) { acc, p -> if (acc.none { Geo.distance(it.pos, p.pos) < 40 }) acc += p; acc }
+            .take(12)
+    }
+
     fun nearby(amenities: List<String>, near: LatLng): List<Place> {
         val cats = amenities.mapNotNull {
             when (it) {

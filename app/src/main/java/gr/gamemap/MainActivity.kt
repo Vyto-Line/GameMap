@@ -384,7 +384,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         lastResults = emptyList()
         renderResults(emptyList(), "Searching nearby…", header = title, force = true)
         io.execute {
-            val r = try { Places.nearby(types, near) } catch (e: Exception) { null }
+            val local = try { Places.nearbyLocal(types, near) } catch (e: Exception) { emptyList<Place>() }
+            if (local.isNotEmpty()) runOnUiThread {
+                if (seq == querySeq && !isFinishing) { lastResults = local; renderResults(local, null, header = title, force = true) }
+            }
+            val online = try { Places.nearby(types, near) } catch (e: Exception) { null }
+            val r = if (online == null && local.isEmpty()) null else Places.mergeNearby(local, online, near)
             runOnUiThread {
                 if (seq != querySeq || isFinishing) return@runOnUiThread
                 lastResults = r ?: emptyList()
@@ -976,7 +981,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val rec = Places.recents()
         renderResults(rec, if (rec.isEmpty()) "Type a place, address or business" else null, header = if (rec.isEmpty()) null else "RECENT", force = true)
         val near = LocationTracker.position ?: return
-        Thread { try { Places.prepareGazetteer(near) } catch (_: Exception) {} }.apply { priority = Thread.MIN_PRIORITY }.start()
+        Places.warmUp(near, force = true)
         io.execute {
             val around = try { Places.around(near) } catch (e: Exception) { emptyList() }
             if (around.isNotEmpty()) runOnUiThread {
@@ -1008,16 +1013,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (full) hideKeyboard()
         io.execute {
             // 1) instant: names in the map data on the phone
-            val local = try { Places.local(q, near) } catch (e: Exception) { emptyList() }
+            val local = try { Places.local(q, near) } catch (e: Exception) { emptyList<Place>() }
             if (local.isNotEmpty()) runOnUiThread {
                 if (seq == querySeq && !isFinishing) { lastResults = local; renderResults(local, null, header = "NEARBY") }
             }
-            // 2) the search services (whole region, addresses)
-            val r = try { Places.nearFirst(if (full) Places.search(q, near) else Places.suggest(q, near), near) } catch (e: Exception) { null }
+            // 2) the exact address and the search services, merged with the local names
+            val r = Places.find(q, near, full, local)
             runOnUiThread {
                 if (seq != querySeq || isFinishing) return@runOnUiThread
-                val net = r.orEmpty()
-                val merged = local.take(3) + net.filter { n -> local.take(3).none { Places.norm(it.name) == Places.norm(n.name) && Geo.distance(it.pos, n.pos) < 300 } } + local.drop(3).filter { l -> net.none { Places.norm(it.name) == Places.norm(l.name) && Geo.distance(it.pos, l.pos) < 300 } }
+                val merged = r.orEmpty()
                 lastResults = merged
                 renderResults(merged, when {
                     merged.isNotEmpty() -> null
@@ -1493,6 +1497,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     override fun onStart() {
         super.onStart()
+        if (LocationTracker.hasPermission(this)) LocationTracker.start(this)
         NavEngine.changed += stateListener
         MapState.changed += stateListener
         Voice.changed += stateListener
@@ -1508,6 +1513,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         Explorer.changed -= stateListener
         Alerts.changed -= stateListener
         main.removeCallbacks(ticker)
+        // in the background and not navigating: let the GPS rest
+        LocationTracker.release(this, "phone")
+        if (!LocationTracker.inUse && !NavEngine.active) Voice.shutdown()
         super.onStop()
     }
 

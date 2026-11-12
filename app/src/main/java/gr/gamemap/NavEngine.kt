@@ -134,6 +134,7 @@ object NavEngine {
     private var secondsPerMeter = 0.08
     private var nearest = 0
     private var offRouteCount = 0
+    private var parkingReady = false
     private var lastRouteAt = 0L
     private val io = Executors.newSingleThreadExecutor()
     private val timing = Bg.pool("timing", 3)
@@ -286,6 +287,7 @@ object NavEngine {
         lastTrip = null
         tripStart = System.currentTimeMillis(); tripMeters = 0.0; tripSaved = 0; tripBonus = 0; lastPos = null
         Explorer.tripFound = 0
+        parkingReady = false
         destination = place.pos
         destinationName = place.name
         arrived = false
@@ -432,6 +434,11 @@ object NavEngine {
         remainingDistance = (r.length - along).coerceAtLeast(0.0)
         remainingSeconds = remainingDistance * secondsPerMeter * trafficRatio
         maybeRefreshTraffic(pos)
+        // last ~1.5 km: have the car parks at the destination ready for the arrival card
+        if (remainingDistance < 1500 && !parkingReady) {
+            parkingReady = true
+            destination?.let { d -> Bg.factory("parking").newThread { try { Places.prefetchNearby(listOf("parking"), d) } catch (_: Exception) {} }.start() }
+        }
 
         val dest = destination!!
         if (Geo.distance(pos, dest) < 30 || remainingDistance < 20) {

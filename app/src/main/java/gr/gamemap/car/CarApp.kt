@@ -239,18 +239,19 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 Voice.changed -= onNav
                 gr.gamemap.Alerts.changed -= onAlerts
                 if (navigating) nav.navigationEnded()
+                LocationTracker.release(carContext, "car")
             }
         })
     }
 
     private fun ensureLocation() {
         if (LocationTracker.hasPermission(carContext)) {
-            LocationTracker.start(carContext)
+            LocationTracker.start(carContext, "car")
         } else {
             carContext.requestPermissions(
                 listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             ) { granted, _ ->
-                if (granted.isNotEmpty()) LocationTracker.start(carContext)
+                if (granted.isNotEmpty()) LocationTracker.start(carContext, "car")
             }
         }
     }
@@ -553,6 +554,8 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
+    init { LocationTracker.position?.let { Places.warmUp(it, force = true) } }
+
     override fun onGetTemplate(): Template {
         val b = SearchTemplate.Builder(object : SearchTemplate.SearchCallback {
             override fun onSearchTextChanged(searchText: String) {
@@ -600,7 +603,7 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
         invalidate()
         val near = LocationTracker.position
         io.execute {
-            val r = try { if (full) Places.search(q, near) else Places.suggest(q, near) } catch (e: Exception) { null }
+            val r = try { Places.find(q, near, full) } catch (e: Exception) { null }
             main.post {
                 if (my != seq) return@post
                 loading = false
@@ -665,8 +668,17 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
         val near = LocationTracker.position
         if (near == null) failed = true
         else Executors.newSingleThreadExecutor().execute {
+            val main = Handler(Looper.getMainLooper())
+            // 1) instant, from the map data on the phone
+            val local = try { Places.nearbyLocal(types, near) } catch (e: Exception) { emptyList() }
+            if (local.isNotEmpty()) main.post { results = local; invalidate() }
+            // 2) the online services add what the map data doesn't have
             val r = try { Places.nearby(types, near) } catch (e: Exception) { null }
-            Handler(Looper.getMainLooper()).post { results = r ?: emptyList(); failed = r == null; invalidate() }
+            main.post {
+                results = Places.mergeNearby(local, r, near)
+                failed = r == null && local.isEmpty()
+                invalidate()
+            }
         }
     }
 

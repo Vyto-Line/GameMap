@@ -62,8 +62,16 @@ object Voice {
         saidFar = false; saidPrep = false; saidNow = false
     }
 
+    /** Free the speech engine (app in the background with nothing to guide). */
+    fun shutdown() {
+        if (!::appContext.isInitialized) return
+        abandonFocus()
+        tts?.shutdown(); tts = null; ready = false; pending = null
+    }
+
     fun stop() {
         tts?.stop()
+        if (::appContext.isInitialized) abandonFocus()
         reset()
     }
 
@@ -94,15 +102,31 @@ object Voice {
         }
     }
 
+    /**
+     * Another app is recording (Instagram, the camera, a call): a voice line would take the audio
+     * focus and make it stop, so stay quiet.
+     */
+    private fun someoneRecording(): Boolean {
+        if (Build.VERSION.SDK_INT < 24) return false
+        val am = appContext.getSystemService(AudioManager::class.java) ?: return false
+        return try {
+            am.activeRecordingConfigurations.isNotEmpty() || am.mode == AudioManager.MODE_IN_CALL ||
+                am.mode == AudioManager.MODE_IN_COMMUNICATION
+        } catch (_: Exception) { false }
+    }
+
     fun say(text: String) {
         if (!::appContext.isInitialized || muted) return
+        // nothing to say unless the map is in use (open, in the car, or navigating)
+        if (!LocationTracker.inUse && !NavEngine.active) return
+        if (someoneRecording()) return
         val t = tts
         if (t == null || !ready) {
             pending = text
             if (t == null) create()
             return
         }
-        requestFocus()
+        if (!requestFocus()) return
         t.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), "gm" + System.nanoTime())
     }
 
@@ -125,6 +149,8 @@ object Voice {
             t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) { abandonFocus() }
+                // cut off by a newer line or stop(): give the focus back too
+                override fun onStop(utteranceId: String?, interrupted: Boolean) { abandonFocus() }
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) { abandonFocus() }
             })
@@ -132,9 +158,11 @@ object Voice {
             pending?.let { pending = null; say(it) }
     }
 
-    private fun requestFocus() {
-        if (Build.VERSION.SDK_INT < 26) return
-        val am = appContext.getSystemService(AudioManager::class.java) ?: return
+    /** Short, duck-others focus for one line; false if the system said no (e.g. a call). */
+    private fun requestFocus(): Boolean {
+        if (Build.VERSION.SDK_INT < 26) return true
+        val am = appContext.getSystemService(AudioManager::class.java) ?: return true
+        focus?.let { am.abandonAudioFocusRequest(it) } // never leave an old request behind
         val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -143,7 +171,7 @@ object Voice {
                     .build()
             ).build()
         focus = req
-        am.requestAudioFocus(req)
+        return am.requestAudioFocus(req) != AudioManager.AUDIOFOCUS_REQUEST_FAILED
     }
 
     private fun abandonFocus() {

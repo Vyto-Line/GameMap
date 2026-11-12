@@ -74,6 +74,15 @@ object VectorSource {
     /** Already-parsed data only (never downloads; safe on the UI thread). */
     fun peek(z: Int, x: Int, y: Int): VectorTile? = parsed.get("$z/$x/$y")
 
+    /**
+     * A tile for one-off reading (search index, parking): uses what's parsed or on disk, downloads
+     * if needed, but doesn't push the map's own tiles out of the memory cache.
+     */
+    fun fetch(z: Int, x: Int, y: Int): VectorTile? {
+        parsed.get("$z/$x/$y")?.let { return it }
+        return try { load(z, x, y)?.let { VectorTile(it) } } catch (e: Exception) { null }
+    }
+
     /** Goes up each time a tile is parsed (lets traffic lanes re-snap when roads arrive). */
     @Volatile var loadedCount = 0
         private set
