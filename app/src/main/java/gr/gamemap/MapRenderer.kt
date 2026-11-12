@@ -1073,8 +1073,8 @@ class MapRenderer(private val car: Boolean = false) {
             text.color = white
             c.drawText("End", r.left + 22 * d, r.centerY() + 6.5f * d, text)
             carHits += r to "end"
-        } else if (!NavEngine.active && NavEngine.lastTrip == null) {
-            // "Where to?" and saved places, top left
+        } else if (!NavEngine.active && NavEngine.lastTrip == null && selectedPlace == null) {
+            // "Where to?" and saved places, top left (a place's card takes the corner when open)
             val r = RectF(a.left + 14 * d, 12 * d, a.left + 14 * d + 300 * d, 12 * d + 50 * d)
             glassButton(c, r, d, t)
             icon(c, "search", r.left + 26 * d, r.centerY(), 20 * d, Ui.onPanel(t, t.route, 3.0))
