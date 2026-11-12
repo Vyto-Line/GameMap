@@ -4,30 +4,32 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe
+      - uses: actions/checkout@v4
+      - name: Decode a real tile with the app's reader
         run: |
-          pip install mapbox-vector-tile >/dev/null 2>&1
-          cat > p.py <<'PY'
-          import json, time, urllib.request, gzip, collections
-          import mapbox_vector_tile as mvt
-          def get(u):
-              t=time.time(); r=urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent":"GameMap probe","Accept-Encoding":"gzip"}), timeout=30)
-              b=r.read(); enc=r.headers.get("Content-Encoding"); 
-              if b[:2]==b"\x1f\x8b": b=gzip.decompress(b)
-              return b, time.time()-t, enc, r.headers.get("Content-Type")
-          tj, dt, enc, ct = get("https://tiles.openfreemap.org/planet")
-          j=json.loads(tj); print("TILEJSON", dt, j.get("tiles"), "maxzoom", j.get("maxzoom"))
-          tmpl=j["tiles"][0]
-          for name,(z,x,y) in {"athens":(14,9272,6322),"coast":(14,9268,6325),"athens13":(13,4636,3161)}.items():
-              b, dt, enc, ct = get(tmpl.replace("{z}",str(z)).replace("{x}",str(x)).replace("{y}",str(y)))
-              d = mvt.decode(b)
-              print("TILE", name, z, x, y, f"{len(b)/1e3:.0f}KB {dt:.2f}s enc={enc} ct={ct}")
-              for ln, layer in d.items():
-                  feats = layer["features"]
-                  cls = collections.Counter((f["properties"].get("class"), f["geometry"]["type"]) for f in feats)
-                  print("  ", ln, "extent", layer.get("extent"), "n", len(feats), cls.most_common(12))
-                  if ln=="transportation":
-                      print("     brunnel", collections.Counter(f["properties"].get("brunnel") for f in feats).most_common(4), "sub", collections.Counter(f["properties"].get("subclass") for f in feats).most_common(10))
-                  if ln=="building" and feats: print("     building props", list(feats[0]["properties"].keys())[:10])
-          PY
-          python3 p.py
+          which kotlinc && kotlinc -version 2>&1 | tail -1
+          T=$(curl -s https://tiles.openfreemap.org/planet | python3 -c "import sys,json;print(json.load(sys.stdin)['tiles'][0])")
+          curl -s --compressed -o athens.pbf "$(echo $T | sed 's/{z}/14/;s/{x}/9272/;s/{y}/6322/')"
+          curl -s --compressed -o coast.pbf "$(echo $T | sed 's/{z}/14/;s/{x}/9268/;s/{y}/6325/')"
+          ls -la *.pbf
+          mkdir t && sed 's/^package gr.gamemap//' app/src/main/java/gr/gamemap/VectorTile.kt > t/VectorTile.kt
+          cat > t/Main.kt <<'KT'
+          import java.io.File
+          fun main(args: Array<String>) {
+              for (f in args) {
+                  val vt = VectorTile(File(f).readBytes())
+                  println("FILE $f features=${vt.features.size}")
+                  vt.features.groupBy { it.layer }.forEach { (l, fs) ->
+                      val parts = fs.sumOf { it.parts.size }
+                      val cls = fs.groupingBy { it["class"] + "/" + it.type }.eachCount().entries.sortedByDescending { it.value }.take(6)
+                      println("  $l n=${fs.size} parts=$parts ext=${fs.first().extent} $cls")
+                  }
+                  val b = vt.features.filter { it.layer == "building" }.flatMap { it.parts }
+                  var pos = 0; var neg = 0
+                  for (p in b) { var a = 0f; var i = 0; while (i < p.size) { val j = (i + 2) % p.size; a += p[i] * p[j + 1] - p[j] * p[i + 1]; i += 2 }; if (a >= 0) pos++ else neg++ }
+                  println("  building rings: exterior=$pos holes=$neg sample=${b.firstOrNull()?.take(8)}")
+              }
+          }
+          KT
+          kotlinc t/*.kt -include-runtime -d t.jar 2>&1 | grep -v warning | tail -5
+          java -jar t.jar athens.pbf coast.pbf

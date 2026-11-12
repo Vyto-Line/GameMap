@@ -114,7 +114,17 @@ class MapRenderer {
         }
         c.restore()
 
-        if (MapState.mapKey.isEmpty()) drawKeyNotice(c, area, d, theme)
+        if (MapState.mapKey.isEmpty() && theme != Theme.BLOCKY) drawKeyNotice(c, area, d, theme)
+        if (theme == Theme.BLOCKY && BlockWorld.busy.get() > 0) {
+            animating = true
+            text.textAlign = Paint.Align.CENTER; text.textSize = 13 * d
+            val msg = "⛏ Building the world…"
+            val tw = text.measureText(msg) / 2 + 12 * d
+            val bx = RectF(area.exactCenterX() - tw, area.bottom - 92 * d, area.exactCenterX() + tw, area.bottom - 64 * d)
+            panel(c, bx, d, theme, outline = false)
+            text.color = theme.hudText
+            c.drawText(msg, bx.centerX(), bx.bottom - 9 * d, text)
+        }
 
         // ---- theme overlays ----
         if (theme.grid) drawGrid(c, area, d)

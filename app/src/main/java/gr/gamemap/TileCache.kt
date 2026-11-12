@@ -56,7 +56,7 @@ object TileCache {
 
     /** Themed tile if ready; otherwise starts loading it and returns null. */
     fun get(theme: Theme, z: Int, x: Int, y: Int): Bitmap? {
-        val blocky = theme == Theme.BLOCKY && z >= 15
+        val blocky = theme == Theme.BLOCKY
         if (MapState.mapKey.isEmpty() && !blocky) return null
         val k = key(theme, z, x, y)
         mem.get(k)?.let { return it }
@@ -66,7 +66,7 @@ object TileCache {
         if (inFlight.add(k)) {
             pool.execute {
                 try {
-                    if (!blocky && System.currentTimeMillis() - (wanted[k] ?: 0) > 3000) return@execute
+                    if (System.currentTimeMillis() - (wanted[k] ?: 0) > 3000) return@execute
                     // Blocky close-ups are built from real map data; anything else recolours a base tile.
                     val built = if (blocky) BlockWorld.tile(z, x, y, tilePx) else null
                     val raw = if (built == null && MapState.mapKey.isNotEmpty()) loadRaw(z, x, y) else null
