@@ -51,7 +51,7 @@ class Build1PreviewTest {
             val tmp = Bitmap.createBitmap(maxOf(root.width, 1), maxOf(root.height, 1), Bitmap.Config.ARGB_8888)
             val c = Canvas(tmp)
             repeat(rounds) {
-                shadowOf(Looper.getMainLooper()).idle()
+                shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60))
                 root.draw(c)
                 Thread.sleep(60)
             }
@@ -94,7 +94,7 @@ class Build1PreviewTest {
         }
         LocationTracker.onLocationChanged(loc)
         MapState.zoomBy(16.9 - MapState.targetZoom)
-        repeat(300) { MapState.tick(); LocationTracker.tick(); Thread.sleep(2) }
+        repeat(300) { MapState.tick(); LocationTracker.tick(); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(10)) }
         log.append("driving: step=${NavEngine.nextStep} dist=${NavEngine.distanceToNext.toInt()} limit=${NavEngine.speedLimit} jam=${NavEngine.jamAhead} then=${NavEngine.followingStep?.text}\n")
         shot("ui_drive_open_world")
         MapState.setTheme(Theme.PARCHMENT_QUEST); MapState.setLightMode(MapState.LightMode.LIGHT)
@@ -108,7 +108,7 @@ class Build1PreviewTest {
             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             val c = Canvas(bmp)
             val area = Rect(620, 0, w, h)
-            repeat(60) { rr.draw(c, w, h, area, 1.6f, hud = false); shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(60) }
+            repeat(60) { rr.draw(c, w, h, area, 1.6f, hud = false); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(60) }
             rr.draw(c, w, h, area, 1.6f, hud = false)
             File(out, "ui_car_drive.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }

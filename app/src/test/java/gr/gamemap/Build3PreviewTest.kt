@@ -31,7 +31,7 @@ class Build3PreviewTest {
         fun settle(rounds: Int = 50) {
             val tmp = Bitmap.createBitmap(maxOf(root.width, 1), maxOf(root.height, 1), Bitmap.Config.ARGB_8888)
             val c = Canvas(tmp)
-            repeat(rounds) { shadowOf(Looper.getMainLooper()).idle(); root.draw(c); Thread.sleep(60) }
+            repeat(rounds) { shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); root.draw(c); Thread.sleep(60) }
             shadowOf(Looper.getMainLooper()).idle()
         }
         fun shot(name: String) {
@@ -44,7 +44,7 @@ class Build3PreviewTest {
         val loc = Location("gps").apply { latitude = here.lat; longitude = here.lon; accuracy = 5f; time = System.currentTimeMillis() }
         LocationTracker.onLocationChanged(loc)
         MapState.zoomBy(15.6 - MapState.targetZoom)
-        repeat(300) { MapState.tick(); Thread.sleep(2) }
+        repeat(300) { MapState.tick(); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(10)) }
         MapState.setLightMode(MapState.LightMode.LIGHT); MapState.setTheme(Theme.TRAILBLAZER)
         settle()
         val all = Explorer.near(here, 2500.0)

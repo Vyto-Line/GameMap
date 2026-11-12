@@ -35,7 +35,7 @@ class Build4PreviewTest {
         fun settle(rounds: Int = 50) {
             val tmp = Bitmap.createBitmap(maxOf(root.width, 1), maxOf(root.height, 1), Bitmap.Config.ARGB_8888)
             val c = Canvas(tmp)
-            repeat(rounds) { shadowOf(Looper.getMainLooper()).idle(); root.draw(c); Thread.sleep(60) }
+            repeat(rounds) { shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); root.draw(c); Thread.sleep(60) }
             shadowOf(Looper.getMainLooper()).idle()
         }
         fun shot(name: String) {
@@ -70,7 +70,7 @@ class Build4PreviewTest {
         }
         LocationTracker.onLocationChanged(loc)
         MapState.zoomBy(16.0 - MapState.targetZoom)
-        repeat(300) { MapState.tick(); LocationTracker.tick(); Thread.sleep(2) }
+        repeat(300) { MapState.tick(); LocationTracker.tick(); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(10)) }
         File(out, "build4.txt").writeText("ahead=${Alerts.ahead?.label} ${Alerts.ahead?.dist} ask=${Alerts.askAbout?.type}\n")
         shot("ui4_drive_alerts")
         Alerts.clearAsk()

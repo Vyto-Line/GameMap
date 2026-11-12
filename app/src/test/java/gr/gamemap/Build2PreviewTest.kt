@@ -35,7 +35,7 @@ class Build2PreviewTest {
         fun settle(rounds: Int = 60) {
             val tmp = Bitmap.createBitmap(maxOf(root.width, 1), maxOf(root.height, 1), Bitmap.Config.ARGB_8888)
             val c = Canvas(tmp)
-            repeat(rounds) { shadowOf(Looper.getMainLooper()).idle(); root.draw(c); Thread.sleep(60) }
+            repeat(rounds) { shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); root.draw(c); Thread.sleep(60) }
             shadowOf(Looper.getMainLooper()).idle()
         }
         fun shot(name: String) {
