@@ -34,8 +34,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var map: GameMapView
     private lateinit var search: EditText
     private lateinit var stopBtn: Button
-    private lateinit var top: LinearLayout
-    private lateinit var bottom: LinearLayout
+    private lateinit var topBar: LinearLayout
+    private lateinit var bottomBar: LinearLayout
     private val io = Executors.newSingleThreadExecutor()
     private val navListener: () -> Unit = { stopBtn.visibility = if (NavEngine.active) View.VISIBLE else View.GONE }
 
@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
                 } else false
             }
         }
-        top = LinearLayout(this).apply {
+        topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(pad, pad * 3, pad, pad)
             addView(search, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
         }
 
         stopBtn = button("■ STOP", d) { NavEngine.stop() }
-        bottom = LinearLayout(this).apply {
+        bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.START
             setPadding(pad, pad, pad, pad * 2)
@@ -88,11 +88,11 @@ class MainActivity : ComponentActivity() {
 
         setContentView(FrameLayout(this).apply {
             addView(map, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-            addView(top, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
-            addView(bottom, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
+            addView(topBar, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
+            addView(bottomBar, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
         })
         // Keep the map's HUD clear of the search bar and buttons.
-        top.viewTreeObserver.addOnGlobalLayoutListener { updateInsets() }
+        topBar.viewTreeObserver.addOnGlobalLayoutListener { updateInsets() }
 
         val wanted = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= 33) wanted += Manifest.permission.POST_NOTIFICATIONS
@@ -101,9 +101,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateInsets() {
-        if (map.insetTop == top.bottom && map.insetBottom == bottom.height) return
-        map.insetTop = top.bottom
-        map.insetBottom = bottom.height
+        if (map.insetTop == topBar.bottom && map.insetBottom == bottomBar.height) return
+        map.insetTop = topBar.bottom
+        map.insetBottom = bottomBar.height
         map.invalidate()
     }
 
