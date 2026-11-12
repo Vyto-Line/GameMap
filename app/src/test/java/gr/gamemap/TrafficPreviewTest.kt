@@ -29,7 +29,7 @@ class TrafficPreviewTest {
         for (mode in listOf(MapState.LightMode.DARK)) for (theme in listOf(Theme.OPEN_WORLD, Theme.NEON_NOIR, Theme.TRAILBLAZER, Theme.PARCHMENT_QUEST)) {
             MapState.setLightMode(mode)
             MapState.setTheme(theme)
-            MapState.zoomBy(15.3 - MapState.targetZoom)
+            MapState.zoomBy(17.6 - MapState.targetZoom)
             repeat(400) { MapState.tick(); Thread.sleep(2) }
             val r = MapRenderer()
             val frame = Bitmap.createBitmap(1080, 1920, Bitmap.Config.ARGB_8888)

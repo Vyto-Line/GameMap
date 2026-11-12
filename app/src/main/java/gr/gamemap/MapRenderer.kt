@@ -281,7 +281,7 @@ class MapRenderer {
         for (ay in ay0..ay1) for (ax in ax0..ax1) {
             val t = Traffic.tile(dz, ax, ay) ?: continue
             val key = "$dz/$ax/$ay/$z/${t.fetchedAt}"
-            val tp = trafficCache.getOrPut(key) { buildTraffic(t, ax, ay, span, u) }
+            val tp = trafficCache.getOrPut(key) { buildTraffic(t, ax, ay, span, u, z) }
             c.save()
             c.translate((tp.ox - px).toFloat(), (tp.oy - py).toFloat())
 
@@ -327,31 +327,53 @@ class MapRenderer {
         while (trafficCache.size > 48) trafficCache.remove(trafficCache.keys.first())
     }
 
-    private fun buildTraffic(t: Traffic.Tile, ax: Int, ay: Int, span: Double, u: Float): TrafficPaths {
+    private fun buildTraffic(t: Traffic.Tile, ax: Int, ay: Int, span: Double, u: Float, z: Int): TrafficPaths {
         val paths = Array(4) { Path() }
         val arrows = ArrayList<ArrowLine>()
         val k = (span / t.extent).toFloat()
-        // One-direction data is drawn as its own lane on the driving side, so the two
-        // directions of a road sit side by side instead of on top of each other.
-        val lane = 2.6f * u
-        for (sg in t.segs) {
-            val n = sg.pts.size / 2
-            val pts = FloatArray(sg.pts.size)
-            for (i in 0 until sg.pts.size) pts[i] = sg.pts[i] * k
-            if (sg.oneWay) offsetLine(pts, if (sg.leftHand) -lane else lane)
-            val p = paths[sg.state]
+        // Each driving direction gets its own lane on its side of the road, ~5 m from the
+        // middle (about where the carriageways of a divided road are), never closer than 2.6 dp.
+        val world = TileCache.tilePx * 2.0.pow(z)
+        val lat = Geo.lat((ay + 0.5) * span, world) // centre of this square
+        val mpp = Geo.metersPerPixel(lat, world).toFloat()
+        val lane = maxOf(2.6f * u, 5f / mpp)
+
+        fun add(pts: FloatArray, state: Int) {
+            val n = pts.size / 2
+            val p = paths[state]
             p.moveTo(pts[0], pts[1])
             for (i in 1 until n) p.lineTo(pts[i * 2], pts[i * 2 + 1])
-            if (sg.state == Traffic.JAM || sg.state == Traffic.CLOSED) { // arrows on red traffic only
+            if (state == Traffic.JAM || state == Traffic.CLOSED) { // arrows on red traffic only
                 var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
                 for (i in 0 until n) {
                     minX = minOf(minX, pts[i * 2]); maxX = maxOf(maxX, pts[i * 2])
                     minY = minOf(minY, pts[i * 2 + 1]); maxY = maxOf(maxY, pts[i * 2 + 1])
                 }
-                arrows += ArrowLine(pts, !sg.oneWay, minX, minY, maxX, maxY)
+                arrows += ArrowLine(pts, false, minX, minY, maxX, maxY)
+            }
+        }
+
+        for (sg in t.segs) {
+            val base = FloatArray(sg.pts.size)
+            for (i in base.indices) base[i] = sg.pts[i] * k
+            val side = if (sg.leftHand) -1f else 1f
+            if (sg.oneWay) {
+                // data for one direction: points run the way the traffic goes
+                add(base.copyOf().also { offsetLine(it, side * lane) }, sg.state)
+            } else {
+                // data for both directions: one lane each way, each pointing its own way
+                add(base.copyOf().also { offsetLine(it, side * lane) }, sg.state)
+                add(reversedLine(base).also { offsetLine(it, side * lane) }, sg.state)
             }
         }
         return TrafficPaths(paths, arrows, ax * span, ay * span)
+    }
+
+    private fun reversedLine(p: FloatArray): FloatArray {
+        val out = FloatArray(p.size)
+        var i = 0
+        while (i < p.size) { out[p.size - 2 - i] = p[i]; out[p.size - 1 - i] = p[i + 1]; i += 2 }
+        return out
     }
 
     /** Shifts a line sideways by [d] (positive = right of its direction, screen coordinates). */
