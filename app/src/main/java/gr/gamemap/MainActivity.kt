@@ -277,7 +277,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     val q = s?.toString().orEmpty()
                     main.removeCallbacksAndMessages(SEARCH_TOKEN)
                     if (q.trim().length < 2) { if (search.hasFocus()) showRecents() }
-                    else main.postAtTime({ runQuery(q, full = false) }, SEARCH_TOKEN, android.os.SystemClock.uptimeMillis() + 350)
+                    else main.postAtTime({ runQuery(q, full = false) }, SEARCH_TOKEN, android.os.SystemClock.uptimeMillis() + 550)
                 }
             })
         }
