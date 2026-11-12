@@ -79,9 +79,10 @@ object Explorer {
 
     // ------------------------------------------------------------------ landmarks
 
+    /** The kinds of places worth collecting (not every plaque, gallery or small theatre). */
     private val kinds = setOf(
-        "attraction", "museum", "castle", "monument", "memorial", "art_gallery", "stadium", "viewpoint",
-        "archaeological_site", "ruins", "zoo", "theatre", "aquarium", "theme_park", "fort", "lighthouse",
+        "attraction", "museum", "castle", "monument", "stadium", "viewpoint",
+        "archaeological_site", "ruins", "zoo", "aquarium", "theme_park", "fort", "lighthouse",
     )
 
     private var scanCenter: LatLng? = null
@@ -122,6 +123,8 @@ object Explorer {
                     Geo.lon((tx + pt[0] / f.extent.toDouble()) / n, 1.0),
                 )
                 val id = "$name@${"%.4f".format(java.util.Locale.US, pos.lat)},${"%.4f".format(java.util.Locale.US, pos.lon)}"
+                // one landmark per spot (big sites often come as several points close together)
+                if (out.values.any { it.name == name && Geo.distance(it.pos, pos) < 150 }) continue
                 out.putIfAbsent(id, Landmark(id, name, pos, kind))
             }
         }

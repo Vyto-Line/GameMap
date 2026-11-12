@@ -876,7 +876,8 @@ class MapRenderer(private val car: Boolean = false) {
     private fun drawLandmarks(c: Canvas, cam: Camera, center: LatLng, a: Rect, d: Float) {
         val mpp = Geo.metersPerPixel(center.lat, cam.world) / cam.scale
         val radius = kotlin.math.hypot(a.width().toDouble(), a.height().toDouble()) * mpp
-        val list = Explorer.near(center, radius)
+        // the nearest few, so a busy city centre doesn't turn into a sea of markers
+        val list = Explorer.near(center, radius).sortedBy { Geo.distance(center, it.pos) }.take(30)
         if (list.isEmpty()) return
         val pulse = ((android.os.SystemClock.uptimeMillis() % 1600) / 1600f)
         animating = true
