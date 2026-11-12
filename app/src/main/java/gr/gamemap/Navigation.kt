@@ -219,12 +219,33 @@ object Places {
         else -> "📍"
     }
 
-    /** Search-as-you-type suggestions: TomTom first, Photon if that fails. */
-    fun suggest(query: String, near: LatLng?): List<Place> {
-        if (Traffic.key.isNotEmpty()) {
-            try { return tomtom(query, near, typeahead = true) } catch (_: Exception) {}
+    /** Set when TomTom says the key isn't allowed to search (Search API not ticked on the key). */
+    @Volatile var tomtomSearchBlockedUntil = 0L
+
+    private fun tomtomOk() = Traffic.key.isNotEmpty() && System.currentTimeMillis() > tomtomSearchBlockedUntil
+
+    private fun tryTomtom(query: String, near: LatLng?, typeahead: Boolean): List<Place>? {
+        if (!tomtomOk()) return null
+        return try { tomtom(query, near, typeahead) } catch (e: Exception) {
+            if (e.message?.contains("403") == true) tomtomSearchBlockedUntil = System.currentTimeMillis() + 15 * 60_000
+            null
         }
-        return photon(query, near)
+    }
+
+    /** Search-as-you-type suggestions: TomTom, then Photon, then Nominatim (whole words). */
+    fun suggest(query: String, near: LatLng?): List<Place> {
+        tryTomtom(query, near, true)?.let { return it }
+        tryPhoton(query, near)?.takeIf { it.isNotEmpty() }?.let { return it }
+        return nominatim(query, near)
+    }
+
+    @Volatile private var photonDownUntil = 0L
+
+    private fun tryPhoton(query: String, near: LatLng?): List<Place>? {
+        if (System.currentTimeMillis() < photonDownUntil) return null
+        return try { photon(query, near) } catch (e: Exception) {
+            photonDownUntil = System.currentTimeMillis() + 5 * 60_000; null
+        }
     }
 
     /** Photon (OpenStreetMap data); short timeout, it's only a fallback now. */
@@ -232,7 +253,7 @@ object Places {
         val q = URLEncoder.encode(query.trim(), "UTF-8")
         var url = "https://photon.komoot.io/api/?q=$q&limit=8"
         if (near != null) url += "&lat=${near.lat}&lon=${near.lon}&zoom=12&location_bias_scale=0.3"
-        val features = JSONObject(Http.get(url, timeout = 4000)).getJSONArray("features")
+        val features = JSONObject(Http.get(url, timeout = 3000)).getJSONArray("features")
         val out = mutableListOf<Place>()
         for (i in 0 until features.length()) {
             val f = features.getJSONObject(i)
@@ -255,12 +276,13 @@ object Places {
 
     /** Full search on Enter: TomTom, then Photon, then Nominatim. */
     fun search(query: String, near: LatLng?): List<Place> {
-        if (Traffic.key.isNotEmpty()) {
-            val t = try { tomtom(query, near, typeahead = false) } catch (e: Exception) { emptyList() }
-            if (t.isNotEmpty()) return t
-        }
-        val photon = try { photon(query, near) } catch (e: Exception) { emptyList() }
-        if (photon.isNotEmpty()) return photon
+        tryTomtom(query, near, false)?.takeIf { it.isNotEmpty() }?.let { return it }
+        tryPhoton(query, near)?.takeIf { it.isNotEmpty() }?.let { return it }
+        return nominatim(query, near)
+    }
+
+    /** OpenStreetMap's Nominatim, nearby results first. */
+    fun nominatim(query: String, near: LatLng?): List<Place> {
         val q = URLEncoder.encode(query, "UTF-8")
         var url = "https://nominatim.openstreetmap.org/search?q=$q&format=jsonv2&limit=8"
         if (near != null) {
@@ -313,7 +335,7 @@ object Places {
                 "cafe" -> "9376"; "parking" -> "7313,7369"; else -> null
             }
         }.distinct().joinToString(",")
-        if (Traffic.key.isNotEmpty() && cats.isNotEmpty()) {
+        if (tomtomOk() && cats.isNotEmpty()) {
             try {
                 val url = "https://api.tomtom.com/search/2/nearbySearch/.json?key=${Traffic.key}&lat=${near.lat}&lon=${near.lon}" +
                     "&radius=6000&limit=15&categorySet=$cats&language=$searchLang"

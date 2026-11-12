@@ -31,6 +31,11 @@ class SearchProbeTest {
             val body = try { (if (code == 200) c.inputStream else c.errorStream)?.bufferedReader()?.readText().orEmpty() } catch (e: Exception) { e.toString() }
             log.append("$code ${u.replace(k, "KEY")}\n   ${body.take(400)}\n")
         }
+        for (q in listOf("Syntagma", "Σύνταγμα", "Acropolis Museum", "Ikea", "Κηφισίας 100")) {
+            val t0 = System.currentTimeMillis()
+            val r = try { Places.suggest(q, LatLng(37.98, 23.72)).map { it.name }.take(4).toString() } catch (e: Exception) { e.toString() }
+            log.append("suggest '$q' ${System.currentTimeMillis() - t0} ms: $r\n")
+        }
         try { log.append("Places.tomtom: " + Places.tomtom("Syntagma", LatLng(37.98, 23.72), true).map { it.name } + "\n") }
         catch (e: Exception) { log.append("Places.tomtom error: $e\n") }
         File(out, "search.txt").writeText(log.toString())
