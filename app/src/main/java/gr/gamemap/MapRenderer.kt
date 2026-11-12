@@ -510,9 +510,12 @@ class MapRenderer(private val car: Boolean = false) {
         return pathCache.getOrPut(pts) {
             val ox = Geo.x(pts[0].lon, world); val oy = Geo.y(pts[0].lat, world)
             val p = Path()
+            val minStep = 1.5f * (TileCache.tilePx / 256f)
+            var lx = 0f; var ly = 0f
             pts.forEachIndexed { i, q ->
                 val x = (Geo.x(q.lon, world) - ox).toFloat(); val y = (Geo.y(q.lat, world) - oy).toFloat()
-                if (i == 0) p.moveTo(x, y) else p.lineTo(x, y)
+                if (i == 0) { p.moveTo(x, y); lx = x; ly = y }
+                else if (i == pts.size - 1 || kotlin.math.abs(x - lx) + kotlin.math.abs(y - ly) > minStep) { p.lineTo(x, y); lx = x; ly = y }
             }
             CachedPath(p, ox, oy)
         }
@@ -539,11 +542,6 @@ class MapRenderer(private val car: Boolean = false) {
         routePaint.color = if (MapState.dark) Color.argb(200, 0, 0, 0) else Color.argb(220, 255, 255, 255)
         routePaint.strokeWidth = (width + 5) * d / scale
         both()
-        if (Color.alpha(glow) > 0) {
-            routePaint.color = glow
-            routePaint.strokeWidth = (width + 9) * d / scale
-            both()
-        }
         routePaint.color = color
         routePaint.strokeWidth = width * d / scale
         if (dashed) routePaint.pathEffect = DashPathEffect(floatArrayOf(14 * d / scale, 10 * d / scale), 0f)
@@ -565,9 +563,13 @@ class MapRenderer(private val car: Boolean = false) {
         if (cached != null && route === aheadRoute && from == aheadIndex && z == aheadZ) return cached
         val ox = Geo.x(route[from].lon, world); val oy = Geo.y(route[from].lat, world)
         val p = Path()
+        // skip points closer than ~1.5 screen px to the last one kept: same look, far fewer points
+        val minStep = 1.5f * (TileCache.tilePx / 256f)
+        var lx = 0f; var ly = 0f
         for (i in from until route.size) {
             val x = (Geo.x(route[i].lon, world) - ox).toFloat(); val y = (Geo.y(route[i].lat, world) - oy).toFloat()
-            if (i == from) p.moveTo(x, y) else p.lineTo(x, y)
+            if (i == from) { p.moveTo(x, y); lx = x; ly = y }
+            else if (i == route.size - 1 || kotlin.math.abs(x - lx) + kotlin.math.abs(y - ly) > minStep) { p.lineTo(x, y); lx = x; ly = y }
         }
         return CachedPath(p, ox, oy).also { aheadPath = it; aheadRoute = route; aheadIndex = from; aheadZ = z }
     }

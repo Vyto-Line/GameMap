@@ -1562,7 +1562,7 @@ class GameMapView(ctx: Context) : View(ctx) {
     var insetBottom = 0
     /** Called when a finger first touches the map (closes search). */
     var onTouchStart: (() -> Unit)? = null
-    private val redraw: () -> Unit = { if (touching) postInvalidateOnAnimation() else postInvalidateDelayed(16) }
+    private val redraw: () -> Unit = { postInvalidateOnAnimation() }
     private var lastX = 0f
     private var lastY = 0f
     private var dragging = false
@@ -1652,7 +1652,7 @@ class GameMapView(ctx: Context) : View(ctx) {
         area.set(0, insetTop, width, height - insetBottom)
         renderer.draw(canvas, width, height, area, resources.displayMetrics.density, hud = true)
         // smooth 60 fps under the fingers, 30 fps for the gliding arrow and zoom animations
-        if (renderer.animating) { if (touching) postInvalidateOnAnimation() else postInvalidateDelayed(33) }
+        if (renderer.animating) postInvalidateOnAnimation()
     }
 }
 

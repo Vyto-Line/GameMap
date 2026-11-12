@@ -97,8 +97,13 @@ object Ui {
         )
     }
 
+    private val memo = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private fun remember(k: String, f: () -> Int): Int = memo.getOrPut("$k|${MapState.dark}") { f() }
+
     /** The theme's panel colour, made fully solid (as if laid over a plain dark or light map). */
-    fun panel(t: Theme): Int {
+    fun panel(t: Theme): Int = remember("p${t.name}") { panelOf(t) }
+
+    private fun panelOf(t: Theme): Int {
         val p = t.hudPanel
         val a = android.graphics.Color.alpha(p) / 255f
         val base = if (luminance(p or 0xFF000000.toInt()) > 0.4) android.graphics.Color.WHITE else android.graphics.Color.rgb(12, 12, 14)
@@ -109,13 +114,17 @@ object Ui {
     private val darkInk = android.graphics.Color.rgb(20, 20, 22)
 
     /** Main text colour on [panel]. */
-    fun ink(t: Theme): Int {
+    fun ink(t: Theme): Int = remember("i${t.name}") { inkOf(t) }
+
+    private fun inkOf(t: Theme): Int {
         val p = panel(t)
         return if (contrast(t.hudText, p) >= 4.5) t.hudText else if (luminance(p) > 0.4) darkInk else light
     }
 
     /** Secondary text: toned down toward the panel, but never below 4.5:1. */
-    fun dim(t: Theme, strength: Int): Int {
+    fun dim(t: Theme, strength: Int): Int = remember("d${t.name}$strength") { dimOf(t, strength) }
+
+    private fun dimOf(t: Theme, strength: Int): Int {
         val p = panel(t); val i = ink(t)
         var k = (1f - strength / 255f).coerceIn(0f, 0.6f)
         while (k > 0f) {
@@ -127,7 +136,9 @@ object Ui {
     }
 
     /** A colour (accent, status green/red…) adjusted until it reads on the panel. */
-    fun onPanel(t: Theme, c: Int, min: Double = 4.5): Int {
+    fun onPanel(t: Theme, c: Int, min: Double = 4.5): Int = remember("o${t.name}$c$min") { onPanelOf(t, c, min) }
+
+    private fun onPanelOf(t: Theme, c: Int, min: Double): Int {
         val p = panel(t)
         if (contrast(c, p) >= min) return c
         val toward = if (luminance(p) > 0.4) android.graphics.Color.BLACK else android.graphics.Color.WHITE

@@ -36,6 +36,28 @@ class Labels {
     private val placed = ArrayList<RectF>(64)
     private val placedNames = ArrayList<Pair<String, FloatArray>>(64)
     private val pm = PathMeasure()
+    private val bmpPaint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+
+    /** Each name drawn once (text + halo) into a small image, then pasted every frame. */
+    private val images = object : android.util.LruCache<String, android.graphics.Bitmap>(10 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
+    }
+
+    private fun image(name: String): android.graphics.Bitmap {
+        val key = "$name|${text.textSize}|${text.color}|${halo.color}|${text.typeface.hashCode()}"
+        images.get(key)?.let { return it }
+        val pad = halo.strokeWidth + 2
+        text.textAlign = Paint.Align.LEFT; halo.textAlign = Paint.Align.LEFT
+        val fm = text.fontMetrics
+        val w = (text.measureText(name) + pad * 2).toInt().coerceAtLeast(1)
+        val h = (fm.descent - fm.ascent + pad * 2).toInt().coerceAtLeast(1)
+        val b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = Canvas(b)
+        c.drawText(name, pad, pad - fm.ascent, halo)
+        c.drawText(name, pad, pad - fm.ascent, text)
+        images.put(key, b)
+        return b
+    }
     private val pos = FloatArray(2)
     private val tan = FloatArray(2)
     private val screen = FloatArray(512)
@@ -75,7 +97,7 @@ class Labels {
         var count = 0
 
         for (cd in cands) {
-            if (count >= 45) break
+            if (count >= 32) break
             if (cd.maxX < vMinX || cd.minX > vMaxX || cd.maxY < vMinY || cd.minY > vMaxY) continue
             val n = minOf(cd.pts.size, screen.size)
             var i = 0
@@ -100,8 +122,8 @@ class Labels {
         val w = text.measureText(cd.name) / 2 + 4 * d
         val box = RectF(x - w, y - text.textSize, x + w, y + text.textSize * 0.35f)
         if (!inside(box, area) || !free(box)) return false
-        c.drawText(cd.name, x, y, halo)
-        c.drawText(cd.name, x, y, text)
+        val img = image(cd.name)
+        c.drawBitmap(img, x - img.width / 2f, y - img.height / 2f - text.textSize * 0.3f, bmpPaint)
         return true
     }
 
@@ -112,34 +134,36 @@ class Labels {
         while (i < n) { len += hypot(screen[i] - screen[i - 2], screen[i + 1] - screen[i - 1]); i += 2 }
         val tw = text.measureText(cd.name)
         if (len < tw * 1.15f) return false
-        // read left to right
-        val reverse = screen[n - 2] < screen[0]
-        val p = Path()
-        if (reverse) {
-            p.moveTo(screen[n - 2], screen[n - 1]); i = n - 4
-            while (i >= 0) { p.lineTo(screen[i], screen[i + 1]); i -= 2 }
-        } else {
-            p.moveTo(screen[0], screen[1]); i = 2
-            while (i < n) { p.lineTo(screen[i], screen[i + 1]); i += 2 }
+        // the middle of the street and its direction there (no Path objects: this runs every frame)
+        var walked = 0f
+        var mx = screen[0]; var my = screen[1]; var tx = 1f; var ty = 0f
+        i = 2
+        while (i < n) {
+            val sx = screen[i] - screen[i - 2]; val sy = screen[i + 1] - screen[i - 1]
+            val seg = hypot(sx, sy)
+            if (walked + seg >= len / 2 && seg > 0) {
+                val f = (len / 2 - walked) / seg
+                mx = screen[i - 2] + sx * f; my = screen[i - 1] + sy * f
+                tx = sx / seg; ty = sy / seg
+                break
+            }
+            walked += seg; i += 2
         }
-        pm.setPath(p, false)
-        val start = (len - tw) / 2
-        pm.getPosTan(len / 2, pos, tan)
-        // skip labels that would be steeply curved or near-vertical upside down
-        if (tan[0] < -0.05f) return false
-        val mx = pos[0]; val my = pos[1]
+        // read left to right
+        if (tx < 0) { tx = -tx; ty = -ty }
         // same street already named close by?
         for ((nm, at) in placedNames) if (nm == cd.name && hypot(at[0] - mx, at[1] - my) < 260 * d) return false
-        pm.getPosTan(start, pos, null); val x0 = pos[0]; val y0 = pos[1]
-        pm.getPosTan(start + tw, pos, null); val x1 = pos[0]; val y1 = pos[1]
-        val h = text.textSize * 0.7f
-        val box = RectF(minOf(x0, x1, mx) - h, minOf(y0, y1, my) - h, maxOf(x0, x1, mx) + h, maxOf(y0, y1, my) + h)
+        val hw = tw / 2; val h = text.textSize * 0.7f
+        val ex = kotlin.math.abs(tx * hw) + kotlin.math.abs(ty * h); val ey = kotlin.math.abs(ty * hw) + kotlin.math.abs(tx * h)
+        val box = RectF(mx - ex, my - ey, mx + ex, my + ey)
         if (!inside(box, area) || !free(box)) return false
         placedNames += cd.name to floatArrayOf(mx, my)
-        text.textAlign = Paint.Align.LEFT; halo.textAlign = Paint.Align.LEFT
-        val v = text.textSize * 0.35f
-        c.drawTextOnPath(cd.name, p, start, v, halo)
-        c.drawTextOnPath(cd.name, p, start, v, text)
+        val img = image(cd.name)
+        c.save()
+        c.translate(mx, my)
+        c.rotate(Math.toDegrees(kotlin.math.atan2(ty.toDouble(), tx.toDouble())).toFloat())
+        c.drawBitmap(img, -img.width / 2f, -img.height / 2f, bmpPaint)
+        c.restore()
         return true
     }
 
