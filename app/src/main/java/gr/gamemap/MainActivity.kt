@@ -121,8 +121,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (LocationTracker.hasPermission(this)) LocationTracker.start(this)
         permissions.launch(wanted.toTypedArray())
 
-        if (MapState.mapKey.isEmpty()) askForKey()
-        else if (Updater.dueForCheck(this)) checkForUpdates(manual = false)
+        if (Updater.dueForCheck(this)) checkForUpdates(manual = false)
     }
 
     // ------------------------------------------------------------------ building
@@ -275,7 +274,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     val mins = (NavEngine.remainingSeconds / 60).toInt().coerceAtLeast(1)
                     val dur = if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"
                     etaBig.text = "${NavEngine.arrivalClock()} arrival"
-                    etaSmall.text = "${NavEngine.formatDistance(NavEngine.remainingDistance)} · $dur · ${NavEngine.destinationName}"
+                    val delay = NavEngine.trafficDelaySeconds / 60
+                    val traffic = if (delay >= 1) " · +$delay min traffic" else ""
+                    etaSmall.text = "${NavEngine.formatDistance(NavEngine.remainingDistance)} · $dur$traffic · ${NavEngine.destinationName}"
                 }
             }
         }
@@ -411,42 +412,51 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun showMenu() {
-        val items = arrayOf("🔑  Map key", "⬆  Check for updates", "ℹ  About")
+        val items = arrayOf("🚦  Live traffic", "⬆  Check for updates", "ℹ  About")
         AlertDialog.Builder(this).setItems(items) { _, i ->
             when (i) {
-                0 -> askForKey()
+                0 -> trafficSettings()
                 1 -> checkForUpdates(manual = true)
                 2 -> AlertDialog.Builder(this)
                     .setTitle("GameMap build ${Updater.currentVersion(this)}")
-                    .setMessage("Map data © OpenStreetMap contributors\nTiles © CARTO\nRouting: OSRM\nSearch: Photon (komoot), Nominatim")
+                    .setMessage("Map data © OpenStreetMap contributors\nVector tiles: OpenFreeMap\nTraffic: TomTom\nRouting: OSRM\nSearch: Photon (komoot), Nominatim")
                     .setPositiveButton("OK", null).show()
             }
         }.show()
     }
 
-    private fun askForKey() {
+    private fun trafficSettings() {
         val input = EditText(this).apply {
-            hint = "Paste your CARTO basemaps key"
-            setText(MapState.mapKey)
+            hint = "Paste your TomTom API key"
+            setText(Traffic.key)
             setSingleLine()
         }
-        val box = FrameLayout(this).apply {
+        val toggle = android.widget.CheckBox(this).apply {
+            text = "Show live traffic"
+            isChecked = Traffic.enabled
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             val p = (20 * d).toInt()
             setPadding(p, p / 2, p, 0)
-            addView(input)
+            addView(input); addView(toggle)
         }
         AlertDialog.Builder(this)
-            .setTitle("Map key")
+            .setTitle("Live traffic")
             .setMessage(
-                "The map tiles come from CARTO, which needs a free key (no account, up to " +
-                    "5 million tiles a month). Tap GET FREE KEY, fill in the short form, " +
-                    "then paste the key here."
+                "Traffic comes from TomTom. Their free plan (no credit card) covers 50,000 map " +
+                    "tiles a day, plenty for driving. Tap GET FREE KEY, sign up, create a key " +
+                    "and paste it here. Slow traffic and jams are drawn in your theme's colours, " +
+                    "and arrival times include traffic delays."
             )
             .setView(box)
-            .setPositiveButton("Save") { _, _ -> MapState.setMapKey(input.text.toString()) }
+            .setPositiveButton("Save") { _, _ ->
+                Traffic.setKey(input.text.toString())
+                Traffic.setEnabled(toggle.isChecked)
+            }
             .setNeutralButton("Get free key") { _, _ ->
                 startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
-                    android.net.Uri.parse("https://carto.com/basemaps/apikey/")))
+                    android.net.Uri.parse("https://developer.tomtom.com/user/register")))
             }
             .setNegativeButton("Cancel", null)
             .show()

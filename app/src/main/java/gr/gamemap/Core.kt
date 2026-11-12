@@ -127,9 +127,6 @@ object MapState {
     var userBearing: Float? = null
         private set
 
-    /** Free CARTO basemaps key (carto.com/basemaps/apikey); tiles need it since Sept 2026. */
-    var mapKey = ""
-        private set
     private lateinit var appContext: Context
     private var lastTick = 0L
 
@@ -139,17 +136,9 @@ object MapState {
         theme = Theme.entries.getOrElse(p.getInt("theme", 0)) { Theme.OPEN_WORLD }
         zoom = p.getFloat("zoom", 16.5f).toDouble().coerceIn(MIN_ZOOM, MAX_ZOOM)
         targetZoom = zoom
-        mapKey = p.getString("mapKey", "") ?: ""
     }
 
     private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
-
-    fun setMapKey(key: String) {
-        mapKey = key.trim()
-        prefs().edit().putString("mapKey", mapKey).apply()
-        TileCache.clear()
-        changed.fire()
-    }
 
     fun nextTheme(): Theme = setTheme(Theme.entries[(theme.ordinal + 1) % Theme.entries.size])
 

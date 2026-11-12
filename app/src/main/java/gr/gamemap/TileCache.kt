@@ -2,80 +2,67 @@ package gr.gamemap
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.LruCache
-import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 /**
- * Downloads base map tiles (cached on disk) and keeps theme-processed tiles in memory.
- * Map data © OpenStreetMap contributors, tiles © CARTO (free for personal, non-commercial use).
+ * Themed map tiles, drawn on background threads from OpenFreeMap vector data and kept in
+ * memory. Map data © OpenStreetMap contributors.
  */
 object TileCache {
     val loaded = Signal()
 
-    /** Pixel size of one tile; 512 = "@2x" retina tiles for sharp text on dense screens. */
+    /** Pixel size of one tile; 512 gives crisp lines and text on dense screens. */
     var tilePx = 512
         private set
 
-    private lateinit var dir: File
     private val mem = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 4).toInt()) {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val failed = ConcurrentHashMap<String, Long>()
-    /** Last time each tile was asked for: loads nobody asked for recently are skipped. */
+
+    /** Last time each tile was asked for: work nobody asked for recently is skipped. */
     private val wanted = ConcurrentHashMap<String, Long>()
 
-    /** Newest request first, so the tiles on screen right now load before older ones. */
+    /** Newest request first, so the tiles on screen right now are drawn before older ones. */
     private class Lifo : LinkedBlockingDeque<Runnable>() {
         override fun offer(e: Runnable) = offerFirst(e)
     }
-    private val pool = ThreadPoolExecutor(4, 4, 30, TimeUnit.SECONDS, Lifo())
+    private val threads = Runtime.getRuntime().availableProcessors().minus(1).coerceIn(2, 4)
+    private val pool = ThreadPoolExecutor(threads, threads, 30, TimeUnit.SECONDS, Lifo())
 
     fun init(ctx: Context) {
-        BlockWorld.init(ctx)
-        dir = File(ctx.cacheDir, "tiles-v2")
-        File(ctx.cacheDir, "tiles").deleteRecursively()
+        VectorSource.init(ctx)
+        Traffic.init(ctx)
         tilePx = if (ctx.resources.displayMetrics.density >= 1.5f) 512 else 256
+    }
+
+    fun clear() {
+        mem.evictAll()
+        failed.clear()
     }
 
     private fun key(theme: Theme, z: Int, x: Int, y: Int) = "${theme.ordinal}/$z/$x/$y"
 
-    /** Forget every tile (memory and disk), e.g. after the map key changes. */
-    fun clear() {
-        mem.evictAll()
-        failed.clear()
-        pool.execute { dir.deleteRecursively() }
-    }
-
-    /** Themed tile if ready; otherwise starts loading it and returns null. */
+    /** Themed tile if ready; otherwise starts drawing it and returns null. */
     fun get(theme: Theme, z: Int, x: Int, y: Int): Bitmap? {
-        val blocky = theme == Theme.BLOCKY
-        if (MapState.mapKey.isEmpty() && !blocky) return null
         val k = key(theme, z, x, y)
         mem.get(k)?.let { return it }
         val f = failed[k]
-        if (f != null && System.currentTimeMillis() - f < 15_000) return null
+        if (f != null && System.currentTimeMillis() - f < 10_000) return null
         wanted[k] = System.currentTimeMillis()
         if (inFlight.add(k)) {
             pool.execute {
                 try {
                     if (System.currentTimeMillis() - (wanted[k] ?: 0) > 3000) return@execute
-                    // Blocky close-ups are built from real map data; anything else recolours a base tile.
-                    val built = if (blocky) BlockWorld.tile(z, x, y, tilePx) else null
-                    val raw = if (built == null && MapState.mapKey.isNotEmpty()) loadRaw(z, x, y) else null
-                    if (built != null) {
-                        mem.put(k, built)
-                        failed.remove(k)
-                        loaded.fire()
-                    } else if (raw != null) {
-                        mem.put(k, theme.process(raw))
+                    val bmp = if (theme == Theme.BLOCKY) BlockWorld.tile(z, x, y, tilePx)
+                    else VectorRenderer.render(theme, z, x, y, tilePx)
+                    if (bmp != null) {
+                        mem.put(k, bmp)
                         failed.remove(k)
                         loaded.fire()
                     } else {
@@ -91,34 +78,9 @@ object TileCache {
         return null
     }
 
-    /** Only what is already in memory (used for blurry stand-ins while a tile loads). */
+    /** Only what is already in memory (used for stand-ins while a tile is drawn). */
     fun peek(theme: Theme, z: Int, x: Int, y: Int): Bitmap? = mem.get(key(theme, z, x, y))
 
-    private fun loadRaw(z: Int, x: Int, y: Int): Bitmap? {
-        val file = File(dir, "$tilePx/$z/$x/$y.png")
-        if (file.exists() && System.currentTimeMillis() - file.lastModified() < 30L * 86_400_000) {
-            BitmapFactory.decodeFile(file.path)?.let { return it }
-        }
-        val key = java.net.URLEncoder.encode(MapState.mapKey, "UTF-8")
-        val base = "https://basemaps.cartocdn.com/rastertiles/dark_all/$z/$x/$y"
-        val urls = if (tilePx == 512) listOf("$base@2x.png?key=$key", "$base.png?key=$key")
-        else listOf("$base.png?key=$key")
-        for (u in urls) {
-            val conn = URL(u).openConnection() as HttpURLConnection
-            conn.connectTimeout = 8000
-            conn.readTimeout = 10000
-            conn.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
-            try {
-                if (conn.responseCode != 200) continue
-                val bytes = conn.inputStream.use { it.readBytes() }
-                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: continue
-                file.parentFile?.mkdirs()
-                file.writeBytes(bytes)
-                return bmp
-            } finally {
-                conn.disconnect()
-            }
-        }
-        return null
-    }
+    /** Runs small background jobs (traffic downloads) on the same workers. */
+    fun background(job: () -> Unit) = pool.execute(job)
 }

@@ -313,6 +313,11 @@ object NavEngine {
         private set
     var remainingSeconds = 0.0
         private set
+    /** Extra minutes caused by traffic right now (TomTom), 0 without a key. */
+    var trafficDelaySeconds = 0
+        private set
+    private var trafficRatio = 1.0
+    private var trafficAt = 0L
 
     val active get() = destination != null
     val currentStep: Step? get() = steps.getOrNull(nextStep)
@@ -332,6 +337,7 @@ object NavEngine {
         destination = place.pos
         destinationName = place.name
         arrived = false
+        trafficRatio = 1.0; trafficDelaySeconds = 0; trafficAt = 0
         route = emptyList(); steps = emptyList(); nextStep = -1
         MapState.recenter()
         changed.fire()
@@ -499,7 +505,8 @@ object NavEngine {
         nearest = best
         val along = cum[best] + Geo.distance(route[best], pos).coerceAtMost(cum[best + 1] - cum[best])
         remainingDistance = (cum.last() - along).coerceAtLeast(0.0)
-        remainingSeconds = remainingDistance * secondsPerMeter
+        remainingSeconds = remainingDistance * secondsPerMeter * trafficRatio
+        maybeRefreshTraffic(pos)
 
         val dest = destination!!
         if (Geo.distance(pos, dest) < 30 || remainingDistance < 20) {
@@ -522,6 +529,24 @@ object NavEngine {
             fetchRoute()
         }
         changed.fire()
+    }
+
+    /** Every 3 minutes, ask TomTom how long the rest of the trip takes in today's traffic. */
+    private fun maybeRefreshTraffic(pos: LatLng) {
+        if (!Traffic.active || System.currentTimeMillis() - trafficAt < 180_000) return
+        val dest = destination ?: return
+        trafficAt = System.currentTimeMillis()
+        val plain = remainingDistance * secondsPerMeter
+        io.execute {
+            val eta = try { Traffic.eta(pos, dest) } catch (e: Exception) { null } ?: return@execute
+            main.post {
+                if (destination != dest || plain < 30) return@post
+                trafficRatio = (eta.seconds / plain).coerceIn(0.6, 4.0)
+                trafficDelaySeconds = eta.delaySeconds
+                remainingSeconds = remainingDistance * secondsPerMeter * trafficRatio
+                changed.fire()
+            }
+        }
     }
 
     fun formatDistance(m: Double): String = when {

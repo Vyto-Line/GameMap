@@ -51,6 +51,16 @@ class MapRenderer {
     private val dst = RectF()
     private val path = Path()
     private var paperTex: Bitmap? = null
+    private val tileList = ArrayList<IntArray>(64)
+    private val quarter = RectF()
+
+    // The route as a Path in world pixels around its first point, rebuilt only when the
+    // route or zoom level changes (big float values would lose precision, hence the origin).
+    private var routeRef: List<LatLng>? = null
+    private var routeZ = -1
+    private var routeOx = 0.0
+    private var routeOy = 0.0
+    private val routePath = Path()
 
     /** Where Athens is, until the first GPS fix arrives. */
     private val fallback = LatLng(37.9838, 23.7275)
@@ -114,11 +124,10 @@ class MapRenderer {
         }
         c.restore()
 
-        if (MapState.mapKey.isEmpty() && theme != Theme.BLOCKY) drawKeyNotice(c, area, d, theme)
-        if (theme == Theme.BLOCKY && BlockWorld.busy.get() > 0) {
+        if (VectorSource.busy.get() > 0) {
             animating = true
             text.textAlign = Paint.Align.CENTER; text.textSize = 13 * d
-            val msg = "⛏ Building the world…"
+            val msg = if (theme == Theme.BLOCKY) "⛏ Building the world…" else "Loading map…"
             val tw = text.measureText(msg) / 2 + 12 * d
             val bx = RectF(area.exactCenterX() - tw, area.bottom - 92 * d, area.exactCenterX() + tw, area.bottom - 64 * d)
             panel(c, bx, d, theme, outline = false)
@@ -182,7 +191,8 @@ class MapRenderer {
             for (ty in ty0 / 2..ty1 / 2) for (tx in floor(tx0 / 2.0).toInt()..floor(tx1 / 2.0).toInt())
                 TileCache.get(theme, z - 1, tx.mod(n / 2), ty)
         }
-        val tiles = ArrayList<IntArray>()
+        val tiles = tileList
+        tiles.clear()
         for (ty in ty0..ty1) for (tx in tx0..tx1) tiles += intArrayOf(tx, ty)
         val ctx = px / tilePx - 0.5; val cty = py / tilePx - 0.5
         tiles.sortByDescending { (it[0] - ctx) * (it[0] - ctx) + (it[1] - cty) * (it[1] - cty) }
@@ -195,6 +205,14 @@ class MapRenderer {
             val bmp = TileCache.get(theme, z, x, ty)
             if (bmp != null) c.drawBitmap(bmp, null, dst, paint)
             else drawStandIn(c, theme, z, x, ty, paint)
+        }
+        // live traffic on top of the map, under the route
+        if (Traffic.active) for (t in tiles) {
+            val x = t[0].mod(n)
+            val tb = Traffic.tile(theme, z, x, t[1]) ?: continue
+            val left = (t[0] * tilePx - px).toFloat(); val top = (t[1] * tilePx - py).toFloat()
+            dst.set(left, top, left + tilePx, top + tilePx)
+            c.drawBitmap(tb, null, dst, if (theme.pixel > 1) pixelPaint else tilePaint)
         }
     }
 
@@ -219,8 +237,8 @@ class MapRenderer {
             val l = dst.left; val t = dst.top
             for (dy in 0..1) for (dx in 0..1) {
                 val child = TileCache.peek(theme, z + 1, x * 2 + dx, y * 2 + dy) ?: continue
-                val q = RectF(l + dx * hw, t + dy * hh, l + (dx + 1) * hw, t + (dy + 1) * hh)
-                c.drawBitmap(child, null, q, paint)
+                quarter.set(l + dx * hw, t + dy * hh, l + (dx + 1) * hw, t + (dy + 1) * hh)
+                c.drawBitmap(child, null, quarter, paint)
             }
         }
     }
@@ -230,11 +248,19 @@ class MapRenderer {
     private fun drawRoute(c: Canvas, theme: Theme, world: Double, px: Double, py: Double, scale: Float, d: Float) {
         val route = NavEngine.route
         if (route.size > 1) {
-            path.reset()
-            route.forEachIndexed { i, p ->
-                val x = (Geo.x(p.lon, world) - px).toFloat(); val y = (Geo.y(p.lat, world) - py).toFloat()
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            val z = kotlin.math.round(kotlin.math.log2(world / TileCache.tilePx)).toInt()
+            if (route !== routeRef || z != routeZ) {
+                routeRef = route; routeZ = z
+                routeOx = Geo.x(route[0].lon, world); routeOy = Geo.y(route[0].lat, world)
+                routePath.reset()
+                route.forEachIndexed { i, p ->
+                    val x = (Geo.x(p.lon, world) - routeOx).toFloat(); val y = (Geo.y(p.lat, world) - routeOy).toFloat()
+                    if (i == 0) routePath.moveTo(x, y) else routePath.lineTo(x, y)
+                }
             }
+            c.save()
+            c.translate((routeOx - px).toFloat(), (routeOy - py).toFloat())
+            val path = routePath
             routePaint.pathEffect = null
             routePaint.isAntiAlias = theme.pixel == 1
             routePaint.color = theme.routeGlow
@@ -245,6 +271,7 @@ class MapRenderer {
             if (theme.dashedRoute) routePaint.pathEffect = DashPathEffect(floatArrayOf(14 * d / scale, 10 * d / scale), 0f)
             c.drawPath(path, routePaint)
             routePaint.pathEffect = null
+            c.restore()
         }
         NavEngine.destination?.let { dest ->
             val x = (Geo.x(dest.lon, world) - px).toFloat(); val y = (Geo.y(dest.lat, world) - py).toFloat()
@@ -395,17 +422,6 @@ class MapRenderer {
 
     // ---------------------------------------------------------------- HUD
 
-    private fun drawKeyNotice(c: Canvas, area: Rect, d: Float, t: Theme) {
-        val bx = RectF(area.exactCenterX() - 170 * d, area.top + 20 * d, area.exactCenterX() + 170 * d, area.top + 82 * d)
-        panel(c, bx, d, t, outline = false)
-        text.textAlign = Paint.Align.CENTER
-        text.color = t.hudText
-        text.textSize = 16 * d
-        c.drawText("MAP KEY NEEDED", bx.centerX(), bx.top + 26 * d, text)
-        text.textSize = 12 * d
-        c.drawText("Open GameMap on the phone ▸ ⋮ ▸ Map key", bx.centerX(), bx.top + 48 * d, text)
-    }
-
     private fun drawSpeed(c: Canvas, a: Rect, d: Float, t: Theme) {
         if (LocationTracker.last == null) return
         val kmh = (LocationTracker.speedMps * 3.6f).toInt()
@@ -510,6 +526,6 @@ class MapRenderer {
         text.textAlign = Paint.Align.RIGHT
         text.textSize = 9 * d
         text.color = Color.argb(170, Color.red(t.hudText), Color.green(t.hudText), Color.blue(t.hudText))
-        c.drawText("© OpenStreetMap © CARTO", a.right - 8 * d, a.bottom - 6 * d, text)
+        c.drawText(if (Traffic.active) "© OpenStreetMap · OpenFreeMap · TomTom" else "© OpenStreetMap · OpenFreeMap", a.right - 8 * d, a.bottom - 6 * d, text)
     }
 }

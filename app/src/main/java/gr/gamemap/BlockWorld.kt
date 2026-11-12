@@ -1,20 +1,13 @@
 package gr.gamemap
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.util.LruCache
-import org.json.JSONObject
-import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Random
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.zip.GZIPInputStream
 
 /**
  * The "Blocky" world: real OpenStreetMap buildings, roads, water and land cover from
@@ -25,7 +18,7 @@ import java.util.zip.GZIPInputStream
  * so a block is about 3.8 m wide at street level.
  */
 object BlockWorld {
-    private const val DATA_Z = 14
+    private const val DATA_Z = VectorSource.MAX_Z
     private const val CELLS = 1024
     private const val CELLS_PER_BLOCK = 2
     private const val BLOCKS = CELLS / CELLS_PER_BLOCK
@@ -46,20 +39,8 @@ object BlockWorld {
     private const val SNOW = 13
     private const val PITCH = 14
 
-    /** Data tiles being downloaded or built right now (for the "building world" hint). */
-    val busy = AtomicInteger(0)
-
-    private lateinit var dir: File
-    private lateinit var appContext: Context
     private val grids = object : LruCache<String, IntArray>(6) {}
     private val locks = ConcurrentHashMap<String, Any>()
-    @Volatile private var template: String? = null
-
-    fun init(ctx: Context) {
-        appContext = ctx.applicationContext
-        dir = File(ctx.cacheDir, "blocky-v2")
-        File(ctx.cacheDir, "blocky").deleteRecursively() // old Overpass cache
-    }
 
     /** A Blocky tile at any zoom, or null if the map data can't be loaded. */
     fun tile(z: Int, x: Int, y: Int, size: Int): Bitmap? {
@@ -115,59 +96,10 @@ object BlockWorld {
         grids.get(key)?.let { return it }
         synchronized(locks.getOrPut(key) { Any() }) {
             grids.get(key)?.let { return it }
-            busy.incrementAndGet()
-            try {
-                val bytes = load(z, x, y) ?: return null
-                val g = rasterise(VectorTile(bytes), z)
-                grids.put(key, g)
-                return g
-            } catch (e: Exception) {
-                return null
-            } finally {
-                busy.decrementAndGet()
-            }
-        }
-    }
-
-    /** The tile URL pattern from OpenFreeMap's TileJSON (it changes with each data release). */
-    private fun template(): String? {
-        template?.let { return it }
-        val prefs = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
-        val saved = prefs.getString("ofmTemplate", null)
-        val savedAt = prefs.getLong("ofmTemplateAt", 0)
-        if (saved != null && System.currentTimeMillis() - savedAt < 86_400_000) { template = saved; return saved }
-        return try {
-            val t = JSONObject(Http.get("https://tiles.openfreemap.org/planet")).getJSONArray("tiles").getString(0)
-            prefs.edit().putString("ofmTemplate", t).putLong("ofmTemplateAt", System.currentTimeMillis()).apply()
-            template = t
-            t
-        } catch (e: Exception) {
-            saved
-        }
-    }
-
-    private fun load(z: Int, x: Int, y: Int): ByteArray? {
-        val file = File(dir, "$z/$x/$y.pbf")
-        if (file.exists() && System.currentTimeMillis() - file.lastModified() < 30L * 86_400_000) {
-            return file.readBytes()
-        }
-        val t = template() ?: return null
-        val url = t.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y")
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 8000
-        c.readTimeout = 15000
-        c.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
-        try {
-            if (c.responseCode != 200) return null
-            var bytes = c.inputStream.use { it.readBytes() }
-            if (bytes.size > 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()) {
-                bytes = GZIPInputStream(bytes.inputStream()).use { it.readBytes() }
-            }
-            file.parentFile?.mkdirs()
-            file.writeBytes(bytes)
-            return bytes
-        } finally {
-            c.disconnect()
+            val vt = VectorSource.get(z, x, y) ?: return null
+            val g = try { rasterise(vt, z) } catch (e: Exception) { return null }
+            grids.put(key, g)
+            return g
         }
     }
 

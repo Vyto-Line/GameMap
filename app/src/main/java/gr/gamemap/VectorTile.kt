@@ -16,6 +16,26 @@ class VectorTile(bytes: ByteArray) {
         val extent: Int,
     ) {
         operator fun get(key: String) = props[key]
+
+        // bounding box in tile units, for skipping features outside the area being drawn
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+
+        init {
+            for (p in parts) {
+                var i = 0
+                while (i + 1 < p.size) {
+                    if (p[i] < minX) minX = p[i]; if (p[i] > maxX) maxX = p[i]
+                    if (p[i + 1] < minY) minY = p[i + 1]; if (p[i + 1] > maxY) maxY = p[i + 1]
+                    i += 2
+                }
+            }
+        }
+
+        fun intersects(l: Float, t: Float, r: Float, b: Float) = maxX >= l && minX <= r && maxY >= t && minY <= b
+
+        /** Cached drawing path (built on first use). */
+        @Volatile var path: android.graphics.Path? = null
     }
 
     val features = ArrayList<Feature>()
@@ -84,7 +104,7 @@ class VectorTile(bytes: ByteArray) {
                 else -> p.skip(tag and 7)
             }
         }
-        if (type == 1) return // points aren't drawn
+        if (type == 1 && layer != "place") return // only place names are drawn as points
         features += Feature(layer, props, type, decodeGeometry(geom), extent)
     }
 
@@ -93,7 +113,7 @@ class VectorTile(bytes: ByteArray) {
         var cur = FloatArray(16); var n = 0
         var x = 0; var y = 0
         var i = 0
-        fun flush() { if (n >= 4) parts += cur.copyOf(n); cur = FloatArray(16); n = 0 }
+        fun flush() { if (n >= 2) parts += cur.copyOf(n); cur = FloatArray(16); n = 0 }
         fun add(px: Int, py: Int) {
             if (n + 2 > cur.size) cur = cur.copyOf(cur.size * 2)
             cur[n++] = px.toFloat(); cur[n++] = py.toFloat()

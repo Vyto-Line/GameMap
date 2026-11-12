@@ -33,10 +33,23 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all { test ->
+                listOf("previewData", "previewOut").forEach { k ->
+                    System.getProperty(k)?.let { test.systemProperty(k, it) }
+                }
+                test.maxHeapSize = "2g"
+            }
+        }
+    }
 }
 
 dependencies {
     implementation("androidx.car.app:app:1.4.0")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.1")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }

@@ -14,7 +14,7 @@ Turn-by-turn navigation for Android and **Android Auto** that looks like a video
 
 Pinch to zoom, twist with two fingers to rotate (tap the compass to reset), drag to look around.
 Search a destination, get a route, follow the turn arrows. Arriving says **MISSION COMPLETE**.
-Map data © OpenStreetMap contributors, tiles © CARTO, routing by OSRM, search by Photon and Nominatim, Blocky data from OpenFreeMap
+Map data © OpenStreetMap contributors via OpenFreeMap vector tiles, live traffic by TomTom (optional free key), routing by OSRM, search by Photon and Nominatim
 (all free services; please keep use personal and moderate).
 
 ## Install (Android Auto needs this exact way)
