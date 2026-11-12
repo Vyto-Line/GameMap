@@ -75,7 +75,33 @@ class MapRenderer(private val car: Boolean = false) {
      * @param d    screen density (1 = 160 dpi)
      * @param hud  draw the turn banner ourselves (the car shows its own instead)
      */
+    /**
+     * Adapts to the device: when frames take too long (a slow phone, or a car screen drawn
+     * without the GPU), switch to a lighter look (no tile smoothing, no style overlays)
+     * until there's headroom again. Frame time is measured every frame.
+     */
+    @Volatile var lite = false
+        private set
+    var forceLite: Boolean? = null
+    private var frameAvg = 0.0
+    private var frames = 0
+
     fun draw(c: Canvas, w: Int, h: Int, area: Rect, d: Float, hud: Boolean) {
+        val f0 = System.nanoTime()
+        try { drawFrame(c, w, h, area, d, hud) } finally {
+            val ms = (System.nanoTime() - f0) / 1e6
+            frames++
+            if (frames > 20 && !interacting) frameAvg = if (frameAvg == 0.0) ms else frameAvg * 0.9 + ms * 0.1
+            val budget = if (car) 30.0 else 24.0
+            lite = forceLite ?: when {
+                !lite && frameAvg > budget -> true
+                lite && frameAvg < budget * 0.45 -> false
+                else -> lite
+            }
+        }
+    }
+
+    private fun drawFrame(c: Canvas, w: Int, h: Int, area: Rect, d: Float, hud: Boolean) {
         compassBounds.setEmpty()
         val zoomAnim = view.tick()
         interacting = zoomAnim || view.gesture
@@ -164,10 +190,12 @@ class MapRenderer(private val car: Boolean = false) {
         // ---- theme overlays ----
         // style overlays cover the whole screen, like the map (no hard edge where buttons start)
         val full = Rect(0, 0, w, h)
-        if (theme.grid) drawGrid(c, full, d)
-        if (theme.scanlines) drawScanlines(c, full, d, theme)
-        if (theme.paper) drawPaper(c, full)
-        if (theme.sunGlow) drawSunGlow(c, full)
+        if (!lite) {
+            if (theme.grid) drawGrid(c, full, d)
+            if (theme.scanlines) drawScanlines(c, full, d, theme)
+            if (theme.paper) drawPaper(c, full)
+            if (theme.sunGlow) drawSunGlow(c, full)
+        }
         if (theme.radar) drawRadarFrame(c, cx, cy, radius, bearing, d)
         prof("overlays", tp0); tp0 = System.nanoTime()
 
@@ -238,7 +266,7 @@ class MapRenderer(private val car: Boolean = false) {
         val tx0 = floor((px - reach) / tilePx).toInt(); val tx1 = floor((px + reach) / tilePx).toInt()
         val ty0 = floor((py - reach) / tilePx).toInt().coerceAtLeast(0)
         val ty1 = floor((py + reach) / tilePx).toInt().coerceAtMost(n - 1)
-        val paint = if (theme.pixel > 1) pixelPaint else tilePaint
+        val paint = if (theme.pixel > 1 || lite) pixelPaint else tilePaint
         val showTraffic = Traffic.active && Traffic.showLayer && z >= 11 && !NavEngine.planning
 
         // Ask for the visible tiles far-to-near: the loader works newest-first, so the

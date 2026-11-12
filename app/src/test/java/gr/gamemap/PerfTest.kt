@@ -37,10 +37,11 @@ class PerfTest {
             val p = Geo.lerp(r.points[i], r.points[i + 1], f)
             return Location("gps").apply { latitude = p.lat; longitude = p.lon; speed = 12f; bearing = Geo.bearing(r.points[i], r.points[i + 1]); accuracy = 5f; time = System.currentTimeMillis() }
         }
-        for (car in listOf(true, false)) for (th in Theme.entries) {
+        for (lite in listOf(false, true)) for (car in listOf(true, false)) for (th in Theme.entries) {
+            if (lite && th !in listOf(Theme.OPEN_WORLD, Theme.PARCHMENT_QUEST, Theme.NEON_NOIR)) continue
             MapState.setTheme(th); MapState.setLightMode(MapState.LightMode.DARK)
             val w = if (car) 1920 else 1080; val h = if (car) 720 else 2340; val d = if (car) 1.6f else 2.75f
-            val rr = MapRenderer(car = car).apply { carButtons = car }
+            val rr = MapRenderer(car = car).apply { carButtons = car; forceLite = lite }
             val c = Canvas(Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888))
             val area = Rect(0, 0, w, h)
             var m = 200.0
@@ -55,7 +56,7 @@ class PerfTest {
             }
             val total = (System.nanoTime() - t0) / frames / 1e6
             MapRenderer.profile = false
-            log.append("${if (car) "car  " else "phone"} ${th.name.padEnd(16)} ${"%5.1f".format(total)} ms  " +
+            log.append("${if (car) "car  " else "phone"}${if (lite) " LITE" else ""} ${th.name.padEnd(16)} ${"%5.1f".format(total)} ms  " +
                 MapRenderer.times.entries.sortedByDescending { it.value }.joinToString { "${it.key} ${"%.1f".format(it.value / frames / 1e6)}" } + "\n")
         }
         // drawing one 512 px map tile (background work while driving)
