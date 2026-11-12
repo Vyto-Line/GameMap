@@ -308,7 +308,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 setPadding(p + p / 4, 0, p + p / 4, 0)
                 minHeight = (40 * d).toInt()
                 elevation = 3 * d
-                background = bg(panel, 0, 0f, 12f, pill = true)
+                background = bg(panel, dim(80), 1f, 12f, pill = true)
                 setOnClickListener { onClick() }
                 if (onLong != null) setOnLongClickListener { onLong(); true }
             }
