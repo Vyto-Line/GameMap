@@ -24,6 +24,8 @@ class GameMapApp : Application() {
         MapState.init(this)
         TileCache.init(this)
         Places.init(this)
+        Fuel.init(this)
+        Reviews.init(this)
         NavEngine.init(this)
         Voice.init(this)
         Explorer.init(this)

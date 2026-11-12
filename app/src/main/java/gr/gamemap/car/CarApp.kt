@@ -710,9 +710,9 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
             val local = try { Places.nearbyLocal(types, near) } catch (e: Exception) { emptyList() }
             if (local.isNotEmpty()) main.post { results = local; invalidate() }
             // 2) the online services add what the map data doesn't have
-            val r = try { Places.nearby(types, near) } catch (e: Exception) { null }
+            val r = try { Places.nearbyFull(types, near, local) } catch (e: Exception) { null }
             main.post {
-                results = Places.mergeNearby(local, r, near)
+                results = r ?: local
                 failed = r == null && local.isEmpty()
                 invalidate()
             }
@@ -730,7 +730,12 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
                 screenManager.pop()
                 NavEngine.plan(carContext, p)
             }
-            near?.let { row.addText(NavEngine.formatDistance(gr.gamemap.Geo.distance(it, p.pos))) }
+            val line = listOfNotNull(
+                near?.let { NavEngine.formatDistance(gr.gamemap.Geo.distance(it, p.pos)) },
+                gr.gamemap.Reviews.stars(p.rating, p.ratings),
+            ).joinToString(" · ")
+            if (line.isNotEmpty()) row.addText(line)
+            if (p.extra.isNotBlank()) row.addText(p.extra.substringBefore(" ("))
             list.addItem(row.build())
         }
         return b.setSingleList(list.build()).build()

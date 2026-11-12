@@ -3,6 +3,7 @@ package gr.gamemap
 import android.Manifest
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
@@ -388,8 +389,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             if (local.isNotEmpty()) runOnUiThread {
                 if (seq == querySeq && !isFinishing) { lastResults = local; renderResults(local, null, header = title, force = true) }
             }
-            val online = try { Places.nearby(types, near) } catch (e: Exception) { null }
-            val r = if (online == null && local.isEmpty()) null else Places.mergeNearby(local, online, near)
+            val r = try { Places.nearbyFull(types, near, local) } catch (e: Exception) { null }
             runOnUiThread {
                 if (seq != querySeq || isFinishing) return@runOnUiThread
                 lastResults = r ?: emptyList()
@@ -637,6 +637,78 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), true).show()
     }
 
+    private var infoAsked: Place? = null
+    private var infoFuel: String? = null
+
+    /** Fuel prices and stars of the destination, with a Reviews button (loaded once per place). */
+    private fun placeInfo(place: Place): View? {
+        if (infoAsked != place) {
+            infoAsked = place
+            infoFuel = place.extra.ifBlank { null }
+            val wantsFuel = infoFuel == null && place.icon == "⛽"
+            if (wantsFuel || Reviews.enabled) io.execute {
+                val f = if (wantsFuel) try { Fuel.forPlace(place) } catch (e: Exception) { null } else null
+                if (Reviews.enabled) try { Reviews.details(place) } catch (e: Exception) {}
+                runOnUiThread { if (infoAsked == place && !isFinishing) { if (f != null) infoFuel = f; if (NavEngine.planning) renderPreview() } }
+            }
+        }
+        val info = Reviews.cached(place)
+        val stars = Reviews.stars(info?.rating ?: place.rating, info?.count ?: place.ratings)
+        val fuel = infoFuel
+        val reviewable = place.icon != "🛣" && place.icon != "🏙" && place.address != "Street" && place.address != "Area"
+        if (stars == null && fuel == null && !reviewable) return null
+        val p = (12 * d).toInt()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(p, p / 2, p / 2, p / 2)
+        }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        top.addView(TextView(this).apply {
+            text = stars ?: if (Reviews.enabled && info == null) "Loading rating…" else if (fuel != null) "⛽ Prices" else "Reviews"
+            textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(if (stars != null) Color.rgb(255, 193, 7).let { if (Ui.contrast(it, panel) < 3) readable(it) else it } else ink)
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        if (reviewable) top.addView(TextView(this).apply {
+            text = "Reviews ›"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(readable(accent))
+            setPadding(p, p / 2, p / 2, p / 2)
+            isClickable = true
+            setOnClickListener { showReviews(place) }
+        })
+        box.addView(top)
+        if (fuel != null) box.addView(TextView(this).apply {
+            text = fuel; textSize = 14f; setTextColor(ink)
+        })
+        return box
+    }
+
+    private fun showReviews(place: Place) {
+        val info = Reviews.cached(place)
+        if (info == null || info.reviews.isEmpty()) {
+            // no key (or nothing from Google): its reviews are in Google Maps
+            val url = info?.mapsUrl ?: Reviews.mapsLink(place)
+            try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+            catch (e: Exception) { Toast.makeText(this, "No app to open Google Maps", Toast.LENGTH_SHORT).show() }
+            return
+        }
+        val p = (16 * d).toInt()
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(p, p / 2, p, p) }
+        for (r in info.reviews) {
+            list.addView(TextView(this).apply {
+                text = "★".repeat(r.stars.coerceIn(0, 5)) + "☆".repeat((5 - r.stars).coerceIn(0, 5)) + "  ${r.author} · ${r.when_}"
+                textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setPadding(0, p, 0, p / 4)
+            })
+            list.addView(TextView(this).apply { text = r.text; textSize = 14f })
+        }
+        AlertDialog.Builder(this)
+            .setTitle(listOfNotNull(place.name, Reviews.stars(info.rating, info.count)).joinToString("  "))
+            .setView(ScrollView(this).apply { addView(list) })
+            .setPositiveButton("Close", null)
+            .setNeutralButton("All on Google Maps") { _, _ ->
+                try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(info.mapsUrl ?: Reviews.mapsLink(place)))) } catch (_: Exception) {}
+            }
+            .show()
+    }
+
     private fun renderPreview() {
         val opts = NavEngine.options
         val place = NavEngine.planPlace
@@ -654,6 +726,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             if (depart != null) "leaving ${NavEngine.clock(depart)}" else if (Traffic.active) "live traffic" else null,
         ).joinToString(" · ")
         previewList.removeAllViews()
+        if (place != null) placeInfo(place)?.let { previewList.addView(it) }
         val fastest = NavEngine.fastestIndex()
         val p = (12 * d).toInt()
         opts.forEachIndexed { i, o ->
@@ -1083,6 +1156,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 text = pl.address; textSize = 13f; setTextColor(dim(170))
                 maxLines = 1; ellipsize = TextUtils.TruncateAt.END
             })
+            val stars = Reviews.stars(pl.rating, pl.ratings)
+            if (pl.extra.isNotBlank() || stars != null) addView(TextView(context).apply {
+                text = listOfNotNull(stars, pl.extra.takeIf { it.isNotBlank() }).joinToString("  ")
+                textSize = 13f; setTextColor(readable(accent)); typeface = Typeface.DEFAULT_BOLD
+                maxLines = 2; ellipsize = TextUtils.TruncateAt.END
+            })
         }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         if (near != null) row.addView(TextView(this).apply {
             text = NavEngine.formatDistance(Geo.distance(near, pl.pos)); textSize = 13f; setTextColor(dim(170))
@@ -1345,6 +1424,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             settingRow("Units", if (MapState.imperial) "Miles" else "Kilometres") { MapState.setImperial(!MapState.imperial) },
             settingRow("Android Auto style", MapState.carTheme?.title ?: "Same as phone") { chooseCarStyle() },
             switchRow("Car: dark map when headlights are on", MapState.followHeadlights) { MapState.followHeadlights = it },
+        ) + group("Places",
+            settingRow("Star ratings & reviews", if (Reviews.enabled) "Google key set" else "Off: Reviews opens Google Maps") { chooseGoogleKey() },
         ) + group("App",
             settingRow("Explorer profile", "Level ${Explorer.level} · ${Explorer.xp} XP") { showProfile() },
             settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) },
@@ -1352,6 +1433,29 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         )).forEach { body.addView(it) }
         sheetHost.addView(ScrollView(this).apply { addView(body) },
             LinearLayout.LayoutParams(MATCH_PARENT, minOf((resources.displayMetrics.heightPixels * 0.72f).toInt(), (640 * d).toInt())))
+    }
+
+    private fun chooseGoogleKey() {
+        val p = (20 * d).toInt()
+        val input = android.widget.EditText(this).apply {
+            setText(Reviews.key); hint = "Google Maps Platform API key"; setSingleLine()
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(p, p / 2, p, 0)
+            addView(TextView(context).apply {
+                textSize = 14f
+                text = "Stars and reviews come from Google. Paste a Google Maps Platform key with " +
+                    "\"Places API (New)\" turned on (console.cloud.google.com). Google gives a free monthly " +
+                    "allowance; a personal app normally stays inside it.\n\nWithout a key, \"Reviews\" opens the " +
+                    "place in Google Maps."
+            })
+            addView(input)
+        }
+        AlertDialog.Builder(this).setTitle("Star ratings & reviews").setView(box)
+            .setPositiveButton("Save") { _, _ -> Reviews.key = input.text.toString(); showSettings() }
+            .setNeutralButton("Remove") { _, _ -> Reviews.key = ""; showSettings() }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun chooseVoice() {

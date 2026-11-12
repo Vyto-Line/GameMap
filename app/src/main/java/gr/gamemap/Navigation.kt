@@ -176,7 +176,13 @@ object LocationTracker : LocationListener {
 }
 
 /** A place found by search. [icon] is a small emoji for its category. */
-data class Place(val name: String, val address: String, val pos: LatLng, val icon: String = "📍")
+data class Place(
+    val name: String, val address: String, val pos: LatLng, val icon: String = "📍",
+    /** Fuel prices, when known: "95 €1.970 · Diesel €2.035" */
+    val extra: String = "",
+    /** Google star rating and how many ratings (Settings › Reviews) */
+    val rating: Double? = null, val ratings: Int = 0,
+)
 
 /** Destination search: Photon for live suggestions, Nominatim as a fallback, plus recents. */
 object Places {
@@ -663,6 +669,18 @@ object Places {
             if (k == key && Geo.distance(at, near) < 400) return list.sortedBy { Geo.distance(near, it.pos) }
         }
         return scanNearby(amenities, near)
+    }
+
+    /**
+     * Everything for a "nearby" list after the instant local one: the online places, fuel prices
+     * for stations, star ratings when a Google key is set.
+     */
+    fun nearbyFull(amenities: List<String>, near: LatLng, local: List<Place>): List<Place>? {
+        val online = try { nearby(amenities, near) } catch (e: Exception) { null }
+        var list: List<Place> = if (online == null && local.isEmpty()) return null else mergeNearby(local, online, near)
+        if ("fuel" in amenities) Fuel.asPlaces(near, list)?.let { list = it.take(15) }
+        list = try { Reviews.rate(list, near, amenities) } catch (e: Exception) { list }
+        return list
     }
 
     /** Local first, then the online services' extra places (not already listed). */
