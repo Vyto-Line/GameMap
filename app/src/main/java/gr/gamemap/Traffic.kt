@@ -111,8 +111,8 @@ object Traffic {
                 val level = f["traffic_level"]?.toFloatOrNull() ?: 1f
                 val state = when {
                     f["road_closure"].equals("true", ignoreCase = true) -> CLOSED
-                    level < 0.4f -> JAM
-                    level < 0.75f -> SLOW
+                    level < 0.35f -> JAM
+                    level < 0.65f -> SLOW
                     else -> FREE
                 }
                 val oneWay = f["traffic_road_coverage"] == "one_side"

@@ -191,7 +191,7 @@ enum class Theme(
         player = Color.rgb(15, 56, 15), playerOutline = Color.rgb(155, 188, 15),
         hudText = Color.rgb(15, 56, 15), hudPanel = Color.argb(210, 139, 172, 15),
         pixel = 4, hud = HudShape.PIXEL,
-        traffic = TrafficLook(glow = emptyList(), core = 4f, freeWidth = 0f, freeAlpha = 0, arrow = Color.rgb(155, 188, 15), animate = false, smooth = false),
+        traffic = TrafficLook(glow = emptyList(), core = 4f, casing = Color.rgb(15, 56, 15), freeWidth = 0f, freeAlpha = 0, arrow = Color.rgb(15, 56, 15), animate = false, smooth = false),
         style = MapStyle(
             land = Color.rgb(155, 188, 15), water = Color.rgb(48, 98, 48), park = Color.rgb(139, 172, 15),
             wood = Color.rgb(139, 172, 15), sand = Color.rgb(155, 188, 15), farm = Color.rgb(155, 188, 15),
@@ -200,7 +200,7 @@ enum class Theme(
             motorway = Color.rgb(15, 56, 15), major = Color.rgb(15, 56, 15), minor = Color.rgb(48, 98, 48),
             path = Color.rgb(48, 98, 48), rail = Color.rgb(48, 98, 48),
             label = 0, labelHalo = 0, labels = false,
-            trafficFree = Color.rgb(139, 172, 15), trafficSlow = Color.rgb(48, 98, 48), trafficJam = Color.rgb(15, 56, 15),
+            trafficFree = Color.rgb(139, 172, 15), trafficSlow = Color.rgb(139, 172, 15), trafficJam = Color.rgb(155, 188, 15),
         ),
     ),
     NIGHT_VISION(

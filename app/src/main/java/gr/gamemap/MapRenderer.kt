@@ -296,8 +296,8 @@ class MapRenderer {
             }
             // arrows crawling along one-way jams, in the driving direction
             if (!tp.arrows.isEmpty) {
-                val size = (look.core + 1.5f) * u
-                val advance = 26f * u
+                val size = (look.core + 3f) * u
+                val advance = 34f * u
                 val shape = Path().apply {
                     moveTo(-size * 0.6f, -size); lineTo(size * 0.7f, 0f); lineTo(-size * 0.6f, size)
                     lineTo(-size * 0.15f, 0f); close()
