@@ -17,7 +17,7 @@ jobs:
         working-directory: src
         run: |
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          gradle assembleDebug --no-daemon
+          gradle assembleDebug --no-daemon -PbuildNumber=${{ github.run_number }}
           mkdir -p ../out && cp app/build/outputs/apk/debug/*.apk ../out/GameMap.apk
       - name: Publish release
         env:
@@ -25,4 +25,4 @@ jobs:
         run: |
           TAG="${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}"
           gh release create "$TAG" out/GameMap.apk -R "${{ github.repository }}" \
-            --target "${{ github.sha }}" --title "GameMap $TAG" --notes "Automatic build"
+            --target "${{ github.sha }}" --title "GameMap $TAG" --notes "Automatic build. versionCode: ${{ github.run_number }}"

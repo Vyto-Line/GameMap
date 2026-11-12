@@ -11,8 +11,10 @@ android {
         applicationId = "gr.gamemap"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        // CI passes -PbuildNumber=<run number>; the updater compares against it.
+        val build = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "build-$build"
     }
     signingConfigs {
         // Fixed key in the repo so every build can update the previous one in place.

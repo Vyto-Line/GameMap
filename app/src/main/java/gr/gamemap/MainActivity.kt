@@ -83,7 +83,8 @@ class MainActivity : ComponentActivity() {
             })
             addView(button("−", d) { MapState.zoomBy(-1.0) })
             addView(button("+", d) { MapState.zoomBy(1.0) })
-            addView(button("🔑 KEY", d) { askForKey() })
+            addView(button("🔑", d) { askForKey() })
+            addView(button("⬆", d) { checkForUpdates(manual = true) })
             addView(stopBtn)
         }
 
@@ -100,6 +101,60 @@ class MainActivity : ComponentActivity() {
         if (LocationTracker.hasPermission(this)) LocationTracker.start(this)
         permissions.launch(wanted.toTypedArray())
         if (MapState.mapKey.isEmpty()) askForKey()
+        else if (Updater.dueForCheck(this)) checkForUpdates(manual = false)
+    }
+
+    private fun checkForUpdates(manual: Boolean) {
+        if (manual) Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show()
+        io.execute {
+            val r = try { Updater.check(this) } catch (e: Exception) { null }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                if (r == null) {
+                    if (manual) Toast.makeText(this, "You have the latest version (build ${Updater.currentVersion(this)})", Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("Update available")
+                    .setMessage("${r.tag} is ready (you have build ${Updater.currentVersion(this)}). Download and install it?")
+                    .setPositiveButton("Update") { _, _ -> downloadAndInstall(r) }
+                    .setNegativeButton("Later", null)
+                    .show()
+            }
+        }
+    }
+
+    private fun downloadAndInstall(r: Updater.Release) {
+        val progress = Toast.makeText(this, "Downloading update…", Toast.LENGTH_LONG)
+        progress.show()
+        io.execute {
+            val ok = try { Updater.download(this, r) {}; true } catch (e: Exception) { false }
+            runOnUiThread {
+                if (!ok) {
+                    Toast.makeText(this, "Download failed: check internet", Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+                val viaUnknownAuto = Updater.hasUnknownAuto(this)
+                AlertDialog.Builder(this)
+                    .setTitle("Install update")
+                    .setMessage(
+                        if (viaUnknownAuto)
+                            "Make sure Shizuku is running, then tap Install in UnknownAuto. " +
+                                "This keeps GameMap visible in Android Auto."
+                        else
+                            "UnknownAuto isn't installed, so Android's normal installer will be used. " +
+                                "The update will work on the phone, but Android Auto may hide GameMap " +
+                                "until you reinstall it through UnknownAuto."
+                    )
+                    .setPositiveButton("Continue") { _, _ ->
+                        try { Updater.install(this) } catch (e: Exception) {
+                            Toast.makeText(this, "Couldn't open the installer: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
     }
 
     private fun askForKey() {

@@ -135,6 +135,12 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 NavEngine.changed += surface.redraw
                 NavEngine.changed += onNav
                 ensureLocation()
+                if (gr.gamemap.Updater.dueForCheck(carContext)) Executors.newSingleThreadExecutor().execute {
+                    val r = try { gr.gamemap.Updater.check(carContext) } catch (e: Exception) { null }
+                    if (r != null) main.post {
+                        CarToast.makeText(carContext, "GameMap update ready: open the app on your phone", CarToast.LENGTH_LONG).show()
+                    }
+                }
             }
 
             override fun onDestroy(owner: LifecycleOwner) {
