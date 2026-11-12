@@ -1,0 +1,28 @@
+name: Build APK
+# Builds only when a version tag (v1.2, v2.0, ...) is pushed or when started by hand
+# from the Actions tab. Each build becomes its own release; nothing is deleted.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get code
+        run: git clone --depth 1 --branch "${{ github.ref_name }}" "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" src
+      - name: Build APK
+        working-directory: src
+        run: |
+          export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
+          gradle assembleDebug --no-daemon
+          mkdir -p ../out && cp app/build/outputs/apk/debug/*.apk ../out/GameMap.apk
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}"
+          gh release create "$TAG" out/GameMap.apk -R "${{ github.repository }}" \
+            --target "${{ github.sha }}" --title "GameMap $TAG" --notes "Automatic build"
