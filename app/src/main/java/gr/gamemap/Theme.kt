@@ -192,6 +192,22 @@ enum class Theme(
             label = Color.rgb(160, 255, 130), labelHalo = Color.rgb(0, 10, 0),
             trafficSlow = Color.rgb(230, 255, 60), trafficJam = Color.rgb(255, 255, 255),
         ),
+    ),
+    TRAILBLAZER(
+        "Trailblazer",
+        route = Color.rgb(84, 104, 255), routeGlow = Color.argb(110, 84, 104, 255),
+        player = Color.rgb(255, 255, 255), playerOutline = Color.rgb(30, 120, 200),
+        hudText = Color.rgb(24, 70, 64), hudPanel = Color.argb(235, 250, 255, 250),
+        style = MapStyle(
+            land = Color.rgb(150, 214, 140), water = Color.rgb(84, 176, 240), park = Color.rgb(112, 196, 112),
+            wood = Color.rgb(92, 178, 98), sand = Color.rgb(236, 222, 160), farm = Color.rgb(170, 220, 140),
+            urban = Color.rgb(160, 206, 150), pitch = Color.rgb(124, 206, 120),
+            building = Color.rgb(176, 226, 168), buildingEdge = Color.rgb(132, 196, 128), waterEdge = Color.rgb(200, 236, 255),
+            motorway = Color.rgb(255, 236, 150), major = Color.rgb(206, 246, 236), minor = Color.rgb(198, 240, 228),
+            path = Color.rgb(226, 246, 214), rail = Color.rgb(130, 170, 130), casing = Color.rgb(255, 255, 255),
+            label = Color.rgb(28, 84, 64), labelHalo = Color.rgb(236, 252, 236),
+            trafficSlow = Color.rgb(255, 160, 40), trafficJam = Color.rgb(240, 60, 60),
+        ),
     );
 
     /** Colour behind the map while tiles load. */

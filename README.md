@@ -11,6 +11,7 @@ Turn-by-turn navigation for Android and **Android Auto** that looks like a video
 - **Lookout**: dusk palette from purple to sunset orange, warm light from above
 - **8-Bit**: handheld-console greens
 - **Night Vision**: green scanlines
+- **Trailblazer**: bright outdoor-adventure look: lush green land, pale aqua roads with white edges, blue water
 
 Pinch to zoom, twist with two fingers to rotate (tap the compass to reset), drag to look around.
 Search a destination, get a route, follow the turn arrows. Arriving says **MISSION COMPLETE**.

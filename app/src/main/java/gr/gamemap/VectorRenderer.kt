@@ -135,16 +135,16 @@ object VectorRenderer {
             "rail", "transit" -> s.rail
             else -> s.path
         }
-        fun width(kind: RoadKind) = max(kind.minPx, kind.meters / mpp)
+        fun width(kind: RoadKind) = max(kind.minPx, kind.meters * 0.85f / mpp)
         val visible = drawOrder.mapNotNull { cls -> kinds[cls]?.takeIf { z >= it.minZoom }?.let { cls to it } }
 
         // glow or casing underneath everything, so junctions stay clean
         if (s.glow && aa) {
-            line.maskFilter = BlurMaskFilter(6f, BlurMaskFilter.Blur.NORMAL)
+            line.maskFilter = BlurMaskFilter(5f, BlurMaskFilter.Blur.NORMAL)
             for ((cls, kind) in visible) {
                 if (cls == "path" || cls == "track" || cls == "service") continue
-                line.color = roadColor(cls); line.alpha = 120
-                line.strokeWidth = px(width(kind) + 7f)
+                line.color = roadColor(cls); line.alpha = if (z >= 17) 110 else 70
+                line.strokeWidth = px(width(kind) * 1.25f + 4f)
                 for (f in roads) if (f["class"] == cls) c.drawPath(pathOf(f), line)
             }
             line.maskFilter = null; line.alpha = 255
