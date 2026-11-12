@@ -7,18 +7,12 @@ jobs:
       - name: Probe APIs
         run: |
           set +e
-          echo "== photon osm_tag =="
-          for q in fuel restaurant parking; do
-            tag=$( [ $q = fuel ] && echo amenity:fuel || ([ $q = restaurant ] && echo amenity:restaurant || echo amenity:parking) )
-            curl -s -m 20 "https://photon.komoot.io/api/?q=$q&osm_tag=$tag&lat=37.984&lon=23.728&limit=5&location_bias_scale=0.9&zoom=16" | python3 -c "
-          import json,sys;o=json.load(sys.stdin);f=o.get('features',[])
-          print('$q',len(f),[ (x['properties'].get('name'),x['properties'].get('osm_value'),x['geometry']['coordinates']) for x in f[:5]])"
+          Q='[out:json][timeout:25];(node["highway"="speed_camera"](37.75,23.45,38.20,24.05);node["enforcement"="maxspeed"](37.75,23.45,38.20,24.05););out;'
+          for ep in https://overpass-api.de/api/interpreter https://overpass.kumi.systems/api/interpreter https://maps.mail.ru/osm/tools/overpass/api/interpreter https://overpass.private.coffee/api/interpreter; do
+            start=$(date +%s.%N)
+            code=$(curl -s -m 40 -o out.json -w "%{http_code}" --data-urlencode "data=$Q" -A "GameMap/1.0" "$ep")
+            end=$(date +%s.%N)
+            n=$(python3 -c "import json;print(len(json.load(open('out.json'))['elements']))" 2>/dev/null)
+            echo "$ep -> $code n=$n t=$(echo "$end - $start" | bc)"
           done
-          echo "== nominatim amenity =="
-          curl -s -m 20 -A "GameMap-probe" "https://nominatim.openstreetmap.org/search?amenity=fuel&viewbox=23.70,38.00,23.76,37.97&bounded=1&format=jsonv2&limit=5" | python3 -c "
-          import json,sys;a=json.load(sys.stdin);print(len(a),[(x.get('name'),x.get('type'),x['lat'],x['lon']) for x in a[:5]])"
-          echo "== osrm exclude =="
-          for ex in toll motorway "toll,motorway"; do
-            curl -s -m 20 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.65,37.94?overview=false&exclude=$ex" | python3 -c "
-          import json,sys;o=json.load(sys.stdin);print('$ex',o.get('code'),o.get('message'),[ (r['distance'],r['duration']) for r in o.get('routes',[])])"
-          done
+          python3 -c "import json;e=json.load(open('out.json'))['elements'];print([x.get('tags') for x in e[:4]])" 2>/dev/null
