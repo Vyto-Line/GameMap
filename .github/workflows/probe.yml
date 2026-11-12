@@ -34,6 +34,27 @@ jobs:
           echo "== Overpass cameras =="
           curl -s -m 60 --data-urlencode 'data=[out:json][timeout:25];node["highway"="speed_camera"](37.85,23.55,38.15,23.95);out;' https://overpass-api.de/api/interpreter | python3 -c "
           import json,sys;o=json.load(sys.stdin);e=o['elements'];print('cameras',len(e));print([x.get('tags') for x in e[:3]])"
+          echo "== TomTom reconstruct =="
+          python3 - <<'P'
+          import json
+          o=json.load(open('osrm.json'))
+          P2=None
+          P
+          curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.7329,37.9990?overview=full&geometries=geojson" > full.json
+          python3 -c "
+          import json;c=json.load(open('full.json'))['routes'][0]['geometry']['coordinates']
+          step=max(1,len(c)//40); pts=c[::step]+[c[-1]]
+          json.dump({'supportingPoints':[{'latitude':y,'longitude':x} for x,y in pts]},open('body.json','w'))
+          print('points',len(pts),'first',pts[0],'last',pts[-1])"
+          FIRST=$(python3 -c "import json;b=json.load(open('body.json'))['supportingPoints'];print(f\"{b[0]['latitude']},{b[0]['longitude']}:{b[-1]['latitude']},{b[-1]['longitude']}\")")
+          for extra in "" "&departAt=2026-11-13T08:30:00"; do
+          curl -s -m 30 -X POST -H 'Content-Type: application/json' --data @body.json "https://api.tomtom.com/routing/1/calculateRoute/$FIRST/json?key=$TOMTOM_KEY&traffic=true&travelMode=car&routeRepresentation=polyline&sectionType=traffic&computeTravelTimeFor=all$extra" > tt.json
+          python3 -c "
+          import json;o=json.load(open('tt.json'))
+          if 'routes' not in o: print('ERR',str(o)[:400])
+          else:
+            r=o['routes'][0];print('summary',r['summary']);print('npts',len(r['legs'][0]['points']));print('sections',[(s['sectionType'],s['startPointIndex'],s['endPointIndex'],s.get('magnitudeOfDelay'),s.get('delayInSeconds')) for s in r['sections']])"
+          done
           echo "== OSRM lanes demo (highway) =="
           curl -s -m 30 "https://router.project-osrm.org/route/v1/driving/23.7275,37.9838;23.80,38.04?steps=true&overview=false" | python3 -c "
           import json,sys;o=json.load(sys.stdin);n=0
