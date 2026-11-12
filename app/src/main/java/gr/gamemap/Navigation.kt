@@ -219,6 +219,63 @@ object Places {
         else -> "📍"
     }
 
+    // ---- instant search in the map data already on the phone (streets, places, shops…) ----
+
+    private class Named(val norm: List<String>, val full: String, val name: String, val pos: LatLng, val icon: String, val kind: Int)
+    private val nameIndex = java.util.concurrent.ConcurrentHashMap<String, List<Named>>()
+
+    /** Lower case, no accents (ά→α), final ς→σ: so "ομονοια" finds "Ομόνοια". */
+    fun norm(s: String): String = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
+        .replace(Regex("\\p{Mn}+"), "").replace('ς', 'σ')
+
+    private fun indexTile(key: String, vt: VectorTile): List<Named> = nameIndex.getOrPut(key) {
+        val (zs, xs, ys) = key.split("/")
+        val z = zs.toInt(); val tx = xs.toInt(); val ty = ys.toInt()
+        val n = (1 shl z).toDouble()
+        val out = ArrayList<Named>()
+        for (f in vt.features) {
+            val kind = when {
+                f.layer == "place" && f.type == 1 -> 0
+                f.layer == "poi" && f.type == 1 -> 1
+                f.layer == "transportation_name" -> 2
+                else -> continue
+            }
+            val name = f["name"]?.takeIf { it.isNotBlank() } ?: continue
+            val part = f.parts.firstOrNull() ?: continue
+            val k = (part.size / 4) * 2
+            val px = part.getOrElse(k) { 0f }; val py = part.getOrElse(k + 1) { 0f }
+            if (px < 0 || py < 0 || px > f.extent || py > f.extent) continue
+            val pos = LatLng(Geo.lat((ty + py / f.extent.toDouble()) / n, 1.0), Geo.lon((tx + px / f.extent.toDouble()) / n, 1.0))
+            val alt = listOfNotNull(f["name:latin"], f["name_en"], f["name:en"]).joinToString(" ")
+            val full = norm("$name $alt")
+            val icon = when (kind) { 0 -> "🏙"; 2 -> "🛣"; else -> icon(f["class"], f["subclass"]) }
+            out += Named(full.split(Regex("[\\s,.\\-()]+")).filter { it.isNotEmpty() }, full, name, pos, icon, kind)
+        }
+        if (nameIndex.size > 200) nameIndex.clear()
+        out
+    }
+
+    /** Names on the map data in memory that start with what was typed, nearest first. Instant, offline. */
+    fun local(query: String, near: LatLng?): List<Place> {
+        val words = norm(query.trim()).split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        val hits = ArrayList<Named>()
+        for ((key, vt) in VectorSource.parsedTiles()) {
+            if (!key.startsWith("${VectorSource.MAX_Z}/") && !key.startsWith("${VectorSource.MAX_Z - 1}/")) continue
+            for (e in indexTile(key, vt)) {
+                if (words.all { w -> e.norm.any { it.startsWith(w) } }) hits += e
+            }
+        }
+        val from = near ?: LocationTracker.position
+        val best = LinkedHashMap<String, Named>()
+        for (e in hits.sortedBy { if (from != null) Geo.distance(from, it.pos) else 0.0 }) {
+            best.putIfAbsent(norm(e.name) + e.kind, e) // a street once (its nearest piece)
+        }
+        return best.values.take(8).map { e ->
+            Place(e.name, when (e.kind) { 0 -> "Area"; 2 -> "Street"; else -> "" }, e.pos, e.icon)
+        }
+    }
+
     /** Set when TomTom says the key isn't allowed to search (Search API not ticked on the key). */
     @Volatile var tomtomSearchBlockedUntil = 0L
 

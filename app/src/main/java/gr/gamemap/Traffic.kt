@@ -69,6 +69,11 @@ object Traffic {
         MapState.changed.fire()
     }
 
+    /** Traffic colours drawn on the map (arrival times keep using traffic either way). */
+    var showLayer: Boolean
+        get() = !::appContext.isInitialized || prefs().getBoolean("trafficLayer", true)
+        set(v) { prefs().edit().putBoolean("trafficLayer", v).apply(); MapState.changed.fire() }
+
     fun setEnabled(on: Boolean) {
         enabled = on
         prefs().edit().putBoolean("traffic", on).apply()

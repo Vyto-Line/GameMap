@@ -84,6 +84,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var previewSub: TextView
     private lateinit var previewList: LinearLayout
     private lateinit var previewClose: TextView
+    private lateinit var previewBack: TextView
+    private lateinit var trafficBtn: TextView
     private lateinit var laterBtn: TextView
     private lateinit var startBtn: TextView
     private lateinit var offerCard: LinearLayout
@@ -209,6 +211,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     sheetOverlay.visibility == View.VISIBLE -> closeSheet()
                     suggestScroll.visibility == View.VISIBLE || pickFor != null -> closeSearch()
                     NavEngine.planning -> NavEngine.cancelPlan()
+                    NavEngine.active -> AlertDialog.Builder(this@MainActivity)
+                        .setTitle("End navigation?")
+                        .setPositiveButton("End") { _, _ -> NavEngine.stop() }
+                        .setNegativeButton("Keep going", null)
+                        .show()
                     else -> { isEnabled = false; onBackPressedDispatcher.onBackPressed() }
                 }
             }
@@ -286,7 +293,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             setPadding(p, p, p, p)
             setOnClickListener { search.setText("") }
         }
-        searchIcon = TextView(this).apply { text = "⌕"; textSize = 22f; setPadding(p + p / 3, 0, 0, 0) }
+        searchIcon = TextView(this).apply {
+            text = "⌕"; textSize = 22f; gravity = Gravity.CENTER
+            minWidth = (44 * d).toInt(); minHeight = (44 * d).toInt()
+            setPadding(p / 2, 0, 0, 0)
+            setOnClickListener { if (search.hasFocus() || suggestScroll.visibility == View.VISIBLE || pickFor != null) closeSearch() else search.requestFocus() }
+        }
         menuBtn = TextView(this).apply {
             text = "☰"; textSize = 20f; gravity = Gravity.CENTER
             contentDescription = "Settings"
@@ -511,9 +523,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
         navMenuBtn = fab("☰", "Settings") { showSettings() }
         reportBtn = fab("⚠", "Report") { openSheet("report") }
+        trafficBtn = fab("🚦", "Traffic on the map") {
+            Traffic.showLayer = !Traffic.showLayer
+            Toast.makeText(this, if (Traffic.showLayer) "Traffic shown" else "Traffic hidden", Toast.LENGTH_SHORT).show()
+        }
         controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(styleBtn); addView(reportBtn); addView(muteBtn); addView(overviewBtn); addView(recenterBtn); addView(navMenuBtn)
+            addView(styleBtn); addView(trafficBtn); addView(reportBtn); addView(muteBtn); addView(overviewBtn); addView(recenterBtn); addView(navMenuBtn)
         }
         askText = label("", 16f, bold = true)
         askCard = LinearLayout(this).apply {
@@ -576,6 +592,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         previewTitle = TextView(this).apply { textSize = 20f; typeface = Typeface.DEFAULT_BOLD }
         previewSub = TextView(this).apply { textSize = 13f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         previewClose = pill("✕") { NavEngine.cancelPlan() }
+        previewBack = pill("←") { NavEngine.cancelPlan(); search.requestFocus(); showSuggestions() }
         previewList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         laterBtn = pill("Leave later") { pickDeparture() }
         startBtn = pill("Start") { NavEngine.startPlanned() }
@@ -587,6 +604,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
+                addView(previewBack)
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     addView(previewTitle); addView(previewSub)
@@ -618,7 +636,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val opts = NavEngine.options
         val place = NavEngine.planPlace
         previewTitle.setTextColor(ink); previewTitle.typeface = theme.typeface
-        previewSub.setTextColor(dim()); previewClose.setTextColor(ink)
+        previewSub.setTextColor(dim()); previewClose.setTextColor(ink); previewBack.setTextColor(ink)
         previewTitle.text = when {
             NavEngine.planError != null -> NavEngine.planError
             NavEngine.planLoading -> "Finding routes…"
@@ -825,6 +843,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         search.setHintTextColor(dim(150))
         search.typeface = t.typeface
         searchIcon.setTextColor(readable(accent))
+        searchIcon.text = if (searching) "←" else "⌕"
+        searchIcon.contentDescription = if (searching) "Back" else "Search"
         clearBtn.setTextColor(ink)
         menuBtn.setTextColor(ink)
         menuBtn.background = bg(Color.argb(30, Color.red(ink), Color.green(ink), Color.blue(ink)), radius = 14f, pill = true)
@@ -855,6 +875,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         overviewBtn.visibility = if (nav && !MapState.overview && NavEngine.route.size > 1) View.VISIBLE else View.GONE
         navMenuBtn.visibility = if (nav) View.VISIBLE else View.GONE
         reportBtn.visibility = if (planning) View.GONE else View.VISIBLE
+        trafficBtn.visibility = if (Traffic.key.isEmpty()) View.GONE else View.VISIBLE
+        trafficBtn.alpha = if (Traffic.showLayer) 1f else 0.45f
         val ask = Alerts.askAbout
         askCard.visibility = if (ask != null && !planning) View.VISIBLE else View.GONE
         if (ask != null && ask !== askShown) {
@@ -961,14 +983,22 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val near = LocationTracker.position
         if (full) hideKeyboard()
         io.execute {
+            // 1) instant: names in the map data on the phone
+            val local = try { Places.local(q, near) } catch (e: Exception) { emptyList() }
+            if (local.isNotEmpty()) runOnUiThread {
+                if (seq == querySeq && !isFinishing) { lastResults = local; renderResults(local, null, header = "NEARBY") }
+            }
+            // 2) the search services (whole region, addresses)
             val r = try { if (full) Places.search(q, near) else Places.suggest(q, near) } catch (e: Exception) { null }
             runOnUiThread {
                 if (seq != querySeq || isFinishing) return@runOnUiThread
-                lastResults = r ?: emptyList()
-                renderResults(lastResults, when {
+                val net = r.orEmpty()
+                val merged = net + local.filter { l -> net.none { Places.norm(it.name) == Places.norm(l.name) && Geo.distance(it.pos, l.pos) < 300 } }
+                lastResults = merged
+                renderResults(merged, when {
+                    merged.isNotEmpty() -> null
                     r == null -> "No connection: check mobile data"
-                    r.isEmpty() -> "Nothing found"
-                    else -> null
+                    else -> "Nothing found"
                 })
             }
         }
@@ -1166,6 +1196,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         addView(label(title, 15f).apply { setTextColor(ink) }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         val sw = android.widget.Switch(context).apply {
             isChecked = on
+            val onCol = Ui.onPanel(theme, accent, 3.0)
+            val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+            thumbTintList = android.content.res.ColorStateList(states, intArrayOf(onCol, Ui.mix(ink, panel, 0.15f)))
+            trackTintList = android.content.res.ColorStateList(states, intArrayOf(
+                Color.argb(150, Color.red(onCol), Color.green(onCol), Color.blue(onCol)),
+                Color.argb(110, Color.red(ink), Color.green(ink), Color.blue(ink))))
             setOnCheckedChangeListener { _, v -> onChange(v) }
         }
         addView(sw)

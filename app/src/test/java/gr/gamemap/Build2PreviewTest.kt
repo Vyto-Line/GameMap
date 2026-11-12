@@ -58,6 +58,9 @@ class Build2PreviewTest {
         shot("ui2_style_picker")
         activity.onBackPressedDispatcher.onBackPressed()
 
+        File(out, "local.txt").writeText(listOf("ομον", "σταδ", "Stad", "μουσ", "Πατησ").joinToString("\n") { q ->
+            "$q → " + Places.local(q, LatLng(37.9838, 23.7275)).joinToString(" | ") { "${it.icon} ${it.name}" }
+        })
         activity.showSettings()
         for ((th, mode) in listOf(
             Theme.LOOKOUT to MapState.LightMode.DARK, Theme.NEON_RACER to MapState.LightMode.DARK,

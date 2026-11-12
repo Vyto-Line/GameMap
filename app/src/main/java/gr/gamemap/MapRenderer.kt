@@ -284,7 +284,7 @@ class MapRenderer(private val car: Boolean = false) {
     private fun drawTraffic(
         c: Canvas, theme: Theme, z: Int, px: Double, py: Double, scale: Float, d: Float, reach: Double, under: Boolean,
     ) {
-        if (!Traffic.active || z < 11) return
+        if (!Traffic.active || !Traffic.showLayer || z < 11) return
         val look = theme.traffic
         val st = theme.style
         // Coarser traffic data zoomed out (few squares); finer geometry close up.
