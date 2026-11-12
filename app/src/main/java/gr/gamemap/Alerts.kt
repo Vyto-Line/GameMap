@@ -330,6 +330,13 @@ object Alerts {
         if (was != ahead?.key) changed.fire()
     }
 
+    internal fun debugInject(cams: List<Camera>, inc: List<Incident>, reps: List<Report>) {
+        cams.firstOrNull()?.let { cameraCells[cellOf(it.pos)] = cams }
+        incidents = inc; incCenter = inc.firstOrNull()?.pos ?: cams.firstOrNull()?.pos; incAt = System.currentTimeMillis()
+        reports = reps; reportsAt = System.currentTimeMillis()
+        changed.fire()
+    }
+
     private fun greek(label: String) = when {
         label.startsWith("Speed camera") -> "Κάμερα ταχύτητας"
         label.startsWith("Police") -> "Αστυνομία"

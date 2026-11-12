@@ -1241,6 +1241,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     internal fun showSettings() = openSheet("settings")
+    internal fun openReportForTest() = openSheet("report")
 
     private fun renderSettings() {
         sheetHost.removeAllViews()
