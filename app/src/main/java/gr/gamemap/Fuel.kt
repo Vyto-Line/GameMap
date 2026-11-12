@@ -94,6 +94,13 @@ object Fuel {
             .let { if (short) it.take(2) else it }
             .joinToString(" · ")
 
+    /** For a car list row: just 95 and diesel. */
+    fun brief(extra: String): String {
+        val parts = extra.substringBefore(" (").split(" · ")
+        val pick = parts.filter { it.startsWith("95 ") || it.startsWith("Diesel ") }
+        return (pick.ifEmpty { parts.take(2) }).joinToString(" · ") + if ("area average" in extra) " (area avg.)" else ""
+    }
+
     /** The date the prices are from: "11 Nov". */
     fun day(updated: String): String = try {
         val d = updated.take(10).split("-")
@@ -110,13 +117,13 @@ object Fuel {
         val a = near(p) ?: return null
         val out = ArrayList<Place>()
         for (s in a.stations) {
-            val same = others.firstOrNull { Geo.distance(it.pos, s.pos) < 90 }
+            val same = others.firstOrNull { it.icon == "⛽" && Geo.distance(it.pos, s.pos) < 90 }
             val name = same?.name?.takeIf { it != "Fuel" } ?: s.name
             out += Place(name, s.address.ifBlank { same?.address.orEmpty() }, s.pos, "⛽", extra = describe(s, a))
         }
         // stations the price feed doesn't have; where prices are an area average, it's theirs too
         val avg = a.stations.firstOrNull()?.takeIf { a.averageOnly }
-        for (o in others) if (out.none { Geo.distance(it.pos, o.pos) < 90 }) {
+        for (o in others) if (out.none { Geo.distance(it.pos, o.pos) < 90 && (o.icon == "⛽" || it.name == o.name) }) {
             out += if (avg != null && o.icon == "⛽" && o.extra.isBlank()) o.copy(extra = describe(avg, a)) else o
         }
         return out.sortedBy { Geo.distance(p, it.pos) }

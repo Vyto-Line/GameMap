@@ -685,9 +685,14 @@ class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
                 NavEngine.stop(); NavEngine.dismissTrip(); screenManager.pop()
                 screenManager.push(NearbyScreen(carContext, "Parking nearby", listOf("parking")))
             }
-        } else if (NavEngine.active) row("End navigation", NavEngine.destinationName) { NavEngine.stop(); screenManager.pop() }
-        else row("Search") { screenManager.pop(); screenManager.push(SearchScreen(carContext)) }
-        if (!MapState.following || MapState.userBearing != null) row("Recenter") { MapState.recenter(); screenManager.pop() }
+        } else {
+            if (NavEngine.active) row("End navigation", NavEngine.destinationName) { NavEngine.stop(); screenManager.pop() }
+            else row("Search") { screenManager.pop(); screenManager.push(SearchScreen(carContext)) }
+            // (the list holds 6 rows; Recenter is on the map itself)
+            row("Fuel nearby", "Prices and ratings") {
+                screenManager.pop(); screenManager.push(NearbyScreen(carContext, "Fuel nearby", listOf("fuel", "charging_station")))
+            }
+        }
         row("Map style", (MapState.carTheme ?: MapState.theme).title) { MapState.nextCarTheme(); invalidate() }
         row("Traffic", if (gr.gamemap.Traffic.showLayer) "On" else "Off") { gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer; invalidate() }
         row("Spoken directions", if (Voice.muted) "Off" else "On") { Voice.muted = !Voice.muted; invalidate() }
@@ -735,7 +740,7 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
                 gr.gamemap.Reviews.stars(p.rating, p.ratings),
             ).joinToString(" · ")
             if (line.isNotEmpty()) row.addText(line)
-            if (p.extra.isNotBlank()) row.addText(p.extra.substringBefore(" ("))
+            if (p.extra.isNotBlank()) row.addText(gr.gamemap.Fuel.brief(p.extra))
             list.addItem(row.build())
         }
         return b.setSingleList(list.build()).build()
