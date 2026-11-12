@@ -440,6 +440,22 @@ object Places {
     @Volatile private var streetsAt: LatLng? = null
     private val streetCells = java.util.concurrent.ConcurrentHashMap<String, List<Named>>()
 
+    private val warm = java.util.concurrent.Executors.newSingleThreadExecutor(Bg.factory("search"))
+    @Volatile private var warming = false
+
+    /** Keeps the offline street/town index around the user ready (cheap check, work off-thread). */
+    fun warmUp(p: LatLng, force: Boolean = false) {
+        // not while driving along (data use); opening search asks for it with force
+        if (warming || (!force && (NavEngine.active || LocationTracker.speedMps > 8f))) return
+        if (!::appContext.isInitialized) return
+        val s = streetsAt; val g = gazetteerAt
+        if (s != null && Geo.distance(s, p) < 4_000 && g != null && Geo.distance(g, p) < 20_000) return
+        warming = true
+        warm.execute {
+            try { prepareGazetteer(p); prepareStreets(p) } catch (_: Exception) {} finally { warming = false }
+        }
+    }
+
     fun prepareStreets(near: LatLng) {
         val at = streetsAt
         if (at != null && Geo.distance(at, near) < 4_000) return
