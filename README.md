@@ -23,5 +23,10 @@ Android Auto only shows apps it thinks came from Google Play, so install with **
 
 The APK is signed with a fixed key (`app/debug.keystore`), so newer builds install over older ones.
 
+## Updates
+GameMap checks for a new release when it starts (every few hours), or when you tap **⬆**.
+It downloads the update and opens it in **UnknownAuto**: have Shizuku running and tap Install,
+so the update keeps GameMap visible in Android Auto. The car screen shows a notice when an update is ready.
+
 ## Build
 Actions ▸ Build APK ▸ **Run workflow**, or push a tag like `v1.1`. Each build becomes a release with `GameMap.apk`.
