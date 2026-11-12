@@ -101,7 +101,9 @@ class MapRenderer(private val car: Boolean = false) {
         if (theme.radar) {
             path.reset(); path.addCircle(cx, cy, radius, Path.Direction.CW); c.clipPath(path)
         } else {
-            c.clipRect(area)
+            // the map fills the whole screen, also behind buttons and cards; only the
+            // HUD and the camera centre keep to the free area
+            c.clipRect(0, 0, w, h)
         }
         c.translate(cx, cy)
         c.rotate(-bearing)
