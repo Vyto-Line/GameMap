@@ -144,9 +144,10 @@ class MapRenderer(private val car: Boolean = false) {
         // names on top of the map, laid out on screen (never overlapping, always upright)
         tp0 = System.nanoTime()
         labels.draw(c, camera!!, z, area, d, theme)
-        prof("labels", tp0)
+        prof("labels", tp0); tp0 = System.nanoTime()
         if (theme == Theme.TRAILBLAZER && zoom >= 13.5) drawLandmarks(c, camera!!, center, area, d)
         if (zoom >= 13.0) drawRoadAlerts(c, camera!!, center, area, d)
+        prof("alerts", tp0); tp0 = System.nanoTime()
 
         if (VectorSource.busy.get() > 0) {
             animating = true
@@ -167,6 +168,7 @@ class MapRenderer(private val car: Boolean = false) {
         if (theme.paper) drawPaper(c, full)
         if (theme.sunGlow) drawSunGlow(c, full)
         if (theme.radar) drawRadarFrame(c, cx, cy, radius, bearing, d)
+        prof("overlays", tp0); tp0 = System.nanoTime()
 
         // player: centred when following, otherwise wherever it is on the map
         if (me != null) {
@@ -194,6 +196,7 @@ class MapRenderer(private val car: Boolean = false) {
         drawDiscovery(c, area, d, theme)
         if (hud && (view.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
         drawAttribution(c, area, d, theme)
+        prof("hud", tp0)
         if (car) { hitsShown = ArrayList(carHits); lastDensity = d }
     }
 
