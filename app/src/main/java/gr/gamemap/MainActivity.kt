@@ -150,7 +150,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(offerCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
             addView(sheetOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
+        // keep the search box from grabbing focus (and opening suggestions) at launch
+        root.isFocusableInTouchMode = true
+        root.descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS
         setContentView(root)
+        root.requestFocus()
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, wi ->
             val bars = wi.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
@@ -638,8 +642,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     // ------------------------------------------------------------------ state → UI
 
     /** Colours everything to match the map theme and shows what fits the moment. */
+    private var lastLookKey = ""
+
     private fun refreshChrome() {
         val t = theme
+        val lookKey = "${t.name}|${MapState.dark}"
+        if (lookKey != lastLookKey) {
+            val first = lastLookKey.isEmpty()
+            lastLookKey = lookKey
+            if (!first && suggestScroll.visibility == View.VISIBLE) { main.post { if (lastResults.isNotEmpty()) renderResults(lastResults, null) else showSuggestions() } }
+        }
         val nav = NavEngine.active
         val planning = NavEngine.planning
         val searching = search.hasFocus() || suggestScroll.visibility == View.VISIBLE || pickFor != null
