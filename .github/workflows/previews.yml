@@ -21,7 +21,7 @@ jobs:
           gradle testDebugUnitTest --no-daemon -PbuildNumber=1 --tests gr.gamemap.TrafficMockTest \
             -DpreviewData=$PWD/previewdata -DpreviewOut=$PWD/previews || true
           # system properties for the test JVM
-          ls previews 2>/dev/null | head -50; cat previews/timings.txt 2>/dev/null
+          ls previews 2>/dev/null | head -50; cat previews/timings.txt 2>/dev/null || true
       - name: Publish to previews branch
         run: |
           cd previews || exit 1
