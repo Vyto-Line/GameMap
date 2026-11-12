@@ -104,12 +104,12 @@ class Build1PreviewTest {
         MapState.setTheme(Theme.OPEN_WORLD); MapState.setLightMode(MapState.LightMode.DARK)
         run {
             val w = 1920; val h = 720
-            val rr = MapRenderer()
+            val rr = MapRenderer(car = true)
             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             val c = Canvas(bmp)
-            val area = Rect(620, 0, w, h)
-            repeat(60) { rr.draw(c, w, h, area, 1.6f, hud = false); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(60) }
-            rr.draw(c, w, h, area, 1.6f, hud = false)
+            val area = Rect(0, 0, w - 140, h)
+            repeat(60) { rr.draw(c, w, h, area, 1.6f, hud = true); shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(60) }
+            rr.draw(c, w, h, area, 1.6f, hud = true)
             File(out, "ui_car_drive.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
 

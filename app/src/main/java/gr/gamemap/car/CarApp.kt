@@ -113,6 +113,14 @@ class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
         MapState.zoomByFactor(scaleFactor)
     }
 
+    /** Pan mode (the ✥ button) or a drag on the map: move the map with the finger. */
+    override fun onScroll(distanceX: Float, distanceY: Float) {
+        val cam = renderer.camera ?: return
+        MapState.pan(renderer.toMap(cam.cx + distanceX, cam.cy + distanceY, cam), cam.bearing)
+    }
+
+    override fun onFling(velocityX: Float, velocityY: Float) {}
+
     private var hardware = true
 
     private fun render() {
@@ -125,14 +133,14 @@ class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
             return
         }
         try {
-            renderer.draw(c, w, h, if (visible.isEmpty) Rect(0, 0, w, h) else visible, density, hud = false)
+            renderer.draw(c, w, h, if (visible.isEmpty) Rect(0, 0, w, h) else visible, density, hud = true)
         } finally {
             s.unlockCanvasAndPost(c)
         }
         // Keep animating (gliding arrow, smooth zoom) at ~30 fps while something moves.
         if (renderer.animating) {
             main.removeCallbacks(draw)
-            main.postDelayed(draw, 33)
+            main.postDelayed(draw, 50)
         }
     }
 }
@@ -164,6 +172,12 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
         }
     }
 
+    private var lastFollowing = true
+    private val onMapState: () -> Unit = {
+        val f = MapState.following && MapState.userBearing == null
+        if (f != lastFollowing) { lastFollowing = f; onNav() }
+    }
+
     private var previewShown = false
     private var alertFor: NavEngine.Offer? = null
 
@@ -190,6 +204,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 TileCache.loaded += surface.redraw
                 LocationTracker.changed += surface.redraw
                 MapState.changed += surface.redraw
+                MapState.changed += onMapState
                 NavEngine.changed += surface.redraw
                 NavEngine.changed += onNav
                 Voice.changed += onNav
@@ -207,6 +222,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 TileCache.loaded -= surface.redraw
                 LocationTracker.changed -= surface.redraw
                 MapState.changed -= surface.redraw
+                MapState.changed -= onMapState
                 NavEngine.changed -= surface.redraw
                 NavEngine.changed -= onNav
                 Voice.changed -= onNav
@@ -275,67 +291,35 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
 
     override fun onGetTemplate(): Template {
         val strip = ActionStrip.Builder()
-            .addAction(action(R.drawable.ic_search) { screenManager.push(SearchScreen(carContext)) })
-            .addAction(action(R.drawable.ic_theme) {
-                val t = MapState.nextCarTheme()
-                CarToast.makeText(carContext, t.title, CarToast.LENGTH_SHORT).show()
-            })
+        if (NavEngine.active) {
+            strip.addAction(action(if (Voice.muted) R.drawable.ic_volume_off else R.drawable.ic_volume_on) { Voice.muted = !Voice.muted })
+        } else {
+            strip.addAction(action(R.drawable.ic_search) { screenManager.push(SearchScreen(carContext)) })
+        }
+        strip.addAction(action(R.drawable.ic_theme) {
+            val t = MapState.nextCarTheme()
+            CarToast.makeText(carContext, t.title, CarToast.LENGTH_SHORT).show()
+        })
         strip.addAction(action(R.drawable.ic_report) { screenManager.push(ReportScreen(carContext)) })
         if (NavEngine.active) strip.addAction(action(R.drawable.ic_stop) { NavEngine.stop() })
 
+        // The turn card, arrival time and speed are drawn on the map itself (see-through,
+        // in the map's style), so the map gets the whole screen.
         val b = NavigationTemplate.Builder().setActionStrip(strip.build())
         if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_2) {
             val m = ActionStrip.Builder()
+                .addAction(Action.PAN)
                 .addAction(action(R.drawable.ic_zoom_in) { MapState.zoomBy(1.0) })
                 .addAction(action(R.drawable.ic_zoom_out) { MapState.zoomBy(-1.0) })
-            if (NavEngine.active) {
-                m.addAction(action(if (Voice.muted) R.drawable.ic_volume_off else R.drawable.ic_volume_on) { Voice.muted = !Voice.muted })
+            if (!MapState.following || MapState.userBearing != null) {
+                m.addAction(action(R.drawable.ic_recenter) { MapState.recenter() })
+            } else if (NavEngine.active && NavEngine.route.size > 1) {
                 m.addAction(action(R.drawable.ic_overview) {
-                    if (MapState.overview || !MapState.following) MapState.recenter()
-                    else NavEngine.route.takeIf { it.size > 1 }?.let { r -> MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last()) }
+                    val r = NavEngine.route
+                    MapState.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last())
                 })
             }
             b.setMapActionStrip(m.build())
-        }
-
-        if (NavEngine.active) {
-            val step = NavEngine.currentStep
-            when {
-                NavEngine.arrived -> {
-                    val trip = NavEngine.lastTrip
-                    val text = if (trip != null) "${NavEngine.formatDuration(trip.seconds.toDouble())} · ${NavEngine.formatDistance(trip.meters)} · +${trip.xp} XP"
-                    else NavEngine.destinationName
-                    b.setNavigationInfo(
-                        MessageInfo.Builder(gr.gamemap.Explorer.completeTitle(MapState.carTheme ?: MapState.theme)).setText(text)
-                            .setImage(icon(carContext, R.drawable.ic_flag)).build()
-                    )
-                }
-                NavEngine.error != null -> b.setNavigationInfo(
-                    MessageInfo.Builder(NavEngine.error!!).setText(NavEngine.destinationName).build()
-                )
-                NavEngine.loading || step == null -> b.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
-                else -> {
-                    val ri = RoutingInfo.Builder()
-                        .setCurrentStep(toCarStep(step, withLanes = NavEngine.distanceToNext < 900), distance(NavEngine.distanceToNext))
-                    NavEngine.followingStep?.let { ri.setNextStep(toCarStep(it, withLanes = false)) }
-                    b.setNavigationInfo(ri.build())
-                    val arrival = System.currentTimeMillis() + (NavEngine.remainingSeconds * 1000).toLong()
-                    val delay = NavEngine.trafficDelaySeconds / 60
-                    val color = when {
-                        delay >= 10 -> CarColor.RED
-                        delay >= 3 -> CarColor.YELLOW
-                        else -> CarColor.GREEN
-                    }
-                    b.setDestinationTravelEstimate(
-                        TravelEstimate.Builder(
-                            distance(NavEngine.remainingDistance),
-                            DateTimeWithZone.create(arrival, TimeZone.getDefault())
-                        ).setRemainingTimeSeconds(NavEngine.remainingSeconds.toLong().coerceAtLeast(0))
-                            .setRemainingTimeColor(color)
-                            .build()
-                    )
-                }
-            }
         }
         return b.build()
     }
@@ -496,6 +480,9 @@ class RoutePreviewScreen(carContext: CarContext) : Screen(carContext) {
         list.setSelectedIndex(NavEngine.selected.coerceIn(0, opts.size - 1))
         list.setOnSelectedListener { NavEngine.select(it) }
         b.setItemList(list.build())
+        if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_4) {
+            b.setMapActionStrip(ActionStrip.Builder().addAction(Action.PAN).build())
+        }
         b.setNavigateAction(
             Action.Builder().setTitle("Start").setOnClickListener {
                 started = true

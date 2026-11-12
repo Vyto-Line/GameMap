@@ -41,6 +41,7 @@ class MapRenderer(private val car: Boolean = false) {
         private set
 
     private val tilePaint = Paint().apply { isFilterBitmap = true }
+    private val overlayPaint = Paint().apply { isFilterBitmap = true }
     private val pixelPaint = Paint().apply { isFilterBitmap = false; isDither = false }
     private val routePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
@@ -112,11 +113,9 @@ class MapRenderer(private val car: Boolean = false) {
         val reach = hypot(w.toDouble(), h.toDouble()) * 0.75 / scale
         // traffic glow under the route, traffic colours on top of it (jams on your route stay visible)
         // while choosing a route the routes' own traffic bars say enough; the map stays calm
-        if (!NavEngine.planning) drawTraffic(c, theme, z, px, py, scale, d, reach, under = true)
         prof("traffic", tp0); tp0 = System.nanoTime()
         drawRoute(c, theme, world, px, py, scale, d)
         prof("route", tp0); tp0 = System.nanoTime()
-        if (!NavEngine.planning) drawTraffic(c, theme, z, px, py, scale, d, reach, under = false)
         prof("traffic", tp0)
 
         // accuracy halo around the player
@@ -167,6 +166,7 @@ class MapRenderer(private val car: Boolean = false) {
         }
 
         drawSpeed(c, area, d, theme)
+        if (car && hud) drawCarEta(c, area, d, theme)
         bannerBottom = area.top.toFloat()
         if (hud && !NavEngine.planning && NavEngine.offer == null) drawBanner(c, area, d, theme)
         drawJamChip(c, area, d, theme, hud)
@@ -213,6 +213,7 @@ class MapRenderer(private val car: Boolean = false) {
         val ty0 = floor((py - reach) / tilePx).toInt().coerceAtLeast(0)
         val ty1 = floor((py + reach) / tilePx).toInt().coerceAtMost(n - 1)
         val paint = if (theme.pixel > 1) pixelPaint else tilePaint
+        val showTraffic = Traffic.active && Traffic.showLayer && z >= 11 && !NavEngine.planning
 
         // Ask for the visible tiles far-to-near: the loader works newest-first, so the
         // tiles nearest the player are drawn first.
@@ -238,6 +239,7 @@ class MapRenderer(private val car: Boolean = false) {
             val bmp = if (interacting) TileCache.peek(theme, z, x, ty) else TileCache.get(theme, z, x, ty)
             if (bmp != null) c.drawBitmap(bmp, null, dst, paint)
             else drawStandIn(c, theme, z, x, ty, paint)
+            if (showTraffic) TrafficOverlay.get(theme, z, x, ty, !interacting)?.let { c.drawBitmap(it, null, dst, overlayPaint) }
         }
 
     }
@@ -272,10 +274,10 @@ class MapRenderer(private val car: Boolean = false) {
     // ---------------------------------------------------------------- traffic
 
     /** A traffic stretch that gets direction arrows: points in world pixels around the square's corner. */
-    private class ArrowLine(val pts: FloatArray, val bothWays: Boolean, val minX: Float, val minY: Float, val maxX: Float, val maxY: Float)
+    internal class ArrowLine(val pts: FloatArray, val bothWays: Boolean, val minX: Float, val minY: Float, val maxX: Float, val maxY: Float)
 
     /** Traffic lines for one data square at one zoom, in world pixels around the square's corner. */
-    private class TrafficPaths(val byState: Array<Path>, val arrows: List<ArrowLine>, val ox: Double, val oy: Double)
+    internal class TrafficPaths(val byState: Array<Path>, val arrows: List<ArrowLine>, val ox: Double, val oy: Double)
     private val arrowShape = Path()
     private val trafficCache = LinkedHashMap<String, TrafficPaths>()
     private val trafficPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -332,7 +334,7 @@ class MapRenderer(private val car: Boolean = false) {
         while (trafficCache.size > 48) trafficCache.remove(trafficCache.keys.first())
     }
 
-    private fun buildTraffic(t: Traffic.Tile, ax: Int, ay: Int, span: Double, u: Float, z: Int): TrafficPaths {
+    internal fun buildTraffic(t: Traffic.Tile, ax: Int, ay: Int, span: Double, u: Float, z: Int): TrafficPaths {
         val paths = Array(4) { Path() }
         val arrows = ArrayList<ArrowLine>()
         val k = (span / t.extent).toFloat()
@@ -636,7 +638,8 @@ class MapRenderer(private val car: Boolean = false) {
 
     /** A HUD panel in the theme's shape: rounded, cut-corner, or pixel-stepped. */
     private fun panel(c: Canvas, r: RectF, d: Float, t: Theme, outline: Boolean) {
-        fill.color = Ui.panel(t)
+        // slightly see-through so the map shows behind, still solid enough to read
+        fill.color = Ui.panel(t).let { Color.argb(218, Color.red(it), Color.green(it), Color.blue(it)) }
         stroke.color = t.route; stroke.strokeWidth = 2 * d
         when (t.hud) {
             HudShape.ROUND -> {
@@ -766,6 +769,33 @@ class MapRenderer(private val car: Boolean = false) {
         }
     }
 
+    /** Car: "17 min · 18:02 · 4.5 km" next to the speed box, in the theme's see-through panel. */
+    private fun drawCarEta(c: Canvas, a: Rect, d: Float, t: Theme) {
+        if (!NavEngine.active || NavEngine.arrived || NavEngine.loading || NavEngine.error != null) return
+        val delay = NavEngine.trafficDelaySeconds / 60
+        val big = NavEngine.formatDuration(NavEngine.remainingSeconds)
+        val small = "${NavEngine.arrivalClock()} · ${NavEngine.formatDistance(NavEngine.remainingDistance)}" + (if (delay >= 1) " · +$delay min" else "")
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = t.typeface
+        text.textSize = 26 * d
+        val w1 = text.measureText(big)
+        val tf = text.typeface
+        text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d
+        val w2 = text.measureText(small)
+        val w = maxOf(w1, w2) + 28 * d
+        val h = 66 * d
+        val left = a.left + 14 * d + 136 * d
+        val box = RectF(left, a.bottom - 14 * d - h, left + w, a.bottom - 14 * d)
+        panel(c, box, d, t, outline = false)
+        text.typeface = tf; text.textSize = 26 * d
+        text.color = Ui.onPanel(t, when { delay >= 10 -> Color.rgb(255, 110, 110); delay >= 3 -> Color.rgb(255, 184, 107); else -> Color.rgb(123, 227, 160) })
+        c.drawText(big, box.left + 14 * d, box.top + 30 * d, text)
+        text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d
+        text.color = Ui.ink(t)
+        c.drawText(small, box.left + 14 * d, box.bottom - 13 * d, text)
+        text.typeface = t.typeface
+    }
+
     /** Bottom of the turn banner on screen (for placing things below it). */
     private var bannerBottom = 0f
 
@@ -788,7 +818,7 @@ class MapRenderer(private val car: Boolean = false) {
         val pad = 12 * d
         val mainH = if (detail != null) 96 * d else 80 * d
         val lanesH = if (lanes != null) 44 * d else 0f
-        val box = RectF(a.left + pad, a.top + pad, a.right - pad, a.top + pad + mainH + lanesH)
+        val box = RectF(a.left + pad, a.top + pad, minOf(a.right - pad, a.left + pad + 440 * d), a.top + pad + mainH + lanesH)
         panel(c, box, d, t, outline = true)
 
         val iconX = box.left + 42 * d; val iconY = box.top + mainH / 2
@@ -1018,7 +1048,7 @@ class MapRenderer(private val car: Boolean = false) {
         val w = text.measureText(label) + 44 * d
         val h = 38 * d
         val top = bannerBottom + 10 * d
-        val left = if (hud) a.right - 12 * d - w else a.left + 12 * d
+        val left = if (hud && a.width() < 700 * d) a.right - 12 * d - w else a.left + 12 * d
         val r = RectF(left, top, left + w, top + h)
         fill.color = Color.rgb(251, 227, 227)
         c.drawRoundRect(r, h / 2, h / 2, fill)
