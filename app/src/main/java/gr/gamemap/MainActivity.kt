@@ -92,8 +92,7 @@ class MainActivity : ComponentActivity() {
             addView(bottom, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
         })
         // Keep the map's HUD clear of the search bar and buttons.
-        top.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateInsets() }
-        bottom.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateInsets() }
+        top.viewTreeObserver.addOnGlobalLayoutListener { updateInsets() }
 
         val wanted = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= 33) wanted += Manifest.permission.POST_NOTIFICATIONS
@@ -102,6 +101,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateInsets() {
+        if (map.insetTop == top.bottom && map.insetBottom == bottom.height) return
         map.insetTop = top.bottom
         map.insetBottom = bottom.height
         map.invalidate()
