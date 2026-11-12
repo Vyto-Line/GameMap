@@ -122,6 +122,18 @@ class MapRenderer {
         }
         c.restore()
 
+        if (MapState.mapKey.isEmpty()) {
+            text.textAlign = Paint.Align.CENTER
+            text.color = theme.hudText
+            text.textSize = 16 * d
+            fill.color = theme.hudPanel
+            val bx = RectF(area.exactCenterX() - 170 * d, area.top + 20 * d, area.exactCenterX() + 170 * d, area.top + 82 * d)
+            c.drawRoundRect(bx, 10 * d, 10 * d, fill)
+            c.drawText("MAP KEY NEEDED", bx.centerX(), bx.top + 26 * d, text)
+            text.textSize = 12 * d
+            c.drawText("Open GameMap on the phone ▸ KEY", bx.centerX(), bx.top + 48 * d, text)
+        }
+
         // ---- theme overlays ----
         if (theme.grid) drawGrid(c, area, d)
         if (theme.scanlines) drawScanlines(c, area, d)

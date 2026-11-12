@@ -73,6 +73,9 @@ object MapState {
         private set
     var zoom = 16.5
         private set
+    /** Free CARTO basemaps key (carto.com/basemaps/apikey); tiles need it since Sept 2026. */
+    var mapKey = ""
+        private set
     private lateinit var appContext: Context
 
     fun init(ctx: Context) {
@@ -80,6 +83,14 @@ object MapState {
         val p = prefs()
         theme = Theme.entries.getOrElse(p.getInt("theme", 0)) { Theme.OPEN_WORLD }
         zoom = p.getFloat("zoom", 16.5f).toDouble()
+        mapKey = p.getString("mapKey", "") ?: ""
+    }
+
+    fun setMapKey(key: String) {
+        mapKey = key.trim()
+        prefs().edit().putString("mapKey", mapKey).apply()
+        TileCache.clear()
+        changed.fire()
     }
 
     private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)

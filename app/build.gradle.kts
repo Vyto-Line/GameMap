@@ -11,8 +11,8 @@ android {
         applicationId = "gr.gamemap"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
     signingConfigs {
         // Fixed key in the repo so every build can update the previous one in place.

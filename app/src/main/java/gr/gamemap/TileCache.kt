@@ -30,14 +30,23 @@ object TileCache {
     private val pool = Executors.newFixedThreadPool(4)
 
     fun init(ctx: Context) {
-        dir = File(ctx.cacheDir, "tiles")
+        dir = File(ctx.cacheDir, "tiles-v2")
+        File(ctx.cacheDir, "tiles").deleteRecursively()
         tilePx = if (ctx.resources.displayMetrics.density >= 1.5f) 512 else 256
     }
 
     private fun key(theme: Theme, z: Int, x: Int, y: Int) = "${theme.ordinal}/$z/$x/$y"
 
+    /** Forget every tile (memory and disk), e.g. after the map key changes. */
+    fun clear() {
+        mem.evictAll()
+        failed.clear()
+        pool.execute { dir.deleteRecursively() }
+    }
+
     /** Themed tile if ready; otherwise starts loading it and returns null. */
     fun get(theme: Theme, z: Int, x: Int, y: Int): Bitmap? {
+        if (MapState.mapKey.isEmpty()) return null
         val k = key(theme, z, x, y)
         mem.get(k)?.let { return it }
         val f = failed[k]
@@ -71,21 +80,26 @@ object TileCache {
         if (file.exists() && System.currentTimeMillis() - file.lastModified() < 30L * 86_400_000) {
             BitmapFactory.decodeFile(file.path)?.let { return it }
         }
-        val sub = "abcd"[(x + y).mod(4)]
-        val suffix = if (tilePx == 512) "@2x" else ""
-        val url = URL("https://$sub.basemaps.cartocdn.com/dark_all/$z/$x/$y$suffix.png")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 8000
-        conn.readTimeout = 10000
-        conn.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
-        return try {
-            if (conn.responseCode != 200) return null
-            val bytes = conn.inputStream.use { it.readBytes() }
-            file.parentFile?.mkdirs()
-            file.writeBytes(bytes)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        } finally {
-            conn.disconnect()
+        val key = java.net.URLEncoder.encode(MapState.mapKey, "UTF-8")
+        val base = "https://basemaps.cartocdn.com/rastertiles/dark_all/$z/$x/$y"
+        val urls = if (tilePx == 512) listOf("$base@2x.png?key=$key", "$base.png?key=$key")
+        else listOf("$base.png?key=$key")
+        for (u in urls) {
+            val conn = URL(u).openConnection() as HttpURLConnection
+            conn.connectTimeout = 8000
+            conn.readTimeout = 10000
+            conn.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
+            try {
+                if (conn.responseCode != 200) continue
+                val bytes = conn.inputStream.use { it.readBytes() }
+                val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: continue
+                file.parentFile?.mkdirs()
+                file.writeBytes(bytes)
+                return bmp
+            } finally {
+                conn.disconnect()
+            }
         }
+        return null
     }
 }

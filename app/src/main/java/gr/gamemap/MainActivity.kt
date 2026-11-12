@@ -83,6 +83,7 @@ class MainActivity : ComponentActivity() {
             })
             addView(button("−", d) { MapState.zoomBy(-1.0) })
             addView(button("+", d) { MapState.zoomBy(1.0) })
+            addView(button("🔑 KEY", d) { askForKey() })
             addView(stopBtn)
         }
 
@@ -98,6 +99,35 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33) wanted += Manifest.permission.POST_NOTIFICATIONS
         if (LocationTracker.hasPermission(this)) LocationTracker.start(this)
         permissions.launch(wanted.toTypedArray())
+        if (MapState.mapKey.isEmpty()) askForKey()
+    }
+
+    private fun askForKey() {
+        val input = EditText(this).apply {
+            hint = "Paste your CARTO basemaps key"
+            setText(MapState.mapKey)
+            setSingleLine()
+        }
+        val box = FrameLayout(this).apply {
+            val p = (20 * resources.displayMetrics.density).toInt()
+            setPadding(p, p / 2, p, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Map key")
+            .setMessage(
+                "The map tiles come from CARTO, which needs a free key (no account, up to " +
+                    "5 million tiles a month). Tap GET FREE KEY, fill in the short form, " +
+                    "then paste the key here."
+            )
+            .setView(box)
+            .setPositiveButton("Save") { _, _ -> MapState.setMapKey(input.text.toString()) }
+            .setNeutralButton("Get free key") { _, _ ->
+                startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://carto.com/basemaps/apikey/")))
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun updateInsets() {
