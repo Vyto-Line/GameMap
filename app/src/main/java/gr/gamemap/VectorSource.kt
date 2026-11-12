@@ -71,6 +71,10 @@ object VectorSource {
     /** Already-parsed data only (never downloads; safe on the UI thread). */
     fun peek(z: Int, x: Int, y: Int): VectorTile? = parsed.get("$z/$x/$y")
 
+    /** Goes up each time a tile is parsed (lets traffic lanes re-snap when roads arrive). */
+    @Volatile var loadedCount = 0
+        private set
+
     fun get(z: Int, x: Int, y: Int): VectorTile? {
         val key = "$z/$x/$y"
         parsed.get(key)?.let { return it }
@@ -81,6 +85,7 @@ object VectorSource {
                 val bytes = load(z, x, y) ?: return null
                 val vt = VectorTile(bytes)
                 parsed.put(key, vt)
+                loadedCount++
                 return vt
             } catch (e: Exception) {
                 return null

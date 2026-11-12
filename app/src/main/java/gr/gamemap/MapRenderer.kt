@@ -267,8 +267,12 @@ class MapRenderer {
         if (!Traffic.active || z < 11) return
         val look = theme.traffic
         val st = theme.style
-        // Use traffic data one level coarser than the map (squares stay few at any zoom).
-        val dz = (z - 1).coerceIn(Traffic.MIN_Z, Traffic.DATA_Z)
+        // Coarser traffic data zoomed out (few squares); finer geometry close up.
+        val dz = when {
+            z >= 17 -> 16
+            z == 16 -> 15
+            else -> (z - 1).coerceIn(Traffic.MIN_Z, Traffic.DATA_Z)
+        }
         val span = TileCache.tilePx * 2.0.pow(z - dz) // one traffic square in world pixels
         val ax0 = floor((px - reach) / span).toInt(); val ax1 = floor((px + reach) / span).toInt()
         val ay0 = floor((py - reach) / span).toInt(); val ay1 = floor((py + reach) / span).toInt()
@@ -280,7 +284,8 @@ class MapRenderer {
 
         for (ay in ay0..ay1) for (ax in ax0..ax1) {
             val t = Traffic.tile(dz, ax, ay) ?: continue
-            val key = "$dz/$ax/$ay/$z/${t.fetchedAt}"
+            // rebuilt when new map data arrives too, so lanes can lock onto the roads
+            val key = "$dz/$ax/$ay/$z/${t.fetchedAt}/${VectorSource.loadedCount}"
             val tp = trafficCache.getOrPut(key) { buildTraffic(t, ax, ay, span, u, z) }
             c.save()
             c.translate((tp.ox - px).toFloat(), (tp.oy - py).toFloat())
@@ -353,17 +358,24 @@ class MapRenderer {
             }
         }
 
+        // Lock lanes onto the map's roads (within ~25 m, same direction only).
+        val maxSnap = maxOf(25f / mpp, 12f * u)
+        val roads = RoadSnap.index(z, ax * span, ay * span, span, maxSnap)
+        fun lane(raw: FloatArray, side: Float): FloatArray {
+            val fallback = raw.copyOf().also { offsetLine(it, side * lane) }
+            return roads?.let { RoadSnap.snapLane(it, raw, fallback, maxSnap, side, 1.8f * u) } ?: fallback
+        }
         for (sg in t.segs) {
             val base = FloatArray(sg.pts.size)
             for (i in base.indices) base[i] = sg.pts[i] * k
             val side = if (sg.leftHand) -1f else 1f
             if (sg.oneWay) {
                 // data for one direction: points run the way the traffic goes
-                add(base.copyOf().also { offsetLine(it, side * lane) }, sg.state)
+                add(lane(base, side), sg.state)
             } else {
                 // data for both directions: one lane each way, each pointing its own way
-                add(base.copyOf().also { offsetLine(it, side * lane) }, sg.state)
-                add(reversedLine(base).also { offsetLine(it, side * lane) }, sg.state)
+                add(lane(base, side), sg.state)
+                add(lane(reversedLine(base), side), sg.state)
             }
         }
         return TrafficPaths(paths, arrows, ax * span, ay * span)
