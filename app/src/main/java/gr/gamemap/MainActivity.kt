@@ -89,6 +89,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var keepBtn: TextView
     private lateinit var switchBtn: TextView
     private lateinit var sheetOverlay: FrameLayout
+    private lateinit var tripOverlay: FrameLayout
+    private lateinit var tripCard: LinearLayout
+    private var shownTrip: Explorer.Trip? = null
     private lateinit var sheetHost: LinearLayout
     private var sheetKind = ""
     private val fabs = mutableListOf<TextView>()
@@ -140,6 +143,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(sheetHost, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
         }
 
+        tripCard = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; isClickable = true; elevation = 18 * d; gravity = Gravity.CENTER_HORIZONTAL }
+        tripOverlay = FrameLayout(this).apply {
+            visibility = View.GONE
+            setBackgroundColor(Color.argb(120, 0, 0, 0))
+            isClickable = true
+            addView(tripCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.CENTER).apply {
+                val m = (22 * d).toInt(); setMargins(m, m, m, m)
+            })
+        }
+
         val root = FrameLayout(this).apply {
             addView(map, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
             addView(homeSheet, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
@@ -149,6 +162,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(preview, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
             addView(offerCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
             addView(sheetOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(tripOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
         // keep the search box from grabbing focus (and opening suggestions) at launch
         root.isFocusableInTouchMode = true
@@ -179,6 +193,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    tripOverlay.visibility == View.VISIBLE -> NavEngine.dismissTrip()
                     sheetOverlay.visibility == View.VISIBLE -> closeSheet()
                     suggestScroll.visibility == View.VISIBLE || pickFor != null -> closeSearch()
                     NavEngine.planning -> NavEngine.cancelPlan()
@@ -359,6 +374,47 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     // ------------------------------------------------------------------ home sheet (recent places)
 
+    private var exploreCard: LinearLayout? = null
+
+    /** Trailblazer: "N landmarks to discover nearby" with your level. */
+    private fun renderExploreCard(near: LatLng?) {
+        exploreCard?.let { homeSheet.removeView(it) }
+        exploreCard = null
+        if (theme != Theme.TRAILBLAZER) return
+        val todo = near?.let { Explorer.near(it, 1500.0).filterNot { l -> Explorer.isFound(l) } } ?: emptyList()
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val p = (12 * d).toInt()
+            setPadding(p, p, p, p)
+            background = bg(Color.argb(40, Color.red(accent), Color.green(accent), Color.blue(accent)), radius = 16f)
+            setOnClickListener {
+                if (todo.isNotEmpty() && near != null) MapState.requestFit(todo.map { it.pos } + near)
+                else Toast.makeText(this@MainActivity, "Drive or walk around to find landmarks", Toast.LENGTH_SHORT).show()
+            }
+        }
+        card.addView(label("★", 20f, bold = true).apply {
+            gravity = Gravity.CENTER; setTextColor(onAccent(accent))
+            background = bg(accent, radius = 20f, pill = true)
+        }, LinearLayout.LayoutParams((40 * d).toInt(), (40 * d).toInt()).apply { marginEnd = (12 * d).toInt() })
+        card.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label(when {
+                near == null -> "Landmarks appear once GPS finds you"
+                todo.isEmpty() -> "No new landmarks nearby"
+                todo.size == 1 -> "1 landmark to discover nearby"
+                else -> "${todo.size} landmarks to discover nearby"
+            }, 15f, bold = true).apply { setTextColor(ink) })
+            val (have, of) = Explorer.progress()
+            addView(label("Level ${Explorer.level} · $have / $of XP · ${Explorer.foundCount} found", 13f).apply { setTextColor(dim()) })
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        card.addView(label("›", 22f).apply { setTextColor(dim()) })
+        homeSheet.addView(card, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+            val m = (14 * d).toInt(); setMargins(m, (10 * d).toInt(), m, 0)
+        })
+        exploreCard = card
+    }
+
     private fun buildHomeSheet() {
         homeTitle = label("Recent", 17f, bold = true).apply { setPadding((18 * d).toInt(), 0, 0, (8 * d).toInt()) }
         homeCards = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding((14 * d).toInt(), 0, (8 * d).toInt(), 0) }
@@ -403,6 +459,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             }
             homeCards.addView(card, LinearLayout.LayoutParams((176 * d).toInt(), WRAP_CONTENT).apply { marginEnd = (10 * d).toInt() })
         }
+        homeTitle.visibility = if (rec.isEmpty()) View.GONE else View.VISIBLE
+        homeCards.visibility = if (rec.isEmpty()) View.GONE else View.VISIBLE
+        renderExploreCard(near)
         // live ETAs for recents, home and work (once a minute at most; TomTom answers are cached 5 min)
         if (near != null && Traffic.active && System.currentTimeMillis() - etaAskedAt > 60_000) {
             etaAskedAt = System.currentTimeMillis()
@@ -639,10 +698,82 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         switchBtn.background = bg(green, radius = 14f)
     }
 
+    // ------------------------------------------------------------------ arrival card
+
+    private fun renderTrip(trip: Explorer.Trip) {
+        val t = theme
+        tripCard.removeAllViews()
+        val p = (20 * d).toInt()
+        tripCard.setPadding(p, p, p, p)
+        tripCard.background = bg(panel, accent, 2f, 22f)
+        tripCard.addView(label(Explorer.completeTitle(t).uppercase(), 13f, bold = true).apply {
+            setTextColor(onAccent(accent)); letterSpacing = 0.12f; gravity = Gravity.CENTER
+            val q = (8 * d).toInt(); setPadding(q * 2, q, q * 2, q)
+            background = bg(accent, radius = 8f)
+        })
+        tripCard.addView(label(trip.place, 22f, bold = true).apply {
+            setTextColor(ink); typeface = t.typeface; gravity = Gravity.CENTER; setPadding(0, (14 * d).toInt(), 0, 0)
+        })
+        tripCard.addView(label("Arrived ${NavEngine.clock(trip.arrivedAt)}", 14f).apply { setTextColor(dim()); gravity = Gravity.CENTER })
+        tripCard.addView(View(this).apply { setBackgroundColor(dim(50)) }, LinearLayout.LayoutParams(MATCH_PARENT, 1).apply {
+            topMargin = (14 * d).toInt(); bottomMargin = (10 * d).toInt()
+        })
+        val speed = if (MapState.imperial) "${(trip.avgKmh * 0.621).toInt()} mph" else "${trip.avgKmh} km/h"
+        val stats = listOf(
+            NavEngine.formatDuration(trip.seconds.toDouble()) to "journey",
+            NavEngine.formatDistance(trip.meters) to "travelled",
+            (if (trip.savedSeconds >= 60) "${trip.savedSeconds / 60} min" else speed) to (if (trip.savedSeconds >= 60) "saved dodging traffic" else "average speed"),
+            "+${trip.xp} XP" to (if (trip.landmarks > 0) "${trip.landmarks} new landmark" + (if (trip.landmarks > 1) "s" else "") else "experience"),
+        )
+        for (rowIdx in 0..1) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (k in 0..1) {
+                val (big, small) = stats[rowIdx * 2 + k]
+                row.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+                    setPadding(0, (6 * d).toInt(), 0, (6 * d).toInt())
+                    addView(label(big, 24f, bold = true).apply { setTextColor(ink); typeface = t.typeface })
+                    addView(label(small, 13f).apply { setTextColor(dim()) })
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            }
+            tripCard.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        }
+        // level bar
+        val (have, of) = Explorer.progress()
+        val up = Explorer.level > trip.levelBefore
+        tripCard.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, (12 * d).toInt(), 0, (6 * d).toInt())
+            addView(label(if (up) "Level up! Level ${Explorer.level}" else "Explorer · level ${Explorer.level}", 14f, bold = true).apply {
+                setTextColor(if (up) readable(accent) else ink)
+            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(label("$have / $of XP", 14f).apply { setTextColor(dim()) })
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        tripCard.addView(object : View(this) {
+            private val pt = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+            override fun onDraw(c: Canvas) {
+                val r = height / 2f
+                pt.color = dim(50); c.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), r, r, pt)
+                pt.color = accent; c.drawRoundRect(0f, 0f, width * (have.toFloat() / maxOf(of, 1)), height.toFloat(), r, r, pt)
+            }
+        }, LinearLayout.LayoutParams(MATCH_PARENT, (10 * d).toInt()))
+        tripCard.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(pill("🅿 Parking nearby") {
+                NavEngine.dismissTrip(); showNearby("PARKING NEARBY", listOf("parking"))
+            }.apply { setTextColor(ink); textSize = 15f; background = bg(Color.TRANSPARENT, dim(160), 1.5f, 14f) },
+                LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.2f).apply { marginEnd = (10 * d).toInt() })
+            addView(pill("Done") { NavEngine.dismissTrip() }.apply {
+                setTextColor(onAccent(accent)); typeface = t.typeface; background = bg(accent, radius = 14f)
+            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (18 * d).toInt() })
+    }
+
     // ------------------------------------------------------------------ state → UI
 
     /** Colours everything to match the map theme and shows what fits the moment. */
     private var lastLookKey = ""
+    private var tripLook = ""
 
     private fun refreshChrome() {
         val t = theme
@@ -683,7 +814,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         searchCard.visibility = if (nav || planning) View.GONE else View.VISIBLE
         val chipsWas = chipsScroll.visibility; val homeWas = homeSheet.visibility
         chipsScroll.visibility = if (nav || planning || searching) View.GONE else View.VISIBLE
-        homeSheet.visibility = if (nav || planning || searching || Places.recents().isEmpty()) View.GONE else View.VISIBLE
+        homeSheet.visibility = if (nav || planning || searching || (Places.recents().isEmpty() && t != Theme.TRAILBLAZER)) View.GONE else View.VISIBLE
         if (chipsWas != chipsScroll.visibility || homeWas != homeSheet.visibility) lastHomeKey = ""
         if ((nav || planning) && suggestScroll.visibility == View.VISIBLE) closeSearch()
         recenterBtn.visibility = if (MapState.following && MapState.userBearing == null || planning) View.GONE else View.VISIBLE
@@ -692,7 +823,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         overviewBtn.visibility = if (nav && !MapState.overview && NavEngine.route.size > 1) View.VISIBLE else View.GONE
         navMenuBtn.visibility = if (nav) View.VISIBLE else View.GONE
         controls.visibility = if (planning || searching) View.GONE else View.VISIBLE
-        val homeKey = "${t.name}|${MapState.dark}|${MapState.imperial}|$etaVersion|${Places.recents().joinToString { it.name }}|" +
+        val homeKey = "${t.name}|${MapState.dark}|${MapState.imperial}|$etaVersion|${Explorer.version}|${Explorer.xp}|${Places.recents().joinToString { it.name }}|" +
             "${Places.saved("home")?.name}|${Places.saved("work")?.name}|${LocationTracker.position != null}"
         if (homeKey != lastHomeKey) {
             lastHomeKey = homeKey
@@ -713,6 +844,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             "style" -> renderStylePicker()
             "settings" -> renderSettings()
         }
+        val trip = NavEngine.lastTrip
+        tripOverlay.visibility = if (trip != null) View.VISIBLE else View.GONE
+        if (trip != null && (trip !== shownTrip || lookKey != tripLook)) { shownTrip = trip; tripLook = lookKey; renderTrip(trip) }
+        if (trip == null) shownTrip = null
         if (nav) {
             etaTraffic.text = ""
             when {
@@ -1023,6 +1158,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             settingRow("Units", if (MapState.imperial) "Miles" else "Kilometres") { MapState.setImperial(!MapState.imperial) },
             settingRow("Android Auto style", MapState.carTheme?.title ?: "Same as phone") { chooseCarStyle() },
         ) + group("App",
+            settingRow("Explorer profile", "Level ${Explorer.level} · ${Explorer.xp} XP") { showProfile() },
             settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) },
             settingRow("About & map credits", null) { showAbout() },
         )).forEach { body.addView(it) }
@@ -1060,6 +1196,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             .setSingleChoiceItems(modes.map { it.label }.toTypedArray(), MapState.lightMode.ordinal) { dlg, m ->
                 MapState.setLightMode(modes[m]); dlg.dismiss()
             }.show()
+    }
+
+    private fun showProfile() {
+        val (have, of) = Explorer.progress()
+        AlertDialog.Builder(this)
+            .setTitle("Explorer · level ${Explorer.level}")
+            .setMessage("${Explorer.xp} XP in total ($have / $of to the next level)\n" +
+                "${Explorer.foundCount} landmarks discovered\n\n" +
+                "Every trip earns XP (more for longer drives and for taking faster routes). " +
+                "Pass close to museums, monuments, viewpoints and other landmarks to discover them: " +
+                "+25 XP each. In the Trailblazer style they show on the map as blue ? markers.")
+            .setPositiveButton("OK", null).show()
     }
 
     private fun showAbout() {
@@ -1165,6 +1313,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         NavEngine.changed += stateListener
         MapState.changed += stateListener
         Voice.changed += stateListener
+        Explorer.changed += stateListener
         refreshChrome()
     }
 
@@ -1172,6 +1321,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         NavEngine.changed -= stateListener
         MapState.changed -= stateListener
         Voice.changed -= stateListener
+        Explorer.changed -= stateListener
         main.removeCallbacks(ticker)
         super.onStop()
     }

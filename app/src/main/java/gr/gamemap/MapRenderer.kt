@@ -126,6 +126,7 @@ class MapRenderer(private val car: Boolean = false) {
 
         // names on top of the map, laid out on screen (never overlapping, always upright)
         labels.draw(c, camera!!, z, area, d, theme)
+        if (theme == Theme.TRAILBLAZER && zoom >= 13.5) drawLandmarks(c, camera!!, center, area, d)
 
         if (VectorSource.busy.get() > 0) {
             animating = true
@@ -159,6 +160,7 @@ class MapRenderer(private val car: Boolean = false) {
         bannerBottom = area.top.toFloat()
         if (hud && !NavEngine.planning && NavEngine.offer == null) drawBanner(c, area, d, theme)
         drawJamChip(c, area, d, theme, hud)
+        drawDiscovery(c, area, d, theme)
         if (hud && (MapState.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
         drawAttribution(c, area, d, theme)
     }
@@ -753,7 +755,7 @@ class MapRenderer(private val car: Boolean = false) {
         if (!NavEngine.active) return
         val step = NavEngine.currentStep
         val (title, sub) = when {
-            NavEngine.arrived -> "MISSION COMPLETE" to NavEngine.destinationName
+            NavEngine.arrived -> Explorer.completeTitle(t).uppercase() to NavEngine.destinationName
             NavEngine.error != null -> (NavEngine.error ?: "") to NavEngine.destinationName
             NavEngine.loading || step == null -> "Plotting route…" to NavEngine.destinationName
             else -> {
@@ -868,6 +870,71 @@ class MapRenderer(private val car: Boolean = false) {
         }
         c.drawPath(path, stroke)
         stroke.strokeCap = Paint.Cap.BUTT; stroke.strokeJoin = Paint.Join.MITER
+    }
+
+    /** Trailblazer: landmarks to discover (glowing) and ones already found (gold). */
+    private fun drawLandmarks(c: Canvas, cam: Camera, center: LatLng, a: Rect, d: Float) {
+        val mpp = Geo.metersPerPixel(center.lat, cam.world) / cam.scale
+        val radius = kotlin.math.hypot(a.width().toDouble(), a.height().toDouble()) * mpp
+        val list = Explorer.near(center, radius)
+        if (list.isEmpty()) return
+        val pulse = ((android.os.SystemClock.uptimeMillis() % 1600) / 1600f)
+        animating = true
+        text.textAlign = Paint.Align.CENTER
+        val tf = text.typeface
+        text.typeface = Typeface.DEFAULT_BOLD
+        for (l in list) {
+            val (x, y) = toScreen(l.pos, cam)
+            if (x < a.left - 30 || x > a.right + 30 || y < a.top - 30 || y > a.bottom + 30) continue
+            if (Explorer.isFound(l)) {
+                fill.color = Color.rgb(255, 196, 0); c.drawCircle(x, y, 9 * d, fill)
+                stroke.color = Color.WHITE; stroke.strokeWidth = 2 * d; c.drawCircle(x, y, 9 * d, stroke)
+                stroke.color = Color.rgb(90, 60, 0); stroke.strokeWidth = 2 * d
+                c.drawLine(x - 4 * d, y, x - 1 * d, y + 3 * d, stroke); c.drawLine(x - 1 * d, y + 3 * d, x + 4.5f * d, y - 3.5f * d, stroke)
+            } else {
+                fill.color = Color.argb((110 * (1 - pulse)).toInt(), 0, 170, 255)
+                c.drawCircle(x, y, (14 + 16 * pulse) * d, fill)
+                fill.color = Color.rgb(0, 120, 255); c.drawCircle(x, y, 13 * d, fill)
+                stroke.color = Color.WHITE; stroke.strokeWidth = 2.5f * d; c.drawCircle(x, y, 13 * d, stroke)
+                text.color = Color.WHITE; text.textSize = 15 * d
+                c.drawText("?", x, y + 5.5f * d, text)
+            }
+        }
+        text.typeface = tf
+    }
+
+    /** "Landmark discovered · +25 XP" for a few seconds after passing one. */
+    private fun drawDiscovery(c: Canvas, a: Rect, d: Float, t: Theme) {
+        val l = Explorer.lastFound ?: return
+        val age = android.os.SystemClock.uptimeMillis() - Explorer.lastFoundAt
+        if (age > 4500) return
+        animating = true
+        val alpha = if (age > 3800) ((4500 - age) / 700f).coerceIn(0f, 1f) else 1f
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = Typeface.DEFAULT_BOLD
+        text.textSize = 15 * d
+        val title = "Landmark discovered · +25 XP"
+        val name = ellipsize(l.name, a.width() - 120 * d)
+        val w = maxOf(text.measureText(title), text.measureText(name)) + 74 * d
+        val h = 58 * d
+        val left = a.exactCenterX() - w / 2
+        val top = a.top + a.height() * 0.30f
+        val r = RectF(left, top, left + w, top + h)
+        fill.color = Color.argb((235 * alpha).toInt(), 12, 40, 90)
+        c.drawRoundRect(r, 16 * d, 16 * d, fill)
+        stroke.color = Color.argb((255 * alpha).toInt(), 255, 196, 0); stroke.strokeWidth = 2 * d
+        c.drawRoundRect(r, 16 * d, 16 * d, stroke)
+        fill.color = Color.argb((255 * alpha).toInt(), 255, 196, 0)
+        c.drawCircle(r.left + 30 * d, r.centerY(), 15 * d, fill)
+        text.color = Color.argb((255 * alpha).toInt(), 40, 28, 0)
+        text.textAlign = Paint.Align.CENTER
+        c.drawText("★", r.left + 30 * d, r.centerY() + 6 * d, text)
+        text.textAlign = Paint.Align.LEFT
+        text.color = Color.argb((255 * alpha).toInt(), 255, 214, 90)
+        c.drawText(title, r.left + 56 * d, r.top + 24 * d, text)
+        text.color = Color.argb((255 * alpha).toInt(), 255, 255, 255)
+        c.drawText(name, r.left + 56 * d, r.top + 45 * d, text)
+        text.typeface = t.typeface
     }
 
     /** "Jam in 800 m · +2 min", under the banner (phone) or at the top of the map (car). */

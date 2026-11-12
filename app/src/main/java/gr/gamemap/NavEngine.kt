@@ -93,6 +93,33 @@ object NavEngine {
             return (j.start - along).coerceAtLeast(0.0) to j.extra
         }
 
+    // ------------------------------------------------------------- trip stats
+
+    /** The trip that just ended (arrival card), until dismissed. */
+    var lastTrip: Explorer.Trip? = null
+        private set
+    private var tripStart = 0L
+    private var tripMeters = 0.0
+    private var tripSaved = 0
+    private var tripBonus = 0
+    private var lastPos: LatLng? = null
+
+    fun dismissTrip() {
+        lastTrip = null
+        changed.fire()
+    }
+
+    private fun finishTrip() {
+        val secs = ((System.currentTimeMillis() - tripStart) / 1000).toInt()
+        val levelBefore = Explorer.level
+        val xp = 10 + (tripMeters / 1000 * 5).toInt() + tripBonus
+        Explorer.addXp(xp)
+        lastTrip = Explorer.Trip(
+            destinationName, System.currentTimeMillis(), secs, tripMeters, tripSaved,
+            xp + Explorer.tripFound * 25, Explorer.tripFound, levelBefore,
+        )
+    }
+
     // ------------------------------------------------------------- faster route offers
 
     class Offer(val option: RouteOption, val savingSeconds: Int, val createdAt: Long)
@@ -146,6 +173,7 @@ object NavEngine {
         appContext = ctx.applicationContext
         if (active) stop()
         planning = true
+        lastTrip = null
         planPlace = place
         options = emptyList(); selected = 0; userPicked = false
         departAt = null
@@ -231,6 +259,11 @@ object NavEngine {
         val opt = options.getOrNull(selected)
         planning = false; planSeq++
         begin(place)
+        // picking the fastest route counts as time saved against the next best one
+        if (opt != null && opt.trafficSeconds != null) {
+            val others = options.filter { it !== opt && it.trafficSeconds != null }.minOfOrNull { it.seconds }
+            if (others != null && others - opt.seconds >= 60) tripSaved = (others - opt.seconds).toInt()
+        }
         if (opt != null) apply(opt, announce = true) else fetchRoute()
     }
 
@@ -244,6 +277,9 @@ object NavEngine {
 
     private fun begin(place: Place) {
         Places.addRecent(place)
+        lastTrip = null
+        tripStart = System.currentTimeMillis(); tripMeters = 0.0; tripSaved = 0; tripBonus = 0; lastPos = null
+        Explorer.tripFound = 0
         destination = place.pos
         destinationName = place.name
         arrived = false
@@ -338,6 +374,8 @@ object NavEngine {
         if (!active) return
         val r = current
         val pos = LatLng(l.latitude, l.longitude)
+        lastPos?.let { lp -> Geo.distance(lp, pos).takeIf { it < 300 }?.let { tripMeters += it } }
+        lastPos = pos
         if (r == null || r.points.size < 2) {
             if (loading && error != null) fetchRoute() // was waiting for the first GPS fix
             return
@@ -360,6 +398,7 @@ object NavEngine {
             if (!arrived) {
                 arrived = true
                 offer = null
+                finishTrip()
                 Voice.say(Phrases.instruction(r.steps.lastOrNull() ?: NavStep("arrive", "arrive", "", 0, dest, null), Voice.lang))
                 main.postDelayed({ if (arrived) stop() }, 20_000)
             }
@@ -439,6 +478,8 @@ object NavEngine {
     fun acceptOffer() {
         val o = offer ?: return
         offer = null
+        tripSaved += o.savingSeconds
+        tripBonus += 10
         Voice.say(Phrases.switched(Voice.lang))
         apply(o.option, announce = false)
     }
@@ -465,6 +506,11 @@ object NavEngine {
         apply(r, announce = false)
         trafficRatio = (r.duration + delaySeconds) / maxOf(r.duration, 1.0)
         trafficDelaySeconds = delaySeconds
+        changed.fire()
+    }
+
+    internal fun debugTrip(t: Explorer.Trip) {
+        lastTrip = t
         changed.fire()
     }
 

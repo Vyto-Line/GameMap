@@ -108,7 +108,7 @@ class VectorTile(bytes: ByteArray) {
                 else -> p.skip(tag and 7)
             }
         }
-        if (type == 1 && layer != "place") return // only place names are drawn as points
+        if (type == 1 && layer != "place" && layer != "poi") return // points: place names and landmarks
         val parts = decodeGeometry(geom)
         when {
             // Polygons: one feature per outer ring (with its holes), so each gets a tight

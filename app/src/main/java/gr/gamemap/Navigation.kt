@@ -142,6 +142,7 @@ object LocationTracker : LocationListener {
         if (firstFix) heading = headingTarget
 
         NavEngine.onLocation(location)
+        Explorer.onLocation(LatLng(location.latitude, location.longitude), speed)
         changed.fire()
     }
 

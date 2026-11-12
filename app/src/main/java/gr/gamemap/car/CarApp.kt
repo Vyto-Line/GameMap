@@ -279,10 +279,15 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
         if (NavEngine.active) {
             val step = NavEngine.currentStep
             when {
-                NavEngine.arrived -> b.setNavigationInfo(
-                    MessageInfo.Builder("Mission complete").setText(NavEngine.destinationName)
-                        .setImage(icon(carContext, R.drawable.ic_flag)).build()
-                )
+                NavEngine.arrived -> {
+                    val trip = NavEngine.lastTrip
+                    val text = if (trip != null) "${NavEngine.formatDuration(trip.seconds.toDouble())} · ${NavEngine.formatDistance(trip.meters)} · +${trip.xp} XP"
+                    else NavEngine.destinationName
+                    b.setNavigationInfo(
+                        MessageInfo.Builder(gr.gamemap.Explorer.completeTitle(MapState.carTheme ?: MapState.theme)).setText(text)
+                            .setImage(icon(carContext, R.drawable.ic_flag)).build()
+                    )
+                }
                 NavEngine.error != null -> b.setNavigationInfo(
                     MessageInfo.Builder(NavEngine.error!!).setText(NavEngine.destinationName).build()
                 )
