@@ -82,11 +82,13 @@ object RoadSnap {
     /**
      * Snaps one lane. [raw] runs in the lane's driving direction (TomTom's line); [fallback]
      * is where to draw a point that matches no road. [side] = 1 for driving on the right.
+     * Returns null when the lane would run against a one-way street (no such traffic).
      */
-    fun snapLane(idx: Index, raw: FloatArray, fallback: FloatArray, maxDist: Float, side: Float, minHalfLane: Float): FloatArray {
+    fun snapLane(idx: Index, raw: FloatArray, fallback: FloatArray, maxDist: Float, side: Float, minHalfLane: Float): FloatArray? {
         val n = raw.size / 2
         val out = fallback.copyOf()
         val cand = HashSet<Int>()
+        var wrongWay = 0 // points that only match a one-way street going the other way
         for (i in 0 until n) {
             val px = raw[i * 2]; val py = raw[i * 2 + 1]
             // lane direction at this point
@@ -97,6 +99,7 @@ object RoadSnap {
             dx /= dl; dy /= dl
             idx.near(px, py, cand)
             var best = -1; var bestD = maxDist; var bx = 0f; var by = 0f
+            var againstD = Float.MAX_VALUE
             for (si in cand) {
                 val sg = idx.segs[si]
                 var sx = sg[2] - sg[0]; var sy = sg[3] - sg[1]
@@ -106,13 +109,16 @@ object RoadSnap {
                 val dot = sx * dx + sy * dy
                 // only roads running the same way (not cross streets); one-ways in our direction
                 if (abs(dot) < 0.75f) continue
-                if (sg[4] != 0f && dot * sg[4] < 0) continue
                 val t = (((px - sg[0]) * sx + (py - sg[1]) * sy) / sl).coerceIn(0f, 1f)
                 val qx = sg[0] + (sg[2] - sg[0]) * t; val qy = sg[1] + (sg[3] - sg[1]) * t
                 val d = hypot(px - qx, py - qy)
+                if (sg[4] != 0f && dot * sg[4] < 0) { if (d < againstD) againstD = d; continue }
                 if (d < bestD) { bestD = d; best = si; bx = qx; by = qy }
             }
-            if (best < 0) continue
+            if (best < 0) {
+                if (againstD < maxDist) wrongWay++
+                continue
+            }
             val sg = idx.segs[best]
             if (sg[4] == 0f) {
                 // two-way road: middle of our half (right of travel for right-hand traffic)
@@ -121,6 +127,7 @@ object RoadSnap {
             }
             out[i * 2] = bx; out[i * 2 + 1] = by
         }
-        return out
+        // mostly along a one-way street the other way: there is no traffic in this direction
+        return if (wrongWay * 2 > n) null else out
     }
 }

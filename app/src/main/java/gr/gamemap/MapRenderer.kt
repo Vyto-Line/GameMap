@@ -361,9 +361,9 @@ class MapRenderer {
         // Lock lanes onto the map's roads (within ~25 m, same direction only).
         val maxSnap = maxOf(25f / mpp, 12f * u)
         val roads = RoadSnap.index(z, ax * span, ay * span, span, maxSnap)
-        fun lane(raw: FloatArray, side: Float): FloatArray {
+        fun lane(raw: FloatArray, side: Float): FloatArray? {
             val fallback = raw.copyOf().also { offsetLine(it, side * lane) }
-            return roads?.let { RoadSnap.snapLane(it, raw, fallback, maxSnap, side, 1.8f * u) } ?: fallback
+            return if (roads == null) fallback else RoadSnap.snapLane(roads, raw, fallback, maxSnap, side, 1.8f * u)
         }
         for (sg in t.segs) {
             val base = FloatArray(sg.pts.size)
@@ -371,11 +371,12 @@ class MapRenderer {
             val side = if (sg.leftHand) -1f else 1f
             if (sg.oneWay) {
                 // data for one direction: points run the way the traffic goes
-                add(lane(base, side), sg.state)
+                lane(base, side)?.let { add(it, sg.state) }
             } else {
                 // data for both directions: one lane each way, each pointing its own way
-                add(lane(base, side), sg.state)
-                add(lane(reversedLine(base), side), sg.state)
+                // (a lane against a one-way street is dropped)
+                lane(base, side)?.let { add(it, sg.state) }
+                lane(reversedLine(base), side)?.let { add(it, sg.state) }
             }
         }
         return TrafficPaths(paths, arrows, ax * span, ay * span)
