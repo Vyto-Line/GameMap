@@ -251,6 +251,7 @@ object L {
         "Star ratings & reviews" to "Βαθμολογίες & κριτικές", "Google key set" to "Ορίστηκε κλειδί Google",
         "Off: Reviews opens Google Maps" to "Ανενεργό: οι Κριτικές ανοίγουν τους Χάρτες Google",
         "Auto (phone's language)" to "Αυτόματα (γλώσσα κινητού)",
+        "Remove from recent" to "Αφαίρεση από τα πρόσφατα",
         "Show the welcome screens again" to "Ξανά οι οθόνες καλωσορίσματος", "Language" to "Γλώσσα",
         "Google Maps Platform API key" to "Κλειδί Google Maps Platform API",
         "Directions will be spoken in English" to "Οι οδηγίες θα ακούγονται στα αγγλικά",
@@ -258,8 +259,7 @@ object L {
         "Update" to "Ενημέρωση", "Later" to "Αργότερα", "Downloading update…" to "Λήψη ενημέρωσης…",
         "Download failed: check internet" to "Η λήψη απέτυχε: ελέγξτε το ίντερνετ",
         // style names
-        "Open World" to "Ανοιχτός Κόσμος", "Neon Noir" to "Νέον Νουάρ", "Neon Racer" to "Νέον Αγώνας", "Blocky" to "Κυβάκια",
-        "Parchment Quest" to "Περγαμηνή", "Lookout" to "Παρατηρητήριο", "8-Bit" to "8-Bit", "Trailblazer" to "Πρωτοπόρος",
+        "Free Roam" to "Ελεύθερη Περιπλάνηση", "Night City" to "Νυχτερινή Πόλη", "Midnight Run" to "Μεσονύχτια Κούρσα", "Blockworld" to "Κυβόκοσμος", "Realm Map" to "Χάρτης Βασιλείου", "Fire Tower" to "Πυροφυλάκιο", "Catch 'Em Trail" to "Κυνήγι Ορόσημων", "8-Bit" to "8-Bit",
         // trips, offline, explorer
         "Clear history" to "Διαγραφή ιστορικού", "Your finished trips will show here." to "Οι διαδρομές σας θα εμφανίζονται εδώ.",
         "City centre" to "Κέντρο πόλης", "Wider area" to "Ευρύτερη περιοχή",

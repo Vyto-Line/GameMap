@@ -134,10 +134,27 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var wantedPermissions = arrayOf<String>()
 
     /** The three first-launch screens: what GameRoute is, why location, pick a look. */
-    internal fun showWelcome(page: Int = 0) {
+    internal fun showWelcome(page: Int = 0, quiet: Boolean = false) {
+        wallAnim?.cancel(); wallAnim = null
+        val prevPage = welcomePage
+        val firstShow = welcome.visibility != View.VISIBLE || welcome.childCount == 0
         welcomePage = page
-        welcome.removeAllViews()
+        val old = if (firstShow) null else welcome.getChildAt(welcome.childCount - 1)
+        if (firstShow) welcome.removeAllViews()
         welcome.visibility = View.VISIBLE
+        if (welcomeSwipe == null) {
+            // swipe left / right between the pages
+            welcomeSwipe = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: android.view.MotionEvent) = true
+                override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
+                    if (kotlin.math.abs(vx) < 600 || kotlin.math.abs(vx) < kotlin.math.abs(vy)) return false
+                    if (vx < 0 && welcomePage < 2) showWelcome(welcomePage + 1)
+                    else if (vx > 0 && welcomePage > 0) showWelcome(welcomePage - 1)
+                    return true
+                }
+            })
+            welcome.setOnTouchListener { _, ev -> welcomeSwipe?.onTouchEvent(ev) ?: false }
+        }
         val light = !MapState.dark
         val bgCol = if (light) Color.rgb(247, 250, 249) else Color.rgb(18, 22, 26)
         val inkCol = if (light) Color.rgb(23, 50, 45) else Color.rgb(236, 240, 239)
@@ -189,7 +206,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             val q = (3 * d).toInt(); setPadding(q, q, q, q)
                             addView(thumb(th), LinearLayout.LayoutParams(MATCH_PARENT, (78 * d).toInt()))
                             addView(label(th.title, 12f, bold = true).apply { setTextColor(inkCol); maxLines = 2; setPadding((4 * d).toInt(), (5 * d).toInt(), (2 * d).toInt(), (5 * d).toInt()) })
-                            setOnClickListener { MapState.setTheme(th); showWelcome(2) }
+                            setOnClickListener { MapState.setTheme(th); welcome.removeAllViews(); welcome.visibility = View.GONE; showWelcome(2, quiet = true) }
                         }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { val m = (4 * d).toInt(); setMargins(m, m, m, m) })
                     }
                 }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
@@ -207,18 +224,22 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 "To guide you turn by turn and warn you about cameras, even with the screen off or in Android Auto. Your location stays on your phone; only routes and searches go to the map services."
             else -> "Pick your look" to "You can change it any time from the map, and give Android Auto a different one."
         }
-        col.addView(LinearLayout(this).apply {
+        val textBlock = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(pad, (22 * d).toInt(), pad, 0)
             addView(label(title, 27f, bold = true).apply { setTextColor(inkCol); typeface = MapState.theme.typeface })
             addView(label(body, 16f).apply { setTextColor(dimCol); setPadding(0, (10 * d).toInt(), 0, 0); setLineSpacing(0f, 1.15f) })
-        })
+        }
+        col.addView(textBlock)
         val main = pill(when (page) { 0 -> "Next"; 1 -> "Allow location"; else -> "Start exploring" }) {
             when (page) {
                 0 -> showWelcome(1)
                 1 -> { if (wantedPermissions.isNotEmpty()) permissions.launch(wantedPermissions); showWelcome(2) }
                 else -> {
                     getSharedPreferences("gamemap", MODE_PRIVATE).edit().putBoolean("welcomeDone", true).apply()
-                    welcome.visibility = View.GONE; welcome.removeAllViews(); refreshChrome()
+                    welcome.animate().alpha(0f).setDuration(350).withEndAction {
+                        welcome.visibility = View.GONE; welcome.removeAllViews(); welcome.alpha = 1f
+                    }.start()
+                    refreshChrome()
                 }
             }
         }.apply { setTextColor(Color.WHITE); textSize = 17f; background = bg(acc, radius = 27f, pill = true) }
@@ -233,6 +254,43 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             })
         })
         welcome.addView(col, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { topMargin = sysTop })
+        if (!quiet) animateWelcome(old, col, top, textBlock, page, prevPage, firstShow)
+    }
+
+    private var wallAnim: android.animation.ObjectAnimator? = null
+
+    private var welcomeSwipe: android.view.GestureDetector? = null
+
+    /**
+     * The welcome pages slide: the old page drifts out, the new one glides in, its picture a
+     * little behind its text (parallax), and the words rise into place. The first page's wall of
+     * map styles keeps floating gently.
+     */
+    private fun animateWelcome(old: View?, col: View, top: View, text: View, page: Int, prevPage: Int, firstShow: Boolean) {
+        val w = (welcome.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels).toFloat()
+        val ease = android.view.animation.DecelerateInterpolator(2.2f)
+        val dir = if (page >= prevPage) 1f else -1f
+        if (old != null) {
+            old.animate().translationX(-dir * w * 0.45f).alpha(0f).setDuration(340).setInterpolator(ease)
+                .withEndAction { welcome.removeView(old) }.start()
+            col.translationX = dir * w
+            col.animate().translationX(0f).setDuration(420).setInterpolator(ease).start()
+            top.translationX = dir * w * 0.35f
+            top.animate().translationX(0f).setDuration(620).setInterpolator(ease).start()
+        } else if (firstShow) {
+            top.alpha = 0f; top.translationY = 60 * d
+            top.animate().alpha(1f).translationY(0f).setDuration(700).setInterpolator(ease).start()
+        }
+        text.alpha = 0f; text.translationY = 28 * d
+        text.animate().alpha(1f).translationY(0f).setStartDelay(if (old != null) 160 else 260).setDuration(460).setInterpolator(ease).start()
+        if (page == 0) (top as? ViewGroup)?.getChildAt(0)?.let { wall ->
+            wallAnim = android.animation.ObjectAnimator.ofFloat(wall, "translationX", -18 * d, 18 * d).apply {
+                duration = 6000; repeatMode = android.animation.ValueAnimator.REVERSE
+                repeatCount = android.animation.ValueAnimator.INFINITE
+                interpolator = android.view.animation.AccelerateDecelerateInterpolator()
+                start()
+            }
+        }
     }
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -627,7 +685,21 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 background = bg(Color.argb(28, Color.red(ink), Color.green(ink), Color.blue(ink)), dim(60), 1f, 14f)
                 setOnClickListener { NavEngine.plan(this@MainActivity, pl) }
             }
-            card.addView(label((if (pl.icon == "★") "★ " else "") + pl.name, 15f, bold = true).apply { setTextColor(ink); maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
+            val isSaved = fav.any { it === pl }
+            card.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                addView(label((if (pl.icon == "★") "★ " else "") + pl.name, 15f, bold = true).apply { setTextColor(ink); maxLines = 1; ellipsize = TextUtils.TruncateAt.END },
+                    LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                if (!isSaved) addView(TextView(context).apply {
+                    text = "✕"; textSize = 13f; setTextColor(dim(170)); gravity = Gravity.CENTER
+                    contentDescription = "Remove from recent"
+                    setPadding((8 * d).toInt(), 0, 0, 0)
+                    setOnClickListener {
+                        Places.removeRecent(pl)
+                        card.animate().alpha(0f).scaleX(0.85f).scaleY(0.85f).setDuration(180).withEndAction { lastHomeKey = ""; refreshChrome() }.start()
+                    }
+                })
+            })
             val dist = near?.let { NavEngine.formatDistance(Geo.distance(it, pl.pos)) }
             card.addView(label(listOfNotNull(pl.address.split(",").firstOrNull()?.takeIf { it.isNotBlank() }, dist).joinToString(" · "), 13f).apply {
                 setTextColor(dim()); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
@@ -1475,7 +1547,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 text = title; textSize = 12f; setTextColor(dim(170)); letterSpacing = 0.1f
                 setPadding(p + p / 2, p, p, p / 3)
             })
-            for (pl in places) suggestList.addView(resultRow(pl))
+            for (pl in places) suggestList.addView(resultRow(pl, removable = title == "RECENT"))
         }
         suggestScroll.visibility = View.VISIBLE
     }
@@ -1520,7 +1592,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             suggestList.addView(TextView(this).apply { text = it; textSize = 15f; setTextColor(dim(170)); setPadding(p + p / 2, p, p, p) })
         }
         val near = LocationTracker.position
-        for (pl in places) suggestList.addView(resultRow(pl))
+        for (pl in places) suggestList.addView(resultRow(pl, removable = header == "RECENT"))
         suggestScroll.visibility = View.VISIBLE
         refreshChrome()
         // keep the list from covering the whole screen
@@ -1532,7 +1604,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
-    private fun resultRow(pl: Place): View {
+    private fun resultRow(pl: Place, removable: Boolean = false): View {
         val p = (12 * d).toInt()
         val near = LocationTracker.position
         val row = LinearLayout(this).apply {
@@ -1567,7 +1639,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (near != null) row.addView(TextView(this).apply {
             text = NavEngine.formatDistance(Geo.distance(near, pl.pos)); textSize = 13f; setTextColor(dim(170))
         })
+        if (removable) row.addView(removeX("Remove from recent") {
+            Places.removeRecent(pl)
+            row.animate().alpha(0f).translationX(row.width * 0.3f).setDuration(180).withEndAction { showRecents() }.start()
+        })
         return row
+    }
+
+    /** A round ✕ that takes something off a list. */
+    private fun removeX(desc: String, onClick: () -> Unit) = TextView(this).apply {
+        text = "✕"; textSize = 15f; gravity = Gravity.CENTER; setTextColor(dim(200))
+        contentDescription = desc
+        background = bg(dim(26), radius = 16f, pill = true)
+        layoutParams = LinearLayout.LayoutParams((32 * d).toInt(), (32 * d).toInt()).apply { marginStart = (10 * d).toInt() }
+        setOnClickListener { onClick() }
     }
 
     private fun choose(pl: Place) {
@@ -2283,7 +2368,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 "${Explorer.foundCount} landmarks discovered\n\n" +
                 "Every trip earns XP (more for longer drives and for taking faster routes). " +
                 "Pass close to museums, monuments, viewpoints and other landmarks to discover them: " +
-                "+25 XP each. In the Trailblazer style they show on the map as blue ? markers.")
+                "+25 XP each. In the Catch 'Em Trail style they show on the map as blue ? markers.")
             .setPositiveButton("OK", null).showT()
     }
 

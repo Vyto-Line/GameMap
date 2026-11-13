@@ -924,6 +924,14 @@ object Places {
         return !saved
     }
 
+    /** Takes one place out of the recent searches (the ✕ next to it). */
+    fun removeRecent(p: Place) {
+        val list = recents().filterNot { Geo.distance(it.pos, p.pos) < 30 }
+        val a = JSONArray()
+        list.forEach { a.put(JSONObject().put("n", it.name).put("a", it.address).put("lat", it.pos.lat).put("lon", it.pos.lon)) }
+        appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE).edit().putString("recents", a.toString()).apply()
+    }
+
     fun addRecent(p: Place) {
         val list = (listOf(p) + recents().filterNot { Geo.distance(it.pos, p.pos) < 30 }).take(8)
         val a = JSONArray()

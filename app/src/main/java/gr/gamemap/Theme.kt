@@ -95,7 +95,7 @@ enum class Theme(
     val sunGlow: Boolean = false,
 ) {
     OPEN_WORLD(
-        "Open World",
+        "Free Roam",
         light = Look(
             style = MapStyle(
                 land = rgb(232, 234, 236), water = rgb(158, 196, 224), park = rgb(200, 226, 196),
@@ -127,7 +127,7 @@ enum class Theme(
         ),
     ),
     NEON_NOIR(
-        "Neon Noir",
+        "Night City",
         light = Look(
             style = MapStyle(
                 land = rgb(228, 240, 242), water = rgb(176, 222, 234), park = rgb(206, 234, 226),
@@ -163,7 +163,7 @@ enum class Theme(
         scanlines = true, hud = HudShape.CHAMFER,
     ),
     NEON_RACER(
-        "Neon Racer",
+        "Midnight Run",
         light = Look(
             style = MapStyle(
                 land = rgb(250, 240, 252), water = rgb(214, 228, 255), park = rgb(240, 230, 250),
@@ -199,7 +199,7 @@ enum class Theme(
         grid = true,
     ),
     BLOCKY(
-        "Blocky",
+        "Blockworld",
         // Blocky draws its own world; these colours are for the background, HUD and traffic.
         light = Look(
             style = blockyStyle(rgb(94, 158, 58), rgb(63, 118, 228)),
@@ -218,7 +218,7 @@ enum class Theme(
         hud = HudShape.PIXEL,
     ),
     PARCHMENT_QUEST(
-        "Parchment Quest",
+        "Realm Map",
         light = Look(
             style = MapStyle(
                 land = rgb(234, 217, 174), water = rgb(160, 190, 180), park = rgb(212, 210, 158),
@@ -254,7 +254,7 @@ enum class Theme(
         serif = true, dashedRoute = true, paper = true,
     ),
     LOOKOUT(
-        "Lookout",
+        "Fire Tower",
         light = Look(
             style = MapStyle(
                 land = rgb(248, 230, 206), water = rgb(150, 198, 222), park = rgb(214, 222, 176),
@@ -308,7 +308,7 @@ enum class Theme(
         pixel = 4, hud = HudShape.PIXEL,
     ),
     TRAILBLAZER(
-        "Trailblazer",
+        "Catch 'Em Trail",
         light = Look(
             style = MapStyle(
                 land = rgb(150, 214, 140), water = rgb(84, 176, 240), park = rgb(112, 196, 112),

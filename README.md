@@ -12,7 +12,7 @@ Live traffic · lane guidance · spoken directions · speed & red-light cameras 
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84?style=for-the-badge&logo=android&logoColor=white)
 ![Android Auto](https://img.shields.io/badge/Android%20Auto-supported-4285f4?style=for-the-badge&logo=androidauto&logoColor=white)
 
-<img src="docs/screenshots/hero.jpg" alt="GameRoute screens: driving, route choice, a place card, arrival card, Trailblazer landmarks" width="100%">
+<img src="docs/screenshots/hero.jpg" alt="GameRoute screens: driving, route choice, a place card, arrival card, Catch 'Em Trail landmarks" width="100%">
 
 </div>
 
@@ -46,8 +46,8 @@ Live traffic · lane guidance · spoken directions · speed & red-light cameras 
 <b>🏆 Arrive in style</b><br>Every trip ends with a themed card: journey time, distance, time saved, XP and your explorer level, with a one-tap list of car parks nearby.</td>
 </tr>
 <tr>
-<td valign="top"><img src="docs/screenshots/landmarks.jpg" alt="Trailblazer landmarks"><br>
-<b>⭐ Collect landmarks</b><br>In the Trailblazer style, museums, monuments and viewpoints show as blue <b>?</b> markers. Pass by one to discover it (+25 XP).</td>
+<td valign="top"><img src="docs/screenshots/landmarks.jpg" alt="Catch 'Em Trail landmarks"><br>
+<b>⭐ Collect landmarks</b><br>In the Catch 'Em Trail style, museums, monuments and viewpoints show as blue <b>?</b> markers. Pass by one to discover it (+25 XP).</td>
 <td valign="top"><img src="docs/screenshots/style-picker.jpg" alt="Map style picker"><br>
 <b>🎨 Your look</b><br>Eight styles, each with light, dark or automatic sunset switching. Panels and buttons take the shape of each style.</td>
 <td valign="top"><img src="docs/screenshots/settings.jpg" alt="Settings"><br>
@@ -69,14 +69,14 @@ Original designs in the spirit of different game genres. Each comes in a light a
 
 | Style | Feel |
 |---|---|
-| **Open World** | Asphalt-grey streets, slate water, purple GPS line |
-| **Neon Noir** | Teal megacity grid, yellow route, cut-corner panels, scanlines |
-| **Neon Racer** | Neon roads, grid and horizon glow |
-| **Blocky** | A block world built from real buildings: planks, bricks, stone and terracotta roofs |
-| **Parchment Quest** | Old paper map, ink roads, red dashed route, serif lettering |
-| **Lookout** | Dusk palette from purple to sunset orange |
+| **Free Roam** | Asphalt-grey streets, slate water, purple GPS line |
+| **Night City** | Teal megacity grid, yellow route, cut-corner panels, scanlines |
+| **Midnight Run** | Neon roads, grid and horizon glow |
+| **Blockworld** | A block world built from real buildings: planks, bricks, stone and terracotta roofs |
+| **Realm Map** | Old paper map, ink roads, red dashed route, serif lettering |
+| **Fire Tower** | Dusk palette from purple to sunset orange |
 | **8-Bit** | Handheld-console greens and pixel panels |
-| **Trailblazer** | Bright outdoor-adventure look, with landmarks to collect |
+| **Catch 'Em Trail** | Bright outdoor-adventure look, with landmarks to collect |
 
 <details>
 <summary>Dark versions</summary>
