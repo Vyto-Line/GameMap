@@ -23,5 +23,6 @@ jobs:
             f=$(ls a_$t/*.apk | head -1)
             ls -la "$f"
             "$BT/aapt2" dump badging "$f" | grep -E "^package|targetSdk|sdkVersion|application-debuggable|testOnly" || true
-            "$BT/apksigner" verify --print-certs -v "$f" 2>&1 | grep -E "Verified using|Signer #1 certificate SHA-256|DOES NOT|ERROR|WARNING" | head -12
+            "$BT/apksigner" verify --print-certs "$f" 2>&1 | grep -E "SHA-256|DOES NOT|ERROR" | head -3
+            "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$f" | grep -E "E: (queries|package|provider|uses-permission|intent)|A: .*name.*(INSTALL|unknownauto|Update|package-archive)|testOnly|extractNativeLibs" | head -30
           done
