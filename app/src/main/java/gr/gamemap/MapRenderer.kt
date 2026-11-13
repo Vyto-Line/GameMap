@@ -188,7 +188,10 @@ class MapRenderer(private val car: Boolean = false) {
             val (sx, sy) = toScreen(pin.pos, camera!!)
             drawDroppedPin(c, sx, sy, d)
         }
-        if (Convoy.active) drawConvoyMembers(c, camera!!, area, d, bearing)
+        if (Convoy.active) {
+            drawConvoyMembers(c, camera!!, area, d, bearing)
+            if (Convoy.anyMoving) animating = true // friends glide between their updates
+        }
         prof("places", tp0); tp0 = System.nanoTime()
         if (theme == Theme.TRAILBLAZER && zoom >= 13.5) drawLandmarks(c, camera!!, center, area, d)
         if (zoom >= 13.0) drawRoadAlerts(c, camera!!, center, area, d)
@@ -1200,9 +1203,10 @@ class MapRenderer(private val car: Boolean = false) {
 
     /** The others in the convoy: an arrow in their colour, name and speed. */
     private fun drawConvoyMembers(c: Canvas, cam: Camera, a: Rect, d: Float, bearing: Float) {
+        val now = System.currentTimeMillis()
         for (m in Convoy.members.values) {
-            val p = m.pos ?: continue
             if (m.state == "left") continue
+            val p = m.display(now) ?: continue
             val (x, y) = toScreen(p, cam)
             if (x < -40 * d || y < -40 * d || x > a.right + 40 * d || y > a.bottom + 40 * d) continue
             c.save(); c.translate(x, y); c.rotate(m.heading - bearing)

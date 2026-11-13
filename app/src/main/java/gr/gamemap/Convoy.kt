@@ -34,7 +34,44 @@ object Convoy {
     ) {
         /** 0 at the start … 1 at the destination. */
         val progress: Double get() = if (state == "arrived") 1.0 else if (total > 0 && left >= 0) (1 - left / total).coerceIn(0.0, 1.0) else 0.0
-        val stale: Boolean get() = System.currentTimeMillis() - seen > 120_000
+        /** Updates come every ~15 s while driving (stopped too), so 45 s without one = signal lost. */
+        val stale: Boolean get() = System.currentTimeMillis() - seen > (if (state == "driving") 45_000 else 150_000)
+
+        // ---- gliding between updates
+        @Volatile var fixAt = 0L          // when the last position arrived (phone clock)
+        @Volatile var blendFrom: LatLng? = null
+        @Volatile var blendAt = 0L
+        @Volatile var shown: LatLng? = null
+        private var routeOf: Any? = null
+        private var routeFix = -1L
+        private var routeAt = -1.0
+
+        /** Where they probably are now: carried on along the road (or their heading) at their speed. */
+        fun predicted(now: Long): LatLng? {
+            val p = pos ?: return null
+            if (state != "driving" || kmh < 3 || stale) return p
+            val secs = ((now - fixAt) / 1000.0).coerceIn(0.0, 18.0)
+            val metres = kmh / 3.6 * secs
+            // on my route (same destination, usually the same roads): follow its bends;
+            // the route position is looked up once per update, not every frame
+            val route = NavEngine.current
+            if (routeOf !== route || routeFix != fixAt) { routeOf = route; routeFix = fixAt; routeAt = NavEngine.routeDistanceOf(p) ?: -1.0 }
+            if (routeAt >= 0) NavEngine.routePointAt(routeAt + metres)?.let { return it }
+            return Geo.offset(p, heading, metres.coerceAtMost(kmh / 3.6 * 6))
+        }
+
+        /** The point to draw: eases from where it was drawn to the new estimate over ~1.5 s. */
+        fun display(now: Long): LatLng? {
+            val target = predicted(now) ?: return null
+            val from = blendFrom ?: return target.also { shown = it }
+            val f = ((now - blendAt) / 1500.0).coerceIn(0.0, 1.0)
+            val e = f * f * (3 - 2 * f)
+            val out = if (f >= 1.0) target else LatLng(from.lat + (target.lat - from.lat) * e, from.lon + (target.lon - from.lon) * e)
+            shown = out
+            return out
+        }
+
+        val moving: Boolean get() = state == "driving" && kmh >= 3 && !stale
     }
 
     const val PAGE = "https://vyto-line.github.io/GameMap/convoy/"
@@ -78,17 +115,23 @@ object Convoy {
     }
 
     private fun randomCode(n: Int): String {
-        val abc = "abcdefghijkmnopqrstuvwxyz23456789"
+        val abc = "abcdefghjkmnpqrstuvwxyz23456789" // no 0/o, 1/l/i
         val r = SecureRandom()
         return (1..n).map { abc[r.nextInt(abc.length)] }.joinToString("")
     }
 
     fun link(): String? = code?.let { PAGE + "#" + it }
 
+    /** The code as people read it out: "K7P 2QX". */
+    fun pretty(): String? = code?.uppercase()?.let { if (it.length == 6) it.take(3) + " " + it.drop(3) else it }
+
+    /** True while someone in the convoy is moving (their arrow glides, so keep drawing). */
+    val anyMoving: Boolean get() = members.values.any { it.moving }
+
     /** Starts a new convoy to [dest]; returns the invite link. */
     fun create(dest: Place): String {
         leave(quiet = true)
-        val c = randomCode(14)
+        val c = randomCode(6)
         setCode(c, dest)
         publish(hello("ready"))
         return link()!!
@@ -96,8 +139,8 @@ object Convoy {
 
     /** Joins from a link or a code; the destination arrives with the first messages. */
     fun join(linkOrCode: String): Boolean {
-        val c = linkOrCode.substringAfterLast('#').substringAfterLast('/').filter { it.isLetterOrDigit() }.lowercase()
-        if (c.length < 8) return false
+        val c = linkOrCode.trim().substringAfterLast('#').substringAfterLast('/').filter { it.isLetterOrDigit() }.lowercase()
+        if (c.length < 6) return false
         if (c == code) return true
         leave(quiet = true)
         setCode(c, null)
@@ -150,7 +193,7 @@ object Convoy {
         if (code == null) return
         val now = System.currentTimeMillis()
         val driving = NavEngine.active && !NavEngine.arrived
-        val gap = if (driving && LocationTracker.speedMps > 1.5f) 15_000 else 60_000
+        val gap = if (driving) 15_000 else 60_000
         if (now - sentAt < gap) return
         publish(hello(if (NavEngine.arrived) "arrived" else if (driving) "driving" else "ready"))
     }
@@ -214,7 +257,13 @@ object Convoy {
         if (o.optString("t") == "bye") { members[id]?.state = "left"; members.remove(id); main.post { changed.fire() }; return }
         val m = members.getOrPut(id) { Member(id, o.optString("n", "Driver"), palette[members.size % palette.size]) }
         m.name = o.optString("n", m.name)
-        if (o.has("lat")) m.pos = LatLng(o.getDouble("lat"), o.getDouble("lon"))
+        if (o.has("lat")) {
+            val now = System.currentTimeMillis()
+            m.blendFrom = m.shown ?: m.predicted(now)
+            m.blendAt = now
+            m.pos = LatLng(o.getDouble("lat"), o.getDouble("lon"))
+            m.fixAt = now
+        }
         m.heading = o.optDouble("h", m.heading.toDouble()).toFloat()
         m.kmh = o.optInt("s", m.kmh)
         if (o.has("eta")) m.eta = o.getLong("eta")
@@ -233,6 +282,7 @@ object Convoy {
 
     internal fun debugMember(name: String, pos: LatLng, kmh: Int, eta: Long, left: Double, total: Double, state: String) {
         val m = Member("t-$name", name, palette[members.size % palette.size], pos, 0f, kmh, eta, left, total, state, 0, System.currentTimeMillis())
+        m.fixAt = System.currentTimeMillis()
         members[m.id] = m
         changed.fire()
     }
@@ -243,7 +293,15 @@ object Convoy {
     data class Row(val name: String, val color: Int, val me: Boolean, val kmh: Int, val eta: Long, val progress: Double,
                    val left: Double, val state: String, val stale: Boolean, val arrivedAt: Long)
 
+    @Volatile private var rowsCache: Pair<Long, List<Row>>? = null
+
     fun rows(myColor: Int): List<Row> {
+        val now = System.currentTimeMillis()
+        rowsCache?.let { (at, r) -> if (now - at < 500 && r.firstOrNull { it.me }?.color == myColor) return r }
+        return computeRows(myColor).also { rowsCache = now to it }
+    }
+
+    private fun computeRows(myColor: Int): List<Row> {
         val me = Row("You", myColor, true, (LocationTracker.speedMps * 3.6f).toInt(),
             if (NavEngine.active) System.currentTimeMillis() + (NavEngine.remainingSeconds * 1000).toLong() else 0,
             if (NavEngine.arrived) 1.0 else if (NavEngine.active && routeTotal > 0) (1 - NavEngine.remainingDistance / routeTotal).coerceIn(0.0, 1.0) else 0.0,

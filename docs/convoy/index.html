@@ -68,7 +68,7 @@ function take(m) {
   Object.assign(p, { n: d.n || "Driver", lat: d.lat, lon: d.lon, s: d.s, eta: d.eta, left: d.left, st: d.st, ts: d.ts });
   render();
 }
-if (code.length >= 8) {
+if (code.length >= 6) {
   fetch("https://ntfy.sh/gmc" + code + "/json?poll=1&since=12h").then(r => r.text()).then(t => {
     t.split("\n").filter(Boolean).forEach(l => { try { const m = JSON.parse(l); if (m.event === "message") take(m); } catch (e) {} });
     render();

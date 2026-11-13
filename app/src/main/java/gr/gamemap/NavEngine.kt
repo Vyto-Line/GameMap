@@ -317,6 +317,27 @@ object NavEngine {
         }
     }
 
+    /** For convoy friends: how far along this route [p] is (if within ~35 m of it), else null. */
+    fun routeDistanceOf(p: LatLng): Double? {
+        val r = current ?: return null
+        val pts = r.points
+        if (pts.size < 2) return null
+        var best = -1; var bestD = 35.0
+        for (i in 0 until pts.size - 1) { val dd = Geo.distance(pts[i], p); if (dd < bestD) { bestD = dd; best = i } }
+        return if (best < 0) null else r.cum[best]
+    }
+
+    /** The point at [dist] metres along this route. */
+    fun routePointAt(dist: Double): LatLng? {
+        val r = current ?: return null
+        val pts = r.points
+        if (pts.size < 2) return null
+        var lo = 0; var hi = pts.size - 1
+        while (lo < hi - 1) { val mid = (lo + hi) / 2; if (r.cum[mid] <= dist) lo = mid else hi = mid }
+        val seg = (r.cum[hi] - r.cum[lo]).coerceAtLeast(0.1)
+        return Geo.lerp(pts[lo], pts[hi], ((dist - r.cum[lo]) / seg).coerceIn(0.0, 1.0))
+    }
+
     // ============================================================= stops on the way
 
     /** Places to pass on the way to the destination, in order. */

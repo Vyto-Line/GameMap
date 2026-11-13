@@ -1786,7 +1786,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val dest = Convoy.destination?.name ?: "our destination"
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, "Join my convoy to $dest in GameMap: $link")
+            putExtra(Intent.EXTRA_TEXT, "Join my convoy to $dest in GameMap: code ${Convoy.pretty()}\n$link")
         }
         startActivity(Intent.createChooser(send, "Invite to the convoy"))
     }
@@ -1794,7 +1794,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private fun joinConvoy(link: String) {
         withConvoyName {
             if (Convoy.join(link)) openSheet("convoy")
-            else Toast.makeText(this, "That isn't a convoy link", Toast.LENGTH_SHORT).show()
+            else Toast.makeText(this, "That isn't a convoy code or link", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1812,7 +1812,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             sheetHost.addView(sheetHeader("Convoy"))
             sheetHost.addView(label("Drive somewhere together: everyone sees the others on the map with their speed and arrival time. " +
                 "Start one from a route (the 👥 button), or paste an invite link here.", 14f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, p) })
-            val input = EditText(this).apply { hint = "Invite link or code"; setSingleLine(); setTextColor(ink); setHintTextColor(dim(140)) }
+            val input = EditText(this).apply {
+                hint = "Code (like K7P 2QX) or invite link"; setSingleLine(); setTextColor(ink); setHintTextColor(dim(140))
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+                textSize = 20f; letterSpacing = 0.1f
+            }
             sheetHost.addView(input)
             sheetHost.addView(pill("Join") { joinConvoy(input.text.toString()) }.apply {
                 setTextColor(onAccent(accent)); background = bg(accent, radius = 14f)
@@ -1821,6 +1825,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
         val dest = Convoy.destination
         sheetHost.addView(sheetHeader("Convoy" + (dest?.let { " · ${it.name}" } ?: "")))
+        // the join code, big enough to read out to someone in the car
+        sheetHost.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(p, p / 2, p / 2, p / 2); background = bg(dim(22), radius = 14f)
+            addView(label("CODE", 12f, bold = true).apply { setTextColor(dim()); letterSpacing = 0.08f; setPadding(0, 0, p, 0) })
+            addView(label(Convoy.pretty() ?: "", 26f, bold = true).apply { setTextColor(ink); letterSpacing = 0.12f; typeface = Typeface.MONOSPACE },
+                LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(pill("Copy") {
+                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                cm?.setPrimaryClip(android.content.ClipData.newPlainText("Convoy code", Convoy.pretty()))
+                Toast.makeText(this@MainActivity, "Code copied", Toast.LENGTH_SHORT).show()
+            }.apply { textSize = 14f; setTextColor(readable(accent)) })
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p / 2; bottomMargin = p / 2 })
         if (dest == null) sheetHost.addView(label("Connecting to the group…", 15f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, p) })
         // progress line + one row per person
         sheetHost.addView(object : View(this) {
@@ -1859,7 +1876,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             setTextColor(onAccent(accent)); background = bg(accent, radius = 22f)
         }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.3f))
         sheetHost.addView(buttons)
-        sheetHost.addView(label("Positions update about every 15 s while driving, through the free ntfy.sh relay. Only people with the link can see them.", 12f).apply {
+        sheetHost.addView(label("Friends' arrows glide between updates (every ~15 s while driving). Positions go through the free ntfy.sh relay; only people with the code can see them.", 12f).apply {
             setTextColor(dim()); setPadding(0, p, 0, 0)
         })
     }
