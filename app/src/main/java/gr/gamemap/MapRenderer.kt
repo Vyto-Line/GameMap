@@ -266,6 +266,7 @@ class MapRenderer(private val car: Boolean = false) {
         drawJamChip(c, area, d, theme, hud)
         if (hud && NavEngine.estimating) drawNoGps(c, area, d, theme)
         if (hud && !NavEngine.arrived) NavEngine.tollAhead?.let { (t, dist) -> drawTollChip(c, area, d, theme, t.price, dist) }
+        if (car && hud && carButtons) Convoy.proposal?.let { drawCarProposal(c, area, d, theme, it) }
         if (hud && Convoy.counting) { drawCountdown(c, area, d, theme); animating = true }
         else if (hud && Convoy.active && Convoy.meReady && !NavEngine.active) drawLobbyChip(c, area, d, theme)
         drawDiscovery(c, area, d, theme)
@@ -1301,6 +1302,31 @@ class MapRenderer(private val car: Boolean = false) {
             c.drawText("🏁 $label", cx, cy + 7 * d, text)
         }
         text.typeface = t.typeface
+    }
+
+    /** Car: someone in the convoy chose a destination: Go (accept) or ✕ (decline). */
+    private fun drawCarProposal(c: Canvas, a: Rect, d: Float, t: Theme, p: Convoy.Proposal) {
+        val w = minOf(440 * d, a.width() - 40 * d)
+        val x = a.centerX() - w / 2
+        val y = maxOf(bannerBottom, a.top.toFloat()) + 10 * d
+        val r = RectF(x, y, x + w, y + 64 * d)
+        panel(c, r, d, t, outline = true)
+        text.textAlign = Paint.Align.LEFT; text.typeface = Typeface.DEFAULT_BOLD
+        text.textSize = 12 * d; text.color = Ui.onPanel(t, t.route, 3.0)
+        c.drawText(ellipsize(gr.gamemap.L.t("${p.from.uppercase()} CHOSE WHERE THE CONVOY GOES"), w - 170 * d), r.left + 14 * d, r.top + 22 * d, text)
+        text.textSize = 17 * d; text.color = Ui.ink(t)
+        c.drawText(ellipsize(p.place.name, w - 170 * d), r.left + 14 * d, r.top + 47 * d, text)
+        val go = RectF(r.right - 150 * d, r.top + 10 * d, r.right - 62 * d, r.bottom - 10 * d)
+        fill.color = t.route; c.drawRoundRect(go, 12 * d, 12 * d, fill)
+        text.textAlign = Paint.Align.CENTER; text.textSize = 17 * d
+        text.color = if (Ui.contrast(Color.WHITE, t.route) >= 3) Color.WHITE else Color.BLACK
+        c.drawText(gr.gamemap.L.t("Go"), go.centerX(), go.centerY() + 6 * d, text)
+        val no = RectF(r.right - 54 * d, r.top + 10 * d, r.right - 10 * d, r.bottom - 10 * d)
+        fill.color = withAlpha(Ui.ink(t), 40); c.drawRoundRect(no, 12 * d, 12 * d, fill)
+        text.color = Ui.ink(t); c.drawText("✕", no.centerX(), no.centerY() + 6 * d, text)
+        text.textAlign = Paint.Align.LEFT; text.typeface = t.typeface
+        carHits += go to "convoy:accept"; carHits += no to "convoy:decline"
+        bannerBottom = r.bottom
     }
 
     /** At the convoy start after pressing Ready: who we're still waiting for. */

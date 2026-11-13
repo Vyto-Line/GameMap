@@ -1661,6 +1661,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (showOffer && offerCard.visibility != View.VISIBLE) { main.removeCallbacks(ticker); main.postDelayed(ticker, 1000) }
         offerCard.visibility = if (showOffer) View.VISIBLE else View.GONE
         if (showOffer) renderOffer()
+        if (Convoy.proposal != null) askProposal()
         if (sheetOverlay.visibility == View.VISIBLE) when (sheetKind) {
             "style" -> renderStylePicker()
             "settings" -> renderSettings()
@@ -2405,8 +2406,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val dest = NavEngine.planPlace ?: return
         withConvoyName {
             Convoy.create(dest)
-            inviteToConvoy()
-            openSheet("convoy")
+            openSheet("convoy") // (Invite is there; no share sheet popping up by itself)
         }
     }
 
@@ -2428,6 +2428,24 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private var convoyKey = ""
+    private var proposalAsked = 0L
+
+    /** Someone in the convoy chose a (new) destination: go there too? */
+    private fun askProposal() {
+        val p = Convoy.proposal ?: return
+        if (p.at == proposalAsked) return
+        proposalAsked = p.at
+        Convoy.cancelNotification()
+        val driving = NavEngine.active && !NavEngine.arrived
+        AlertDialog.Builder(this)
+            .setTitle("${p.from} chose where the convoy goes")
+            .setMessage(p.place.name + (if (p.place.address.isNotBlank()) "\n" + p.place.address else "") +
+                (if (driving) "\n\n" + L.t("Your route will change to it.") else ""))
+            .setPositiveButton(if (driving) "Go there" else "Accept") { _, _ -> Convoy.accept(); refreshChrome() }
+            .setNegativeButton("Not now") { _, _ -> Convoy.decline() }
+            .setCancelable(false)
+            .showT()
+    }
 
     /** Takes the map to a friend in the convoy (me: back to my car) and shows their card. */
     private fun showFriend(id: String) {

@@ -54,7 +54,20 @@ class ConvoyCreateTest {
         @Suppress("UNCHECKED_CAST")
         val tap = map.javaClass.getMethod("getOnFriendTap").invoke(map) as ((Convoy.Member) -> Unit)
         tap(Convoy.members.values.first { it.name == "Maria" }); shot("create_5_friend")
-        File(out, "convoycreate.txt").writeText("colours all different: ${colours.distinct().size == colours.size} (${colours.size})\n" +
+        // a friend chooses a new destination: I'm asked (dialog), and the car shows Go / ✕
+        val take = Convoy::class.java.getDeclaredMethod("take", org.json.JSONObject::class.java).apply { isAccessible = true }
+        val nikos = Convoy.members.values.first { it.name == "Nikos" }
+        take.invoke(Convoy, org.json.JSONObject().put("t", "pos").put("id", nikos.id).put("n", "Nikos").put("st", "ready")
+            .put("ts", System.currentTimeMillis()).put("dn", "Acropolis Museum").put("da", "Dionysiou Areopagitou 15")
+            .put("dlat", 37.9685).put("dlon", 23.7285).put("dt", System.currentTimeMillis() + 5000))
+        shot("create_6_proposal")
+        val car = MapRenderer(car = true).apply { carButtons = true }
+        val cb = Bitmap.createBitmap(1920, 720, Bitmap.Config.ARGB_8888)
+        repeat(20) { car.draw(Canvas(cb), 1920, 720, android.graphics.Rect(0, 0, 1920, 720), 1.6f, true); looper.idleFor(java.time.Duration.ofMillis(50)); Thread.sleep(40) }
+        File(out, "create_7_car_proposal.png").outputStream().use { cb.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val before = Convoy.destination?.name
+        Convoy.accept()
+        File(out, "convoycreate.txt").writeText("proposal: before=$before after accept=${Convoy.destination?.name}\n" + "colours all different: ${colours.distinct().size == colours.size} (${colours.size})\n" +
             "destination: ${Convoy.destination?.name}\n")
         Convoy.leave(quiet = true)
     }

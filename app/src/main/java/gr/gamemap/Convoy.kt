@@ -135,13 +135,14 @@ object Convoy {
 
     fun init(ctx: Context) {
         appContext = ctx.applicationContext
+        proposed += { notifyProposal() }
         // a convoy still on when the app was closed (e.g. phone restarted mid-drive)
         val c = prefs().getString("convoyCode", null)
         if (c != null) {
             val d = prefs().getString("convoyDest", null)?.let { s ->
                 try { val o = JSONObject(s); Place(o.getString("n"), o.optString("a"), LatLng(o.getDouble("lat"), o.getDouble("lon"))) } catch (e: Exception) { null }
             }
-            code = c; destination = d; destAt = prefs().getLong("convoyDestAt", 0)
+            code = c; destination = d; destAt = prefs().getLong("convoyDestAt", 0); joinedAt = prefs().getLong("convoyJoinedAt", 0)
             listen(c)
         }
     }
@@ -182,11 +183,69 @@ object Convoy {
 
     /** When the destination was chosen: a newer choice (anyone's) wins on every phone. */
     @Volatile private var destAt = 0L
+    /** When I joined this convoy (destinations chosen before that are just taken). */
+    @Volatile private var joinedAt = 0L
+
+    /** Someone chose a (new) destination: waiting for me to accept or decline it. */
+    class Proposal(val place: Place, val from: String, val at: Long)
+    @Volatile var proposal: Proposal? = null
+        private set
+    private val declined = java.util.Collections.synchronizedSet(HashSet<Long>())
+    /** Fires once per new proposal (screens ask; a notification if the app isn't open). */
+    val proposed = Signal()
+
+    /** Go with the others' choice: it becomes the destination, and a running route goes there. */
+    fun accept() {
+        val p = proposal ?: return
+        proposal = null
+        cancelNotification()
+        destination = p.place; destAt = p.at; saveDest()
+        meReady = false
+        if (NavEngine.active && !NavEngine.arrived) { NavEngine.start(appContext, p.place); MapState.recenter() }
+        else publish(hello("ready"))
+        changed.fire()
+    }
+
+    fun decline() {
+        val p = proposal ?: return
+        declined += p.at
+        proposal = null
+        cancelNotification()
+        changed.fire()
+    }
+
+    /** The phone's notification for a proposal: it shows even when the app isn't open. */
+    private fun notifyProposal() {
+        val p = proposal ?: return
+        try {
+            val nm = appContext.getSystemService(android.app.NotificationManager::class.java) ?: return
+            if (android.os.Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(
+                android.app.NotificationChannel("convoy", L.t("Convoy"), android.app.NotificationManager.IMPORTANCE_HIGH))
+            val open = android.app.PendingIntent.getActivity(appContext, 3,
+                android.content.Intent(appContext, MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                android.app.PendingIntent.FLAG_IMMUTABLE)
+            val n = androidx.core.app.NotificationCompat.Builder(appContext, "convoy")
+                .setSmallIcon(android.R.drawable.ic_menu_directions)
+                .setContentTitle(L.t("${p.from} chose where the convoy goes"))
+                .setContentText(L.t("${p.place.name}: tap to accept or decline"))
+                .setContentIntent(open).setAutoCancel(true)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .build()
+            nm.notify(NOTE_ID, n)
+        } catch (_: Exception) {}
+    }
+
+    fun cancelNotification() {
+        try { appContext.getSystemService(android.app.NotificationManager::class.java)?.cancel(NOTE_ID) } catch (_: Exception) {}
+    }
+
+    private const val NOTE_ID = 31
 
     /** Sets or changes where the convoy goes; everyone gets it with the next update. */
     fun setDestination(dest: Place) {
         if (code == null) return
         destination = dest; destAt = System.currentTimeMillis()
+        proposal = null; cancelNotification() // my own choice is the newest
         saveDest()
         publish(hello(if (NavEngine.arrived) "arrived" else if (NavEngine.active) "driving" else "ready"))
         changed.fire()
@@ -202,6 +261,8 @@ object Convoy {
 
     private fun setCode(c: String, dest: Place?) {
         code = c; destination = dest; members.clear(); destAt = if (dest != null) System.currentTimeMillis() else 0
+        joinedAt = System.currentTimeMillis(); proposal = null; declined.clear()
+        prefs().edit().putLong("convoyJoinedAt", joinedAt).apply()
         val e = prefs().edit().putString("convoyCode", c)
         if (dest != null) e.putString("convoyDest", JSONObject().put("n", dest.name).put("a", dest.address).put("lat", dest.pos.lat).put("lon", dest.pos.lon).toString())
         else e.remove("convoyDest")
@@ -215,7 +276,7 @@ object Convoy {
         val c = code ?: return
         if (!quiet) publish(JSONObject().put("t", "bye").put("id", myId).put("ts", System.currentTimeMillis()), c)
         code = null; destination = null; members.clear()
-        meReady = false; goAt = 0; main.removeCallbacks(countdown)
+        meReady = false; goAt = 0; main.removeCallbacks(countdown); proposal = null
         prefs().edit().remove("convoyCode").remove("convoyDest").apply()
         listener?.interrupt(); listener = null
         ConvoyLink.stop(if (quiet) null else myId)
@@ -336,12 +397,22 @@ object Convoy {
     private fun take(o: JSONObject) {
         val id = o.optString("id"); if (id.isBlank()) return
         // the destination travels with every message (so whoever joins late gets it too)
-        // (and when someone changes it, the newest choice wins)
+        // When someone chooses a new one, the others are asked first (it changes their route).
         val dt = o.optLong("dt", 0)
-        if (o.has("dlat") && (destination == null || dt > destAt)) {
-            destination = Place(o.optString("dn", "Destination"), o.optString("da"), LatLng(o.getDouble("dlat"), o.getDouble("dlon")))
-            destAt = dt
-            saveDest()
+        if (o.has("dlat") && id != myId) {
+            val p = Place(o.optString("dn", "Destination"), o.optString("da"), LatLng(o.getDouble("dlat"), o.getDouble("dlon")))
+            val known = destination
+            val same = known != null && Geo.distance(known.pos, p.pos) < 30
+            when {
+                // the convoy's destination from before I joined: just take it
+                known == null && dt <= joinedAt + 2000 -> { destination = p; destAt = dt; saveDest() }
+                dt <= destAt || same -> if (same && dt > destAt) { destAt = dt; saveDest() }
+                dt in declined || proposal?.at == dt -> {}
+                else -> {
+                    proposal = Proposal(p, o.optString("n", members[id]?.name ?: "Driver"), dt)
+                    main.post { proposed.fire(); changed.fire() }
+                }
+            }
         }
         if (id == myId) { main.post { changed.fire() }; return }
         if (o.optString("t") == "bye") { members[id]?.state = "left"; members.remove(id); main.post { changed.fire() }; return }

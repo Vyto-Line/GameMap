@@ -93,6 +93,10 @@ object L {
         "Convoy · (.+)" to "Κομβόι · $1",
         "👥 Convoy · (\\d+)" to "👥 Κομβόι · $1",
         "➤  Drive to (.+)" to "➤  Πήγαινε στον/στην $1",
+        "(.+) chose where the convoy goes" to "$1 διάλεξε πού πάει το κομβόι",
+        "(.+) CHOSE WHERE THE CONVOY GOES" to "$1 ΔΙΑΛΕΞΕ ΠΟΥ ΠΑΕΙ ΤΟ ΚΟΜΒΟΪ",
+        "(.+): tap to accept or decline" to "$1: πάτα για αποδοχή ή απόρριψη",
+        "(.+) chose: (.+)" to "$1 διάλεξε: $2",
         "In your convoy · (.+)" to "Στο κομβόι σου · $1",
         "✓ Ready · waiting for (.+)" to "✓ Έτοιμος · περιμένουμε: $1",
         "Ready (\\d+)/(\\d+)" to "Έτοιμοι $1/$2",
@@ -300,6 +304,7 @@ object L {
         "Stay" to "Παραμονή", "Nobody else yet: send the code or the invite link." to "Κανείς άλλος ακόμα: στείλτε τον κωδικό ή τον σύνδεσμο.",
         "Connecting to the group…" to "Σύνδεση με την ομάδα…", "That isn't a convoy code or link" to "Αυτό δεν είναι κωδικός ή σύνδεσμος κομβόι",
         "No position from them yet" to "Δεν έχει στείλει θέση ακόμα",
+        "Your route will change to it." to "Η διαδρομή σου θα αλλάξει προς τα εκεί.", "Not now" to "Όχι τώρα", "Accept" to "Αποδοχή", "Go there" to "Πάμε εκεί",
         "＋  Create a convoy" to "＋  Νέο κομβόι", "You can choose where to go now or later, together." to "Τον προορισμό τον διαλέγετε τώρα ή αργότερα, μαζί.",
         "Drive together: everyone sees the others on the map with their speed and arrival time." to
             "Οδηγήστε μαζί: ο καθένας βλέπει τους άλλους στον χάρτη, με την ταχύτητα και την ώρα άφιξής τους.",
