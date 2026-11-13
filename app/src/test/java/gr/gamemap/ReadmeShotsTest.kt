@@ -45,9 +45,11 @@ class ReadmeShotsTest {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
         val root = activity.window.decorView
         val looper = shadowOf(Looper.getMainLooper())
+        var lastFix: Location? = null
+        fun fresh() { lastFix?.let { l -> LocationTracker.onLocationChanged(Location(l).apply { time = System.currentTimeMillis() }) } }
         fun shot(name: String, frames: Int = 30) {
             val tmp = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
-            repeat(frames) { looper.idleFor(java.time.Duration.ofMillis(60)); root.draw(Canvas(tmp)); Thread.sleep(30) }
+            repeat(frames) { fresh(); looper.idleFor(java.time.Duration.ofMillis(60)); root.draw(Canvas(tmp)); Thread.sleep(30) }
             val bmp = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
             root.draw(Canvas(bmp))
             File(out, "rd_$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -57,12 +59,23 @@ class ReadmeShotsTest {
             while (i < r.points.size - 2 && r.cum[i + 1] < m) i++
             val f = ((m - r.cum[i]) / maxOf(r.cum[i + 1] - r.cum[i], 0.1)).coerceIn(0.0, 1.0)
             val p = Geo.lerp(r.points[i], r.points[i + 1], f)
-            LocationTracker.onLocationChanged(Location("gps").apply {
+            val l = Location("gps").apply {
                 latitude = p.lat; longitude = p.lon; this.speed = speed; bearing = Geo.bearing(r.points[i], r.points[i + 1])
                 accuracy = 5f; time = System.currentTimeMillis()
-            })
+            }
+            lastFix = l
+            LocationTracker.onLocationChanged(l)
         }
         fun back() { activity.onBackPressedDispatcher.onBackPressed(); looper.idle() }
+        fun call(name: String) = MainActivity::class.java.getDeclaredMethod(name).apply { isAccessible = true }.invoke(activity)
+        lateinit var mapView: GameMapView
+        fun clean() { // nothing left open from the shot before
+            try { call("closeSearch") } catch (_: Exception) {}
+            try { call("closeSheet") } catch (_: Exception) {}
+            try { call("closePlace") } catch (_: Exception) {}
+            mapView.onMapTap?.invoke()
+            looper.idle()
+        }
         fun style(t: Theme, dark: Boolean) { MapState.setTheme(t); MapState.setLightMode(if (dark) MapState.LightMode.DARK else MapState.LightMode.LIGHT) }
         val now = System.currentTimeMillis()
         Explorer.record(Explorer.Trip("National Archaeological Museum", now - 3_600_000, 840, 4200.0, 120, 41, 1, 1))
@@ -70,6 +83,7 @@ class ReadmeShotsTest {
         Places.save("home", Place("Home", "Glyfada", LatLng(37.8650, 23.7530)))
         locate(300.0, 0f)
         val map = find(root)!!
+        mapView = map
 
         // home
         style(Theme.OPEN_WORLD, false); MapState.zoomBy(16.5 - MapState.targetZoom); shot("home")
@@ -79,22 +93,22 @@ class ReadmeShotsTest {
         val search = MainActivity::class.java.getDeclaredField("search").apply { isAccessible = true }.get(activity) as android.widget.EditText
         search.requestFocus(); search.setText("starbucks"); run.invoke(activity, "starbucks", true)
         repeat(60) { looper.idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(80) }
-        shot("search"); back(); back(); search.setText(""); search.clearFocus(); looper.idle()
+        shot("search"); search.setText(""); clean()
         // place card with fuel prices
         style(Theme.NEON_NOIR, true)
         map.onPlaceTap?.invoke(Place("EKO", "Fuel · Patision 60", LatLng(37.9880, 23.7300), "⛽", rating = 4.1, ratings = 212,
             extra = "95 €1.970 · Diesel €2.035 (area average, 13 Nov)"))
-        shot("place"); back()
+        shot("place"); clean()
         // routes
-        style(Theme.LOOKOUT, false)
+        style(Theme.LOOKOUT, false); clean()
         NavEngine.debugPlan(dest, opts); shot("routes")
         // driving
-        style(Theme.NEON_RACER, true)
+        style(Theme.NEON_RACER, true); clean()
         NavEngine.debugDrive(dest, r, 120); locate(400.0)
         repeat(200) { MapState.tick(); LocationTracker.tick(); looper.idleFor(java.time.Duration.ofMillis(10)) }
         shot("drive")
         // convoy while driving
-        style(Theme.NEON_NOIR, true)
+        style(Theme.NEON_NOIR, true); clean()
         Convoy.myName = "Vyto"; Convoy.debugStart(dest)
         Convoy.debugMember("Nikos", r.points[r.points.size / 3], 48, now + 9 * 60_000L, r.length * 0.55, r.length, "driving")
         Convoy.debugMember("Maria", r.points[3], 31, now + 14 * 60_000L, r.length * 0.95, r.length, "driving")
@@ -104,7 +118,7 @@ class ReadmeShotsTest {
         activity.openSheetForTest("convoy"); shot("convoy_list"); back()
         Convoy.leave(quiet = true); NavEngine.stop(); looper.idle()
         // race start countdown
-        style(Theme.TRAILBLAZER, false); locate(300.0, 0f)
+        style(Theme.TRAILBLAZER, false); locate(300.0, 0f); clean()
         Convoy.debugStart(dest)
         Convoy.debugMember("Nikos", Geo.offset(r.points[2], 90f, 30.0), 0, 0, -1.0, -1.0, "ready")
         Convoy.members.values.first().apply { ready = true; readyAt = System.currentTimeMillis() }
@@ -117,17 +131,17 @@ class ReadmeShotsTest {
         Convoy.leave(quiet = true); NavEngine.stop(); looper.idle()
         // fuel list
         style(Theme.OPEN_WORLD, false); locate(300.0, 0f)
-        activity.showFuelForTest()
-        repeat(80) { looper.idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(80) }
-        shot("fuel"); back(); back()
+        clean(); activity.showFuelForTest()
+        repeat(250) { looper.idleFor(java.time.Duration.ofMillis(100)); Thread.sleep(80) }
+        shot("fuel"); clean()
         // arrival card
-        style(Theme.PARCHMENT_QUEST, false)
+        style(Theme.PARCHMENT_QUEST, false); clean()
         NavEngine.debugTrip(Explorer.Trip("National Archaeological Museum", now, 840, 4200.0, 120, 41, 1, 1)); shot("arrival")
         NavEngine.dismissTrip(); looper.idle()
         // styles and settings
-        style(Theme.BLOCKY, false); MapState.zoomBy(17.0 - MapState.targetZoom); shot("blocky")
-        style(Theme.RETRO, false); activity.openSheetForTest("style"); shot("styles"); back()
-        style(Theme.OPEN_WORLD, true); activity.openSheetForTest("settings"); shot("settings"); back()
+        clean(); style(Theme.BLOCKY, false); MapState.zoomBy(17.0 - MapState.targetZoom); shot("blocky")
+        style(Theme.RETRO, false); activity.openSheetForTest("style"); shot("styles"); clean()
+        style(Theme.OPEN_WORLD, true); activity.openSheetForTest("settings"); shot("settings"); clean()
         // zoomed out: countries
         style(Theme.OPEN_WORLD, false); MapState.zoomBy(4.2 - MapState.targetZoom)
         shot("countries", frames = 120)
@@ -142,7 +156,7 @@ class ReadmeShotsTest {
         val rr = MapRenderer(car = true).apply { carButtons = true }
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); val c = Canvas(bmp); val area = Rect(0, 0, w, h)
         fun car(name: String) {
-            repeat(30) { rr.draw(c, w, h, area, 1.6f, true); looper.idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(30) }
+            repeat(30) { fresh(); rr.draw(c, w, h, area, 1.6f, true); looper.idleFor(java.time.Duration.ofMillis(60)); Thread.sleep(30) }
             rr.draw(c, w, h, area, 1.6f, true)
             File(out, "rd_car_$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
