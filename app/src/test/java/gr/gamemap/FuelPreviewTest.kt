@@ -45,7 +45,7 @@ class FuelPreviewTest {
         activity.openSheetForTest("fuelfilters"); shot("fuel_filters")
         // what the car would list
         val near = LatLng(37.9838, 23.7275)
-        val all = Places.nearbyFull(listOf("fuel", "charging_station"), near, Places.nearbyLocal(listOf("fuel", "charging_station"), near)).orEmpty()
+        val all = Places.fuelAndChargers(near, true).orEmpty()
         val log = StringBuilder("found ${all.size}: ${all.count { it.icon == "⛽" }} fuel, ${all.count { it.icon == "🔌" }} chargers\n")
         for (k in listOf("diesel", "sp95", "ev")) {
             Fuel.chosen = k

@@ -775,6 +775,7 @@ class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
 
 /** Places of one kind around you (e.g. parking after arriving): pick one to go there. */
 class NearbyScreen(carContext: CarContext, private val title: String, private val types: List<String>) : Screen(carContext) {
+    private val isFuel = "fuel" in types
     private var results: List<Place>? = null
     private var failed = false
 
@@ -787,7 +788,7 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
             val local = try { Places.nearbyLocal(types, near) } catch (e: Exception) { emptyList() }
             if (local.isNotEmpty()) main.post { results = local; invalidate() }
             // 2) the online services add what the map data doesn't have
-            val r = try { Places.nearbyFull(types, near, local) } catch (e: Exception) { null }
+            val r = try { if (isFuel) Places.fuelAndChargers(near, gr.gamemap.Fuel.showChargers) else Places.nearbyFull(types, near, local) } catch (e: Exception) { null }
             main.post {
                 results = r ?: local
                 failed = r == null && local.isEmpty()
@@ -795,8 +796,6 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
             }
         }
     }
-
-    private val isFuel = "fuel" in types
 
     override fun onGetTemplate(): Template {
         val F = gr.gamemap.Fuel

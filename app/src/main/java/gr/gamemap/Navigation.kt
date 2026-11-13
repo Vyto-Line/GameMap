@@ -782,6 +782,17 @@ object Places {
         return list
     }
 
+    /**
+     * Fuel stations and (if you want them) chargers, fetched separately so neither crowds the
+     * other out of the list. Null when nothing could be loaded at all.
+     */
+    fun fuelAndChargers(near: LatLng, chargers: Boolean): List<Place>? {
+        val fuel = nearbyFull(listOf("fuel"), near, nearbyLocal(listOf("fuel"), near))
+        val ev = if (chargers) nearbyFull(listOf("charging_station"), near, emptyList())?.filter { it.icon == "🔌" } else emptyList()
+        if (fuel == null && ev.isNullOrEmpty()) return null
+        return fuel.orEmpty() + ev.orEmpty().filter { c -> fuel.orEmpty().none { Geo.distance(it.pos, c.pos) < 25 && it.name == c.name } }
+    }
+
     /** Local first, then the online services' extra places (not already listed). */
     fun mergeNearby(local: List<Place>, online: List<Place>?, near: LatLng): List<Place> {
         val out = ArrayList(local)

@@ -629,7 +629,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val types = if (Fuel.showChargers) listOf("fuel", "charging_station") else listOf("fuel")
             val local = try { Places.nearbyLocal(types, near) } catch (e: Exception) { emptyList<Place>() }
             if (local.isNotEmpty()) runOnUiThread { if (seq == querySeq && !isFinishing) { fuelShown = local; renderFuel(loading = true) } }
-            val r = try { Places.nearbyFull(types, near, local) } catch (e: Exception) { null }
+            val r = try { Places.fuelAndChargers(near, Fuel.showChargers) } catch (e: Exception) { null }
             runOnUiThread {
                 if (seq != querySeq || isFinishing) return@runOnUiThread
                 fuelShown = r ?: local
@@ -701,7 +701,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         suggestScroll.visibility = View.VISIBLE
         refreshChrome()
         suggestScroll.post {
-            val max = (resources.displayMetrics.heightPixels * 0.58f).toInt()
+            val max = (resources.displayMetrics.heightPixels * 0.5f).toInt() // leave room for the price tags on the map
             val lp = suggestScroll.layoutParams
             val want = if (suggestList.height > max) max else WRAP_CONTENT
             if (lp.height != want) { lp.height = want; suggestScroll.layoutParams = lp }
