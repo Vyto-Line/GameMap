@@ -604,7 +604,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             // long words ("Mission complete" in a wide font) shrink to one line instead of wrapping
             setAutoSizeTextTypeUniformWithConfiguration(16, 28, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
         }
-        etaTraffic = TextView(this).apply { textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setPadding((10 * d).toInt(), 0, 0, 0) }
+        etaTraffic = TextView(this).apply { textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setPadding((10 * d).toInt(), 0, 0, 0); maxLines = 1 }
         etaSmall = TextView(this).apply { textSize = 15f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         shareBtn = pill("Share") { shareEta() }
         convoyBtn = pill("● Convoy") { openSheet("convoy") }.apply { visibility = View.GONE }
@@ -1228,7 +1228,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     convoyBtn.visibility = if (Convoy.active) View.VISIBLE else View.GONE
                     shareBtn.visibility = if (Convoy.active) View.GONE else View.VISIBLE
                     if (Convoy.active) {
-                        convoyBtn.text = "● Convoy ${Convoy.members.size + 1}"
+                        convoyBtn.text = "👥 ${Convoy.members.size + 1}"
+                        convoyBtn.contentDescription = "Convoy: ${Convoy.members.size + 1} drivers"
                         convoyBtn.setTextColor(readable(accent)); convoyBtn.background = bg(Color.TRANSPARENT, accent, 1.5f, 22f)
                     }
                 }
