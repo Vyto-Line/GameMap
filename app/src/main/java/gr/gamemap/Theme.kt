@@ -127,7 +127,7 @@ enum class Theme(
         ),
     ),
     NEON_NOIR(
-        "Night City",
+        "Might City",
         light = Look(
             style = MapStyle(
                 land = rgb(228, 240, 242), water = rgb(176, 222, 234), park = rgb(206, 234, 226),

@@ -70,7 +70,7 @@ Original designs in the spirit of different game genres. Each comes in a light a
 | Style | Feel |
 |---|---|
 | **Free Roam** | Asphalt-grey streets, slate water, purple GPS line |
-| **Night City** | Teal megacity grid, yellow route, cut-corner panels, scanlines |
+| **Might City** | Teal megacity grid, yellow route, cut-corner panels, scanlines |
 | **Midnight Run** | Neon roads, grid and horizon glow |
 | **Blockworld** | A block world built from real buildings: planks, bricks, stone and terracotta roofs |
 | **Realm Map** | Old paper map, ink roads, red dashed route, serif lettering |
