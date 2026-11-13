@@ -58,10 +58,14 @@ object Tolls {
             if (off > 22) continue // a booth on a ramp we don't take, or across the road
             // one plaza has a booth per lane / carriageway: count it once
             if (out.any { it.name == s.name && kotlin.math.abs(it.along - along) < 3000 }) continue
+            // Attiki Odos charges once, at the entry
+            if (s.name == "Αττική Οδός" && out.any { it.name == s.name }) continue
             out += OnRoute(s.name, s.price, along, s.pos)
         }
         return out.sortedBy { it.along }
     }
+
+    internal fun loadForTest(json: String) { stations = parse(json) }
 
     /** Fills in the tolls and their total for each route (background thread). */
     fun annotate(routes: List<RouteOption>) { for (r in routes) { r.tolls = along(r) } }
