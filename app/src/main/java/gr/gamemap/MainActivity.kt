@@ -564,6 +564,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             }
             chips.addView(v, LinearLayout.LayoutParams(WRAP_CONTENT, (40 * d).toInt()).apply { marginEnd = (8 * d).toInt() })
         }
+        // in a convoy: it comes first, with a quick way out
+        if (Convoy.active) {
+            chip("👥 Convoy · ${Convoy.members.size + 1}") { openSheet("convoy") }
+            chip("✕ Leave convoy") { confirmLeaveConvoy() }
+        }
         for (k in listOf("home", "work")) {
             val p = Places.saved(k)
             val name = if (k == "home") "🏠 Home" else "💼 Work"
@@ -572,10 +577,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 if (p == null) startPicking(k) else NavEngine.plan(this, p)
             }
         }
-        if (Convoy.active) {
-            chip("👥 Convoy · ${Convoy.members.size + 1}") { openSheet("convoy") }
-            chip("✕ Leave convoy") { confirmLeaveConvoy() }
-        } else chip("👥 Convoy") { openSheet("convoy") }
+        if (!Convoy.active) chip("👥 Convoy") { openSheet("convoy") }
         chip("⛽ Fuel") { showFuel() }
         chip("🍽 Food") { showNearby("FOOD NEARBY", listOf("restaurant", "fast_food", "cafe")) }
         chip("🅿 Parking") { showNearby("PARKING NEARBY", listOf("parking")) }
