@@ -199,7 +199,7 @@ object TomTomRoute {
     fun routes(from: LatLng, to: LatLng, alternatives: Boolean, heading: Float?, via: List<LatLng>): List<RouteOption> {
         val pts = listOf(from) + via + listOf(to)
         var url = "https://api.tomtom.com/routing/1/calculateRoute/" + pts.joinToString(":") { "${it.lat},${it.lon}" } + "/json" +
-            "?key=${Traffic.key}&traffic=true&travelMode=car&routeRepresentation=polyline&instructionsType=coded" +
+            "?key=${Traffic.key}&traffic=true&travelMode=car&routeRepresentation=polyline&instructionsType=coded&language=el-GR" +
             "&sectionType=traffic&sectionType=speedLimit&sectionType=tollRoad&sectionType=motorway"
         if (alternatives) url += "&maxAlternatives=2"
         if (heading != null) url += "&vehicleHeading=${heading.toInt().coerceIn(0, 359)}"
