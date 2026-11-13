@@ -761,7 +761,15 @@ class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
             else row(gr.gamemap.L.t("Search")) { screenManager.pop(); screenManager.push(SearchScreen(carContext)) }
             // (the list holds 6 rows; Recenter is on the map itself)
             val cd = gr.gamemap.Convoy.destination
-            if (gr.gamemap.Convoy.active && !NavEngine.active && cd != null) row(gr.gamemap.L.t("Convoy: go"), cd.name) {
+            val lobby = gr.gamemap.Convoy.lobby()
+            if (gr.gamemap.Convoy.active && !NavEngine.active && cd != null && lobby.isNotEmpty()) {
+                // the race start: ready here too; the countdown shows on the map
+                val waiting = lobby.filter { !it.ready }.map { it.name }
+                if (gr.gamemap.Convoy.meReady) row(gr.gamemap.L.t("✓ Ready (tap to undo)"),
+                    if (waiting.isEmpty()) gr.gamemap.L.t("Everyone's ready!") else gr.gamemap.L.t("Waiting for ") + waiting.joinToString(", ")) {
+                    gr.gamemap.Convoy.setReady(false); invalidate()
+                } else row(gr.gamemap.L.t("🏁 I'm ready"), cd.name) { gr.gamemap.Convoy.setReady(true); screenManager.pop() }
+            } else if (gr.gamemap.Convoy.active && !NavEngine.active && cd != null) row(gr.gamemap.L.t("Convoy: go"), cd.name) {
                 screenManager.pop(); NavEngine.start(carContext, cd)
             } else row(gr.gamemap.L.t("Fuel nearby"), if (NavEngine.active) gr.gamemap.L.t("Add a fuel stop") else gr.gamemap.L.t("Prices and ratings")) {
                 screenManager.pop(); screenManager.push(NearbyScreen(carContext, gr.gamemap.L.t("Fuel nearby"), listOf("fuel", "charging_station")))

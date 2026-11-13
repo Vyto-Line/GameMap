@@ -572,7 +572,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 if (p == null) startPicking(k) else NavEngine.plan(this, p)
             }
         }
-        chip("👥 Convoy") { openSheet("convoy") }
+        if (Convoy.active) {
+            chip("👥 Convoy · ${Convoy.members.size + 1}") { openSheet("convoy") }
+            chip("✕ Leave convoy") { confirmLeaveConvoy() }
+        } else chip("👥 Convoy") { openSheet("convoy") }
         chip("⛽ Fuel") { showFuel() }
         chip("🍽 Food") { showNearby("FOOD NEARBY", listOf("restaurant", "fast_food", "cafe")) }
         chip("🅿 Parking") { showNearby("PARKING NEARBY", listOf("parking")) }
@@ -1615,7 +1618,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
         controls.visibility = if (planning || searching) View.GONE else View.VISIBLE
         val homeKey = "${t.name}|${MapState.dark}|${MapState.imperial}|$etaVersion|${Explorer.version}|${Explorer.xp}|${Places.recents().joinToString { it.name }}|" +
-            "${Places.saved("home")?.name}|${Places.saved("work")?.name}|${LocationTracker.position != null}|${Parked.get()?.at}"
+            "${Places.saved("home")?.name}|${Places.saved("work")?.name}|${LocationTracker.position != null}|${Parked.get()?.at}|${Convoy.active}|${Convoy.members.size}"
         if (homeKey != lastHomeKey) {
             lastHomeKey = homeKey
             if (chipsScroll.visibility == View.VISIBLE) renderChips()
@@ -1637,7 +1640,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             "report" -> renderReport()
             "trips" -> renderTrips()
             "offline" -> renderOffline()
-            "convoy" -> renderConvoy()
+            "convoy" -> if (Convoy.counting) closeSheet() else renderConvoy() // the countdown shows on the map
             "quick" -> renderQuick()
             "fuelfilters" -> {} // drawn once when opened, so its switches keep their scroll place
         }
@@ -2093,6 +2096,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         sheetHost.background = bg(panel, radius = 24f, topOnly = true)
         sheetHost.addView(sheetHeader("While driving"))
         val rows = listOfNotNull(
+            if (Convoy.active) settingRow("Leave convoy", "${Convoy.members.size + 1} drivers") { confirmLeaveConvoy() } else null,
             if (NavEngine.route.size > 1) settingRow("Route overview", null) {
                 closeSheet()
                 val r = NavEngine.route
@@ -2395,9 +2399,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private var convoyKey = ""
 
+    private fun confirmLeaveConvoy() {
+        AlertDialog.Builder(this).setMessage("Leave the convoy? The others will stop seeing you.")
+            .setPositiveButton("Leave") { _, _ -> Convoy.leave(); if (sheetKind == "convoy" || sheetKind == "quick") closeSheet() }
+            .setNegativeButton("Stay", null).showT()
+    }
+
     private fun renderConvoy() {
         val rows = Convoy.rows(accent)
-        val key = "${Convoy.code}|${Convoy.myName}|${Convoy.destination?.name}|${rows.joinToString { "${it.name}${it.kmh}${it.state}${it.eta / 60000}${(it.progress * 50).toInt()}" }}|${NavEngine.active}|${theme.name}|${MapState.dark}"
+        val key = "${Convoy.code}|${Convoy.myName}|${Convoy.destination?.name}|${rows.joinToString { "${it.name}${it.kmh}${it.state}${it.eta / 60000}${(it.progress * 50).toInt()}${it.ready}${it.stale}" }}|${NavEngine.active}|${theme.name}|${MapState.dark}"
         if (key == convoyKey && sheetHost.childCount > 0) return
         convoyKey = key
         sheetHost.removeAllViews()
@@ -2506,16 +2516,38 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0) }
         buttons.addView(pill("🔗 Invite") { inviteToConvoy() }.apply { setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 22f) },
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
-        buttons.addView(pill("Leave") {
-            AlertDialog.Builder(this).setMessage("Leave the convoy? The others will stop seeing you.")
-                .setPositiveButton("Leave") { _, _ -> Convoy.leave(); closeSheet() }.setNegativeButton("Stay", null).showT()
-        }.apply { setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 22f) },
+        buttons.addView(pill("Leave") { confirmLeaveConvoy() }.apply { setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 22f) },
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
-        if (!NavEngine.active && dest != null) buttons.addView(pill("Start") { closeSheet(); NavEngine.start(this, dest); MapState.recenter() }.apply {
+        val lobby = Convoy.lobby()
+        val race = !NavEngine.active && dest != null && lobby.isNotEmpty()
+        if (!NavEngine.active && dest != null && !race) buttons.addView(pill("Start") { closeSheet(); NavEngine.start(this, dest); MapState.recenter() }.apply {
             setTextColor(onAccent(accent)); background = bg(accent, radius = 22f)
         }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.3f))
+        if (race) {
+            // the race start: everyone presses Ready, then 3-2-1 and all go together
+            val waiting = lobby.filter { !it.ready }.map { it.name }
+            val ready = Convoy.meReady
+            sheetHost.addView(pill(when {
+                !ready -> "🏁 I'm ready"
+                waiting.isEmpty() -> "✓ Everyone's ready!"
+                else -> "✓ Ready · waiting for " + waiting.joinToString(", ")
+            }) { Convoy.setReady(!ready) }.apply {
+                textSize = 17f
+                if (ready) { setTextColor(readable(Color.rgb(47, 180, 100))); background = bg(Color.TRANSPARENT, Color.rgb(47, 180, 100), 2f, 22f) }
+                else { setTextColor(onAccent(accent)); background = bg(accent, radius = 22f) }
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            }, LinearLayout.LayoutParams(MATCH_PARENT, (54 * d).toInt()).apply { topMargin = p })
+            sheetHost.addView(label(if (ready) "Tap again if you're not ready after all. When everyone is, a 3-2-1 countdown starts on every phone and the route starts by itself."
+                else "When everyone has pressed it, a 3-2-1 countdown starts on every phone and the route starts by itself.", 13f).apply {
+                setTextColor(dim()); setPadding(0, p / 2, 0, 0)
+            })
+        }
         sheetHost.addView(buttons)
-        sheetHost.addView(label("Friends' arrows glide between updates (every ~15 s while driving). Positions go through the free ntfy.sh relay; only people with the code can see them.", 12f).apply {
+        if (race) sheetHost.addView(label("Start without waiting", 13f, bold = true).apply {
+            setTextColor(readable(accent)); gravity = Gravity.CENTER; setPadding(0, p, 0, 0)
+            setOnClickListener { closeSheet(); NavEngine.start(this@MainActivity, dest!!); MapState.recenter() }
+        })
+        sheetHost.addView(label("Positions update every 2 s while driving, end-to-end encrypted: only people with the code can see them.", 12f).apply {
             setTextColor(dim()); setPadding(0, p, 0, 0)
         })
     }

@@ -265,6 +265,8 @@ class MapRenderer(private val car: Boolean = false) {
         drawJamChip(c, area, d, theme, hud)
         if (hud && NavEngine.estimating) drawNoGps(c, area, d, theme)
         if (hud && !NavEngine.arrived) NavEngine.tollAhead?.let { (t, dist) -> drawTollChip(c, area, d, theme, t.price, dist) }
+        if (hud && Convoy.counting) { drawCountdown(c, area, d, theme); animating = true }
+        else if (hud && Convoy.active && Convoy.meReady && !NavEngine.active) drawLobbyChip(c, area, d, theme)
         drawDiscovery(c, area, d, theme)
         if (hud && (view.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
         drawAttribution(c, area, d, theme)
@@ -1260,6 +1262,64 @@ class MapRenderer(private val car: Boolean = false) {
         text.color = Color.rgb(120, 70, 0)
         c.drawText("€", r.left + 12 * d, r.centerY() + 5 * d, text)
         c.drawText(label, r.left + 26 * d, r.centerY() + 5 * d, text)
+        text.typeface = t.typeface
+        bannerBottom = r.bottom
+    }
+
+    /** Convoy race start: "Everyone's ready", then a big 3, 2, 1 and GO in the middle of the map. */
+    private fun drawCountdown(c: Canvas, a: Rect, d: Float, t: Theme) {
+        val left = Convoy.goAt - System.currentTimeMillis()
+        val n = Math.ceil(left / 1000.0).toInt()
+        val label = when {
+            n > 3 -> gr.gamemap.L.t("Everyone's ready!")
+            n >= 1 -> n.toString()
+            else -> gr.gamemap.L.t("GO!")
+        }
+        // each number pops in big and settles
+        val f = if (left > 0) ((left % 1000) / 1000f) else ((1500 + left) / 1500f).coerceIn(0f, 1f)
+        val big = n in 1..3 || n <= 0
+        val scale = if (big) 1f + 0.35f * f * f else 1f
+        val cx = a.exactCenterX(); val cy = a.top + a.height() * 0.42f
+        val r = (if (car) 54f else 70f) * d
+        fill.color = Color.argb(225, 20, 22, 28)
+        if (big) c.drawCircle(cx, cy, r * scale, fill)
+        val col = if (n <= 0) Color.rgb(47, 210, 122) else t.route
+        stroke.color = col; stroke.strokeWidth = 5 * d
+        if (big) c.drawCircle(cx, cy, r * scale - 2.5f * d, stroke)
+        text.textAlign = Paint.Align.CENTER; text.typeface = Typeface.DEFAULT_BOLD
+        text.color = if (n <= 0) col else Color.WHITE
+        if (big) {
+            text.textSize = (if (n <= 0) 34f else 64f) * d * (if (car) 0.8f else 1f) * scale
+            c.drawText(label, cx, cy + text.textSize * 0.36f, text)
+        } else {
+            text.textSize = 20 * d
+            val w = text.measureText(label) + 40 * d
+            val rr = RectF(cx - w / 2, cy - 26 * d, cx + w / 2, cy + 26 * d)
+            c.drawRoundRect(rr, 26 * d, 26 * d, fill)
+            stroke.color = t.route; stroke.strokeWidth = 2.5f * d; c.drawRoundRect(rr, 26 * d, 26 * d, stroke)
+            c.drawText("🏁 $label", cx, cy + 7 * d, text)
+        }
+        text.typeface = t.typeface
+    }
+
+    /** At the convoy start after pressing Ready: who we're still waiting for. */
+    private fun drawLobbyChip(c: Canvas, a: Rect, d: Float, t: Theme) {
+        val lobby = Convoy.lobby()
+        if (lobby.isEmpty()) return
+        val waiting = lobby.filter { !it.ready }.map { it.name }
+        val label = gr.gamemap.L.t("Ready ${lobby.count { it.ready } + 1}/${lobby.size + 1}") +
+            (if (waiting.isEmpty()) "" else " · " + gr.gamemap.L.t("waiting for ") + waiting.joinToString(", "))
+        text.textAlign = Paint.Align.LEFT; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 13.5f * d
+        val shown = ellipsize(label, a.width() - 80 * d)
+        val w = text.measureText(shown) + 46 * d
+        val x = if (car) a.left + 12 * d else a.centerX() - w / 2
+        val y = maxOf(bannerBottom, a.top.toFloat()) + 8 * d
+        val r = RectF(x, y, x + w, y + 32 * d)
+        fill.color = Color.argb(235, 40, 44, 52); c.drawRoundRect(r, 16 * d, 16 * d, fill)
+        stroke.color = Color.rgb(47, 210, 122); stroke.strokeWidth = 1.5f * d; c.drawRoundRect(r, 16 * d, 16 * d, stroke)
+        text.color = Color.WHITE
+        c.drawText("🏁", r.left + 10 * d, r.centerY() + 5 * d, text)
+        c.drawText(shown, r.left + 34 * d, r.centerY() + 5 * d, text)
         text.typeface = t.typeface
         bannerBottom = r.bottom
     }

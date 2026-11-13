@@ -327,9 +327,13 @@ object NavEngine {
         val r = current ?: return null
         val pts = r.points
         if (pts.size < 2) return null
-        var best = -1; var bestD = 35.0
-        for (i in 0 until pts.size - 1) { val dd = Geo.distance(pts[i], p); if (dd < bestD) { bestD = dd; best = i } }
-        return if (best < 0) null else r.cum[best]
+        // projected onto the segments (not the nearest corner: those can be 100 m apart on a straight road)
+        var best = -1.0; var bestD = 35.0
+        for (i in 0 until pts.size - 1) {
+            val (c, dd) = Geo.project(p, pts[i], pts[i + 1])
+            if (dd < bestD) { bestD = dd; best = r.cum[i] + Geo.distance(pts[i], c) }
+        }
+        return if (best < 0) null else best
     }
 
     /** The point at [dist] metres along this route. */

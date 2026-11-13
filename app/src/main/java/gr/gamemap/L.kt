@@ -91,6 +91,9 @@ object L {
         "On · (\\d+) drivers" to "Ενεργό · $1 οδηγοί",
         "(\\d+) drivers" to "$1 οδηγοί",
         "Convoy · (.+)" to "Κομβόι · $1",
+        "👥 Convoy · (\\d+)" to "👥 Κομβόι · $1",
+        "✓ Ready · waiting for (.+)" to "✓ Έτοιμος · περιμένουμε: $1",
+        "Ready (\\d+)/(\\d+)" to "Έτοιμοι $1/$2",
         "Convoy: (\\d+) drivers" to "Κομβόι: $1 οδηγοί",
         "(\\d+) area(s?) · (.+)" to "$1 περιοχ. · $3",
         "(\\d+) camera(s?) saved on this phone\\. GameRoute warns you before each one\\." to "$1 κάμερες αποθηκευμένες στο κινητό. Το GameRoute σας προειδοποιεί πριν από κάθε μία.",
@@ -294,6 +297,16 @@ object L {
         "Leave the convoy? The others will stop seeing you." to "Αποχώρηση από το κομβόι; Οι άλλοι δεν θα σας βλέπουν πια.",
         "Stay" to "Παραμονή", "Nobody else yet: send the code or the invite link." to "Κανείς άλλος ακόμα: στείλτε τον κωδικό ή τον σύνδεσμο.",
         "Connecting to the group…" to "Σύνδεση με την ομάδα…", "That isn't a convoy code or link" to "Αυτό δεν είναι κωδικός ή σύνδεσμος κομβόι",
+        "🏁 I'm ready" to "🏁 Είμαι έτοιμος", "✓ Everyone's ready!" to "✓ Όλοι έτοιμοι!", "Everyone's ready!" to "Όλοι έτοιμοι!",
+        "GO!" to "ΠΑΜΕ!", "✓ Ready (tap to undo)" to "✓ Έτοιμος (πάτα για αναίρεση)", "Waiting for " to "Περιμένουμε: ",
+        "waiting for " to "περιμένουμε: ", "Start without waiting" to "Ξεκίνα χωρίς αναμονή", "✕ Leave convoy" to "✕ Αποχώρηση από το κομβόι",
+        "ready ✓" to "έτοιμος ✓", "not ready yet" to "όχι έτοιμος ακόμα",
+        "When everyone has pressed it, a 3-2-1 countdown starts on every phone and the route starts by itself." to
+            "Όταν το πατήσουν όλοι, ξεκινά αντίστροφη μέτρηση 3-2-1 σε κάθε κινητό και η διαδρομή ξεκινά μόνη της.",
+        "Tap again if you're not ready after all. When everyone is, a 3-2-1 countdown starts on every phone and the route starts by itself." to
+            "Πάτα ξανά αν τελικά δεν είσαι έτοιμος. Όταν είναι όλοι, ξεκινά αντίστροφη μέτρηση 3-2-1 σε κάθε κινητό και η διαδρομή ξεκινά μόνη της.",
+        "Positions update every 2 s while driving, end-to-end encrypted: only people with the code can see them." to
+            "Οι θέσεις ανανεώνονται κάθε 2 δευτ. στην οδήγηση, κρυπτογραφημένες από άκρο σε άκρο: μόνο όσοι έχουν τον κωδικό τις βλέπουν.",
         "Drive there as a convoy" to "Πάμε εκεί σαν κομβόι", "Convoy: go" to "Κομβόι: πάμε", "● Convoy" to "● Κομβόι",
         "You" to "Εσείς", "you" to "εσείς", "Driver" to "Οδηγός",
         "Shown next to your arrow on the others' maps." to "Εμφανίζεται δίπλα στο βελάκι σας στους χάρτες των άλλων.",

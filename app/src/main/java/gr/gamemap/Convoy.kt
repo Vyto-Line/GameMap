@@ -15,7 +15,9 @@ import java.util.concurrent.ConcurrentHashMap
  * their speed, arrival time and how far along the route they are.
  *
  * No accounts or server of our own: each convoy is a private topic on the free ntfy.sh (end-to-end encrypted with a key from the code, see Seal)
- * relay. Members post a small update (~every 15 s while driving) and listen to the others.
+ * relay, plus two public MQTT brokers for real time (ConvoyLink). Members post a small update every 2 s while
+ * driving and listen to the others. At the start everyone presses "I'm ready"; when all have, a 3-2-1 countdown
+ * runs on every phone and navigation starts by itself.
  */
 object Convoy {
     class Member(
@@ -32,6 +34,9 @@ object Convoy {
         var arrivedAt: Long = 0,
         var seen: Long = 0,
     ) {
+        /** Pressed "I'm ready" at the start (and when: the race starts 4 s after the last one). */
+        @Volatile var ready = false
+        @Volatile var readyAt = 0L
         /** 0 at the start … 1 at the destination. */
         val progress: Double get() = if (state == "arrived") 1.0 else if (total > 0 && left >= 0) (1 - left / total).coerceIn(0.0, 1.0) else 0.0
         /** Updates come every ~2 s while driving (10 s when stopped), so 25 s without one = signal lost. */
@@ -179,6 +184,7 @@ object Convoy {
         val c = code ?: return
         if (!quiet) publish(JSONObject().put("t", "bye").put("id", myId).put("ts", System.currentTimeMillis()), c)
         code = null; destination = null; members.clear()
+        meReady = false; goAt = 0; main.removeCallbacks(countdown)
         prefs().edit().remove("convoyCode").remove("convoyDest").apply()
         listener?.interrupt(); listener = null
         ConvoyLink.stop(if (quiet) null else myId)
@@ -197,6 +203,7 @@ object Convoy {
         destination?.let { o.put("dn", it.name).put("da", it.address).put("dlat", it.pos.lat).put("dlon", it.pos.lon) }
         LocationTracker.position?.let { o.put("lat", it.lat).put("lon", it.lon).put("h", LocationTracker.heading.toDouble()) }
         o.put("s", Math.round(LocationTracker.speedMps * 3.6f))
+        if (meReady && state == "ready") o.put("rd", true).put("ra", meReadyAt)
         if (NavEngine.active) {
             val left = NavEngine.remainingDistance
             if (routeTotal < left) routeTotal = left
@@ -216,6 +223,7 @@ object Convoy {
         val driving = NavEngine.active && !NavEngine.arrived
         val moving = LocationTracker.speedMps > 1.5f
         val gap = when { driving && moving -> 2_000; driving -> 10_000; else -> 30_000 }
+        if (meReady && goAt == 0L) main.post { checkGo() } // someone at the start may have dropped out
         if (now - sentAt < gap) return
         publish(hello(if (NavEngine.arrived) "arrived" else if (driving) "driving" else "ready"))
     }
@@ -228,6 +236,7 @@ object Convoy {
 
     fun startedDriving() {
         routeTotal = -1.0
+        meReady = false
         if (code != null) { sentAt = 0; tick() }
     }
 
@@ -318,8 +327,74 @@ object Convoy {
         val st = o.optString("st", m.state)
         if (st == "arrived" && m.state != "arrived") m.arrivedAt = o.optLong("at", o.optLong("ts"))
         m.state = st
+        m.ready = st == "ready" && o.optBoolean("rd", false)
+        m.readyAt = if (m.ready) o.optLong("ra", ts) else 0
         m.seen = o.optLong("ts", System.currentTimeMillis()).coerceAtMost(System.currentTimeMillis())
-        main.post { changed.fire() }
+        main.post { checkGo(); changed.fire() }
+    }
+
+    // ------------------------------------------------------------- the race start
+
+    /** I pressed "I'm ready". */
+    @Volatile var meReady = false
+        private set
+    @Volatile private var meReadyAt = 0L
+    /** When everyone is ready: the moment of GO (the screens count 3-2-1 down to it); 0 = none. */
+    @Volatile var goAt = 0L
+        private set
+    private var startedFor = 0L
+    private var saidAt = -1L
+    private val said = HashSet<Long>()
+
+    /** The others still at the start: not driving yet and connected. */
+    fun lobby(): List<Member> = members.values.filter { it.state == "ready" && !it.stale }
+
+    /** Counting down to GO right now (or showing GO). */
+    val counting: Boolean get() = goAt != 0L && System.currentTimeMillis() < goAt + 1500
+
+    fun setReady(on: Boolean) {
+        if (code == null || NavEngine.active) return
+        meReady = on; meReadyAt = if (on) System.currentTimeMillis() else 0
+        publish(hello("ready"))
+        checkGo(); changed.fire()
+    }
+
+    /**
+     * Everyone at the start ready (me too, and at least one other)? Then GO is 4 s after the last
+     * one pressed: every phone works out the same moment from the same messages, so all start together.
+     */
+    private fun checkGo() {
+        val now = System.currentTimeMillis()
+        val l = lobby()
+        val all = code != null && destination != null && meReady && !NavEngine.active && l.isNotEmpty() && l.all { it.ready }
+        if (!all) {
+            if (goAt != 0L && now < goAt) { goAt = 0; main.removeCallbacks(countdown); changed.fire() } // someone changed their mind
+            return
+        }
+        val at = maxOf(meReadyAt, l.maxOf { it.readyAt }) + 4000
+        if (goAt == 0L || now >= goAt + 1500) goAt = maxOf(at, now + 1500) // (a late message: still a short countdown)
+        else if (at > goAt + 500) goAt = at // someone pressed again
+        main.removeCallbacks(countdown); main.post(countdown)
+    }
+
+    private val countdown: Runnable = object : Runnable {
+        override fun run() {
+            val g = goAt; if (g == 0L) return
+            val now = System.currentTimeMillis()
+            val n = Math.ceil((g - now) / 1000.0).toLong()
+            if (n != saidAt) { saidAt = n; changed.fire() } // (the map animates the numbers by itself)
+            if (n in 0..3 && n == saidAt && !said.contains(n)) {
+                said += n
+                val gr = Voice.lang == Phrases.GREEK
+                Voice.say(when (n) { 3L -> if (gr) "Τρία" else "Three"; 2L -> if (gr) "Δύο" else "Two"; 1L -> if (gr) "Ένα" else "One"; else -> if (gr) "Πάμε!" else "Go!" })
+            }
+            if (now >= g && startedFor != g) {
+                startedFor = g
+                val dest = destination
+                if (dest != null && code != null && !NavEngine.active) { NavEngine.start(appContext, dest); MapState.recenter() }
+            }
+            if (now < g + 1500) main.postDelayed(this, 100) else { saidAt = -1; said.clear(); changed.fire() }
+        }
     }
 
     // ------------------------------------------------------------- tests
@@ -337,7 +412,7 @@ object Convoy {
 
     /** Me plus the others, furthest along first. */
     data class Row(val name: String, val color: Int, val me: Boolean, val kmh: Int, val eta: Long, val progress: Double,
-                   val left: Double, val state: String, val stale: Boolean, val arrivedAt: Long)
+                   val left: Double, val state: String, val stale: Boolean, val arrivedAt: Long, val ready: Boolean = false)
 
     @Volatile private var rowsCache: Pair<Long, List<Row>>? = null
 
@@ -348,22 +423,22 @@ object Convoy {
     }
 
     private fun computeRows(myColor: Int): List<Row> {
-        val me = Row("You", myColor, true, (LocationTracker.speedMps * 3.6f).toInt(),
+        val me = Row("You", myColor, true, Math.round(LocationTracker.speedMps * 3.6f),
             if (NavEngine.active) System.currentTimeMillis() + (NavEngine.remainingSeconds * 1000).toLong() else 0,
             if (NavEngine.arrived) 1.0 else if (NavEngine.active && routeTotal > 0) (1 - NavEngine.remainingDistance / routeTotal).coerceIn(0.0, 1.0) else 0.0,
             if (NavEngine.active) NavEngine.remainingDistance else -1.0,
             if (NavEngine.arrived) "arrived" else if (NavEngine.active) "driving" else "ready", false,
-            NavEngine.lastTrip?.arrivedAt ?: 0)
-        val others = members.values.map { Row(it.name, it.color, false, it.kmh, it.eta, it.progress, it.left, it.state, it.stale, it.arrivedAt) }
+            NavEngine.lastTrip?.arrivedAt ?: 0, meReady)
+        val others = members.values.map { Row(it.name, it.color, false, it.kmh, it.eta, it.progress, it.left, it.state, it.stale, it.arrivedAt, it.ready) }
         return (others + me).sortedWith(compareByDescending<Row> { it.progress }.thenBy { it.eta })
     }
 
     /** "1.3 km ahead" / "0.8 km behind" relative to me. */
     fun relative(r: Row): String {
-        if (r.me) return "you"
         if (r.state == "arrived") return "arrived"
         if (r.stale) return "no signal"
-        if (r.state == "ready") return "not started"
+        if (r.state == "ready") return if (r.ready) "ready ✓" else "not ready yet"
+        if (r.me) return "you"
         val mine = if (NavEngine.active) NavEngine.remainingDistance else return NavEngine.formatDistance(r.left.coerceAtLeast(0.0)) + " to go"
         val d = mine - r.left
         if (r.kmh == 0) return "stopped"
