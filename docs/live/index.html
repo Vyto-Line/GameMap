@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gameroute · live arrival</title>
+<title>GameRoute · live arrival</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root { --ink:#141824; --dim:#5c6370; --accent:#5B2BD6; --gold:#F59F00; }
@@ -28,7 +28,7 @@
 <div class="card" id="card"><div class="wait">Connecting…</div></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// Gameroute posts the driver's position and arrival time to a private ntfy.sh topic named in the
+// GameRoute posts the driver's position and arrival time to a private ntfy.sh topic named in the
 // link (#topic); this page shows the latest one and follows new ones live. Nothing is stored here.
 const topic = (location.hash || "").slice(1).replace(/[^A-Za-z0-9_-]/g, "");
 const card = document.getElementById("card");
@@ -56,7 +56,7 @@ function render() {
   card.innerHTML = '<div class="top"><span class="dot' + (stale || last.state !== "driving" ? " off" : "") + '"></span>' + head + '</div>' +
     '<h1>' + esc(big) + '</h1><div class="sub">' + esc(sub) + '</div>' +
     '<div class="dest">📍 ' + esc(last.dest || "Destination") + '</div>' +
-    '<div class="note">Updated ' + (ago < 60 ? ago + " s" : Math.round(ago / 60) + " min") + ' ago · shared from Gameroute</div>';
+    '<div class="note">Updated ' + (ago < 60 ? ago + " s" : Math.round(ago / 60) + " min") + ' ago · shared from GameRoute</div>';
   car.setLatLng([last.lat, last.lon]).addTo(map);
   if (last.dlat) dest.setLatLng([last.dlat, last.dlon]).addTo(map);
   if (!fitted && last.dlat) { map.fitBounds([[last.lat, last.lon], [last.dlat, last.dlon]], { padding: [60, 60] }); fitted = true; }

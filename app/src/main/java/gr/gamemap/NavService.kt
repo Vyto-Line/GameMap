@@ -25,7 +25,7 @@ class NavService : Service() {
         )
         val n = NotificationCompat.Builder(this, "nav")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentTitle("Gameroute: mission active")
+            .setContentTitle("GameRoute: mission active")
             .setContentText("Navigating to ${NavEngine.destinationName}")
             .setContentIntent(open)
             .setOngoing(true)

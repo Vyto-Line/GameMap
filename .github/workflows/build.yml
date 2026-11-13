@@ -36,12 +36,12 @@ jobs:
         run: |
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
           gradle assembleDebug --no-daemon -PbuildNumber=${{ github.run_number }}
-          mkdir -p ../out && cp app/build/outputs/apk/debug/*.apk ../out/Gameroute.apk
+          mkdir -p ../out && cp app/build/outputs/apk/debug/*.apk ../out/GameRoute.apk
       - name: Publish release
         if: github.event_name == 'push' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}"
-          gh release create "$TAG" out/Gameroute.apk -R "${{ github.repository }}" \
-            --target "${{ github.sha }}" --title "Gameroute $TAG" --notes "Automatic build. versionCode: ${{ github.run_number }}"
+          gh release create "$TAG" out/GameRoute.apk -R "${{ github.repository }}" \
+            --target "${{ github.sha }}" --title "GameRoute $TAG" --notes "Automatic build. versionCode: ${{ github.run_number }}"

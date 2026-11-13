@@ -62,7 +62,7 @@ object Updater {
         val out = File(ctx.cacheDir, UpdateProvider.NAME)
         val c = URL(r.apkUrl).openConnection() as HttpURLConnection
         c.instanceFollowRedirects = true
-        c.setRequestProperty("User-Agent", "Gameroute-updater")
+        c.setRequestProperty("User-Agent", "GameRoute-updater")
         try {
             if (c.responseCode != 200) throw RuntimeException("HTTP ${c.responseCode}")
             val total = c.contentLengthLong
@@ -104,7 +104,7 @@ object Updater {
 /** Serves the downloaded update (read-only) to UnknownAuto or the system installer. */
 class UpdateProvider : ContentProvider() {
     companion object {
-        const val NAME = "Gameroute-update.apk"
+        const val NAME = "GameRoute-update.apk"
         val uri: Uri = Uri.parse("content://gr.gamemap.update/$NAME")
     }
 
