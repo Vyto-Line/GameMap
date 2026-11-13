@@ -40,6 +40,7 @@ class ConvoySyncTest {
         val t0 = System.currentTimeMillis()
         var lastSent = 0L
         var maxStep = 0.0; var steps = 0; var prev: LatLng? = null
+        val big = StringBuilder(); var prevAt = 0L
         val lags = ArrayList<Long>(); var lastSeenTs = 0L
         val kmhShown = ArrayList<Int>()
         while (System.currentTimeMillis() - t0 < 30_000) {
@@ -60,8 +61,12 @@ class ConvoySyncTest {
             if (mem != null) {
                 if (mem.lastTs != lastSeenTs) { lastSeenTs = mem.lastTs; lags += System.currentTimeMillis() - mem.lastTs; kmhShown += mem.kmh }
                 val d = mem.display(System.currentTimeMillis())
-                if (d != null && prev != null) { maxStep = maxOf(maxStep, Geo.distance(prev, d)); steps++ }
-                prev = d
+                val at = System.currentTimeMillis()
+                if (d != null && prev != null) {
+                    val st = Geo.distance(prev, d); maxStep = maxOf(maxStep, st); steps++
+                    if (st > 1.5) big.append("  +${at - t0} ms: ${"%.2f".format(st)} m in ${at - prevAt} ms\n")
+                }
+                prev = d; prevAt = at
             }
             Thread.sleep(33) // ~30 frames a second
         }
@@ -69,6 +74,7 @@ class ConvoySyncTest {
         log.append("updates received: ${lags.size} in 30 s (sent ${30 / 2})\n")
         log.append("delay: median ${lags.sorted().getOrNull(lags.size / 2)} ms, worst ${lags.maxOrNull()} ms\n")
         log.append("arrow: largest move between two frames ${"%.2f".format(maxStep)} m (driving moves ${"%.2f".format(speed * 0.033)} m per frame)\n")
+        log.append("frames: $steps; moves over 1.5 m:\n$big")
         log.append("speed shown: ${kmhShown.distinct()} (sent 50)\n")
         Convoy.leave(quiet = true)
         File(out, "convoysync.txt").writeText(log.toString())
