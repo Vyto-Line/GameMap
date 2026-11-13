@@ -8,9 +8,12 @@ print("releases:", rel[-3:])
 latest = rel[-1].rstrip("/").split("/")[-2]
 print("latest:", latest)
 src = f"s3://overturemaps-us-west-2/release/{latest}/theme=places/type=place/*"
-print(con.execute(f"DESCRIBE SELECT * FROM read_parquet('{src}') LIMIT 1").fetchall())
+cols = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{src}') LIMIT 1").fetchall()
+for c in cols: print("col", c[0], str(c[1])[:300])
+names = [c[0] for c in cols]
+catcol = "basic_category" if "basic_category" in names else ("categories.primary" if "categories" in names else "taxonomy.primary")
 q = f"""
-SELECT names.primary, categories.primary, confidence, addresses[1].freeform, ST_Y(geometry), ST_X(geometry), sources[1].dataset, operating_status
+SELECT names.primary, {catcol}, confidence, addresses[1].freeform, ST_Y(geometry), ST_X(geometry), sources[1].dataset, operating_status
 FROM read_parquet('{src}', hive_partitioning=1)
 WHERE bbox.xmin BETWEEN 23.70 AND 23.82 AND bbox.ymin BETWEEN 37.84 AND 37.90
   AND (names.primary ILIKE '%crep%' OR names.primary ILIKE '%κρεπ%' OR names.primary ILIKE '%mikel%' OR names.primary ILIKE '%ζάχαρη%')
@@ -18,6 +21,6 @@ WHERE bbox.xmin BETWEEN 23.70 AND 23.82 AND bbox.ymin BETWEEN 37.84 AND 37.90
 for r in con.execute(q).fetchall(): print(r)
 n = con.execute(f"SELECT count(*), count(*) FILTER (WHERE confidence >= 0.5) FROM read_parquet('{src}') WHERE bbox.xmin BETWEEN 23.70 AND 23.82 AND bbox.ymin BETWEEN 37.84 AND 37.90").fetchall()
 print("all places in the Glyfada box / confidence>=0.5:", n)
-print("categories:", con.execute(f"SELECT categories.primary, count(*) c FROM read_parquet('{src}') WHERE bbox.xmin BETWEEN 23.70 AND 23.82 AND bbox.ymin BETWEEN 37.84 AND 37.90 GROUP BY 1 ORDER BY c DESC LIMIT 40").fetchall())
+print("categories:", con.execute(f"SELECT {catcol}, count(*) c FROM read_parquet('{src}') WHERE bbox.xmin BETWEEN 23.70 AND 23.82 AND bbox.ymin BETWEEN 37.84 AND 37.90 GROUP BY 1 ORDER BY c DESC LIMIT 40").fetchall())
 g = con.execute(f"SELECT count(*) FROM read_parquet('{src}') WHERE bbox.xmin BETWEEN 19.3 AND 29.7 AND bbox.ymin BETWEEN 34.8 AND 41.8 AND confidence >= 0.5").fetchall()
 print("Greece box, confidence>=0.5:", g)
