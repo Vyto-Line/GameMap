@@ -209,7 +209,7 @@ object NavEngine {
         changed.fire()
         MapState.requestFit(listOf(from, place.pos))
         io.execute {
-            val routes = try { Router.routes(from, place.pos, alternatives = true, heading = heading()) } catch (e: Exception) { null }
+            val routes = try { Router.routes(from, place.pos, alternatives = true, heading = heading()).also { Tolls.annotate(it) } } catch (e: Exception) { null }
             main.post {
                 if (seq != planSeq || !planning) return@post
                 if (routes.isNullOrEmpty()) {
@@ -312,6 +312,8 @@ object NavEngine {
         MapState.recenter()
         Voice.reset()
         Convoy.startedDriving()
+        estimating = false; lastRealFixAt = 0; tollAhead = null; tollSaid = null
+        main.removeCallbacks(tunnel); main.postDelayed(tunnel, 1000)
         changed.fire()
         try {
             if (LocationTracker.hasPermission(appContext))
@@ -470,7 +472,7 @@ object NavEngine {
         io.execute {
             val h = heading()
             val r = try {
-                val list = preferAllowed(Router.routes(from, dest, alternatives = reroute || wantsAlternatives, heading = h, reroute = reroute, via = stops.map { it.pos }))
+                val list = preferAllowed(Router.routes(from, dest, alternatives = reroute || wantsAlternatives, heading = h, reroute = reroute, via = stops.map { it.pos }).also { Tolls.annotate(it) })
                 if (reroute) pickForward(list, h, current) else list.firstOrNull()
             } catch (e: Exception) { null }
             main.post {
@@ -498,10 +500,50 @@ object NavEngine {
         LocationTracker.last?.let { onLocation(it) } ?: changed.fire()
     }
 
+    /** The next toll on the route and how far it is (shown as a chip), or null. */
+    @Volatile var tollAhead: Pair<Tolls.OnRoute, Double>? = null
+        private set
+    private var tollSaid: Tolls.OnRoute? = null
+
+    // ------------------------------------------------------------ tunnel mode
+
+    /** True while GPS is lost and the position is being estimated along the route. */
+    @Volatile var estimating = false
+        private set
+    private var lastRealFixAt = 0L
+    private var alongAtFix = 0.0
+    private var speedAtFix = 0f
+
+    /**
+     * Tunnel mode: once a second while navigating. With no usable GPS fix for 2.5 s while you
+     * were driving, the arrow keeps moving along the route at your last speed (for up to two
+     * minutes) so directions and the voice carry on; the next real fix takes over again.
+     */
+    private val tunnel = object : Runnable {
+        override fun run() {
+            if (!active) { estimating = false; return }
+            main.postDelayed(this, 1000)
+            val r = current ?: return
+            if (arrived || loading || lastRealFixAt == 0L) return
+            val age = System.currentTimeMillis() - lastRealFixAt
+            if (age < 2500 || speedAtFix < 4f || age > 120_000) {
+                if (estimating && age > 120_000) { estimating = false; changed.fire() }
+                return
+            }
+            val est = (alongAtFix + speedAtFix * age / 1000.0).coerceAtMost(r.length - 25)
+            val p = routePointAt(est) ?: return
+            val ahead = routePointAt(est + 15) ?: return
+            if (!estimating) CrashLog.note("tunnel mode on")
+            estimating = true
+            LocationTracker.estimate(p, Geo.bearing(p, ahead), speedAtFix)
+        }
+    }
+
     fun onLocation(l: Location) {
         if (!active) return
         val r = current
         val pos = LatLng(l.latitude, l.longitude)
+        val real = l.provider != LocationTracker.ESTIMATE
         lastPos?.let { lp -> Geo.distance(lp, pos).takeIf { it < 300 }?.let { tripMeters += it } }
         lastPos = pos
         if (r == null || r.points.size < 2) {
@@ -517,6 +559,11 @@ object NavEngine {
         }
         nearest = best
         along = r.cum[best] + Geo.distance(route[best], pos).coerceAtMost(r.cum[best + 1] - r.cum[best])
+        if (real) {
+            if (estimating) { estimating = false; CrashLog.note("tunnel mode off") }
+            lastRealFixAt = System.currentTimeMillis(); alongAtFix = along
+            speedAtFix = if (l.hasSpeed()) l.speed else speedAtFix
+        }
         remainingDistance = (r.length - along).coerceAtLeast(0.0)
         remainingSeconds = remainingDistance * secondsPerMeter * trafficRatio
         maybeRefreshTraffic(pos)
@@ -544,6 +591,13 @@ object NavEngine {
             return
         }
 
+        // the next toll ahead: chip from ~1.2 km, spoken once at ~1 km (sooner when fast)
+        val toll = r.tolls.firstOrNull { it.along > along - 10 }
+        tollAhead = toll?.let { t -> (t.along - along).takeIf { it in 0.0..1200.0 }?.let { t to it } }
+        tollAhead?.let { (t, dist) ->
+            val warnAt = maxOf(1000.0, LocationTracker.speedMps * 40.0)
+            if (dist < warnAt && tollSaid !== t) { tollSaid = t; Voice.say(Phrases.toll(t.price, Voice.lang)) }
+        }
         nextStep = r.steps.indexOfFirst { it.routeIndex > best || it.direction == "arrive" }
             .let { if (it < 0) r.steps.size - 1 else it }
         r.steps.getOrNull(nextStep)?.let { distanceToNext = (r.cum[it.routeIndex] - along).coerceAtLeast(0.0) }
@@ -597,7 +651,7 @@ object NavEngine {
                 changed.fire()
             }
             if (res == null || hasOffer || nearEnd) return@execute
-            val alts = try { Router.routes(pos, dest, alternatives = true, heading = heading(), via = stops.map { it.pos }) } catch (e: Exception) { null }
+            val alts = try { Router.routes(pos, dest, alternatives = true, heading = heading(), via = stops.map { it.pos }).also { Tolls.annotate(it) } } catch (e: Exception) { null }
                 ?: return@execute
             val now = System.currentTimeMillis()
             var bestAlt: RouteOption? = null

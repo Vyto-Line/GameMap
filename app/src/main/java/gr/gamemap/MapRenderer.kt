@@ -184,6 +184,16 @@ class MapRenderer(private val car: Boolean = false) {
         }
         // the fuel list's prices, while it's open
         if (!car && Fuel.pins.isNotEmpty()) drawPricePins(c, camera!!, w, h, d, theme)
+        // your parked car (when not driving)
+        if (!NavEngine.active) Parked.get()?.let { sp ->
+            val (sx, sy) = toScreen(sp.pos, camera!!)
+            if (sx > -40 && sy > -40 && sx < w + 40 && sy < h + 40) {
+                fill.color = Color.WHITE; c.drawCircle(sx, sy, 15 * d, fill)
+                fill.color = Color.rgb(84, 104, 245); c.drawCircle(sx, sy, 12.5f * d, fill)
+                text.textAlign = Paint.Align.CENTER; text.textSize = 14 * d; text.color = Color.WHITE
+                c.drawText("🚗", sx, sy + 5 * d, text)
+            }
+        }
         // stops on the way: amber pins
         for (st in NavEngine.stops) { val (sx, sy) = toScreen(st.pos, camera!!); drawDroppedPin(c, sx, sy, d, Color.rgb(245, 159, 0)) }
         selectedPlace?.takeIf { it.icon == "📍" }?.let { pin ->
@@ -253,6 +263,8 @@ class MapRenderer(private val car: Boolean = false) {
         if (carTrip) drawCarTrip(c, area, d, theme)
         else if (car && carButtons && selectedPlace != null && !NavEngine.planning) drawCarPlace(c, area, d, theme)
         drawJamChip(c, area, d, theme, hud)
+        if (hud && NavEngine.estimating) drawNoGps(c, area, d, theme)
+        if (hud && !NavEngine.arrived) NavEngine.tollAhead?.let { (t, dist) -> drawTollChip(c, area, d, theme, t.price, dist) }
         drawDiscovery(c, area, d, theme)
         if (hud && (view.userBearing != null || !following)) drawCompass(c, area, bearing, d, theme)
         drawAttribution(c, area, d, theme)
@@ -1233,6 +1245,38 @@ class MapRenderer(private val car: Boolean = false) {
             c.drawText(label, x, r.centerY() + 4.5f * d, text)
         }
         text.typeface = t.typeface
+    }
+
+    /** "Toll in 800 m · €2.50" before a toll station on the route. */
+    private fun drawTollChip(c: Canvas, a: Rect, d: Float, t: Theme, price: Double, dist: Double) {
+        val label = gr.gamemap.L.t("Toll in ${NavEngine.formatDistance(dist)} · ${Tolls.money(price)}")
+        text.textAlign = Paint.Align.LEFT; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 13.5f * d
+        val w = text.measureText(label) + 36 * d
+        val x = if (car) a.left + 12 * d else a.centerX() - w / 2
+        val y = maxOf(bannerBottom, a.top.toFloat()) + 8 * d
+        val r = RectF(x, y, x + w, y + 32 * d)
+        fill.color = Color.argb(240, 255, 244, 214); c.drawRoundRect(r, 16 * d, 16 * d, fill)
+        stroke.color = Color.rgb(230, 160, 20); stroke.strokeWidth = 1.5f * d; c.drawRoundRect(r, 16 * d, 16 * d, stroke)
+        text.color = Color.rgb(120, 70, 0)
+        c.drawText("€", r.left + 12 * d, r.centerY() + 5 * d, text)
+        c.drawText(label, r.left + 26 * d, r.centerY() + 5 * d, text)
+        text.typeface = t.typeface
+        bannerBottom = r.bottom
+    }
+
+    /** Tunnel mode: a small chip saying the position is estimated. */
+    private fun drawNoGps(c: Canvas, a: Rect, d: Float, t: Theme) {
+        val label = gr.gamemap.L.t("No GPS: estimating")
+        text.textAlign = Paint.Align.LEFT; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 13 * d
+        val w = text.measureText(label) + 34 * d
+        val x = if (car) a.left + 12 * d else a.centerX() - w / 2
+        val y = maxOf(bannerBottom, a.top.toFloat()) + 8 * d
+        val r = RectF(x, y, x + w, y + 30 * d)
+        fill.color = Color.argb(235, 40, 44, 52); c.drawRoundRect(r, 15 * d, 15 * d, fill)
+        fill.color = Color.rgb(250, 176, 5); c.drawCircle(r.left + 15 * d, r.centerY(), 4.5f * d, fill)
+        text.color = Color.WHITE; c.drawText(label, r.left + 25 * d, r.centerY() + 4.5f * d, text)
+        text.typeface = t.typeface
+        bannerBottom = r.bottom
     }
 
     /** Where the phone's convoy strip is (taps open the list). */

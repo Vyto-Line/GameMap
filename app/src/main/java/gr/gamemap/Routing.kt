@@ -53,6 +53,9 @@ class RouteOption(
     var traffic: List<Stretch> = emptyList()
     /** Speed limits: value = km/h. */
     var limits: List<Stretch> = emptyList()
+    /** Toll stations on the way (Greece), in order; [tollCost] adds them up. */
+    var tolls: List<Tolls.OnRoute> = emptyList()
+    val tollCost: Double get() = tolls.sumOf { it.price }
 
     /** Best time estimate in seconds. */
     val seconds: Double get() = trafficSeconds?.toDouble() ?: duration
@@ -471,6 +474,12 @@ object Phrases {
         else "Faster route found. It saves ${minutes(saved.toDouble(), lang)}."
 
     fun switched(lang: String) = if (lang == GREEK) "Αλλαγή διαδρομής" else "Switched to the faster route"
+
+    fun toll(price: Double, lang: String): String {
+        val euros = price.toInt(); val cents = ((price - euros) * 100 + 0.5).toInt()
+        return if (lang == GREEK) "Διόδια μπροστά, $euros ευρώ" + (if (cents > 0) " και $cents λεπτά" else "")
+        else "Toll ahead, $euros euros" + (if (cents > 0) " $cents" else "")
+    }
 
     fun jam(lang: String) = if (lang == GREEK) "Κίνηση μπροστά" else "Traffic ahead"
 }

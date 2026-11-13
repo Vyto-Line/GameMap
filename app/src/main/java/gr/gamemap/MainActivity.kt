@@ -831,6 +831,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         homeTitle.setTextColor(ink); homeTitle.typeface = theme.typeface
         homeCards.removeAllViews()
         val near = LocationTracker.position
+        Parked.place()?.let { car ->
+            homeCards.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                val p = (12 * d).toInt(); setPadding(p, p - p / 4, p, p - p / 4)
+                background = bg(Color.argb(40, Color.red(accent), Color.green(accent), Color.blue(accent)), accent, 1.5f, 14f)
+                setOnClickListener { showPlace(car, dropped = false) }
+                addView(label("🚗 " + car.name, 15f, bold = true).apply { setTextColor(ink); maxLines = 1 })
+                addView(label(listOfNotNull(near?.let { NavEngine.formatDistance(Geo.distance(it, car.pos)) }, car.address).joinToString(" · "), 13f).apply {
+                    setTextColor(dim()); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+                })
+            }, LinearLayout.LayoutParams((176 * d).toInt(), WRAP_CONTENT).apply { marginEnd = (10 * d).toInt() })
+        }
         for (pl in rec) {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -868,8 +880,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             }
             homeCards.addView(card, LinearLayout.LayoutParams((176 * d).toInt(), WRAP_CONTENT).apply { marginEnd = (10 * d).toInt() })
         }
-        homeTitle.visibility = if (rec.isEmpty()) View.GONE else View.VISIBLE
-        homeCards.visibility = if (rec.isEmpty()) View.GONE else View.VISIBLE
+        val anyCard = rec.isNotEmpty() || Parked.get() != null
+        homeTitle.visibility = if (anyCard) View.VISIBLE else View.GONE
+        homeCards.visibility = if (anyCard) View.VISIBLE else View.GONE
         renderExploreCard(near)
         // live ETAs for recents, home and work (once a minute at most; TomTom answers are cached 5 min)
         if (near != null && Traffic.active && System.currentTimeMillis() - etaAskedAt > 60_000) {
@@ -1190,6 +1203,21 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             setTextColor(ink); setPadding(p, p / 2, p, p / 2); background = bg(dim(26), radius = 10f)
         }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p / 3 })
 
+        if (pl.icon == "🚗") {
+            // your parked car: walk back to it (walking directions in Google Maps), or forget it
+            placeCard.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0)
+                addView(pill("🚶  Walk there") { walkTo(pl.pos) }.apply {
+                    setTextColor(if (Ui.contrast(Color.WHITE, accent) >= 3) Color.WHITE else Color.BLACK); background = bg(accent, radius = 26f)
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.6f).apply { marginEnd = p })
+                addView(pill("Forget") { Parked.clear(); closePlace() }.apply {
+                    setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 26f)
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            })
+            placeCard.visibility = View.VISIBLE
+            homeSheet.visibility = View.GONE
+            return
+        }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0) }
         val navigating = NavEngine.active && !NavEngine.arrived
         row.addView(pill(if (navigating) "＋  Add stop" else "➤  Go") {
@@ -1231,6 +1259,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         })
         placeCard.visibility = View.VISIBLE
         homeSheet.visibility = View.GONE
+    }
+
+    /** Walking directions to [p]: Google Maps (walking) if it's there, otherwise any map app. */
+    private fun walkTo(p: LatLng) {
+        val ll = "${p.lat},${p.lon}"
+        val gm = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("google.navigation:q=$ll&mode=w")).setPackage("com.google.android.apps.maps")
+        try { startActivity(gm); return } catch (_: Exception) {}
+        try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$ll&travelmode=walking"))) }
+        catch (_: Exception) { Toast.makeText(this, L.t("No app to open Google Maps"), Toast.LENGTH_SHORT).show() }
     }
 
     /** A round icon with a small label under it (the place card's action row). */
@@ -1345,8 +1382,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 setTextColor(readable(if (tag == "FASTEST") accent else Color.rgb(255, 120, 90)))
             })
             row.addView(top)
-            if (o.via.isNotBlank()) row.addView(TextView(this).apply {
-                text = "via ${o.via}"; textSize = 13f; setTextColor(dim()); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            val tollText = if (o.tollCost > 0) "${Tolls.money(o.tollCost)} tolls" else if (o.hasToll) "tolls" else null
+            if (o.via.isNotBlank() || tollText != null) row.addView(TextView(this).apply {
+                text = listOfNotNull(o.via.takeIf { it.isNotBlank() }?.let { "via $it" }, tollText).joinToString("  ·  ")
+                textSize = 13f; setTextColor(dim()); maxLines = 1; ellipsize = TextUtils.TruncateAt.START
             })
             row.addView(TrafficBar(this, o), LinearLayout.LayoutParams(MATCH_PARENT, (5 * d).toInt()).apply { topMargin = (7 * d).toInt() })
             previewList.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (8 * d).toInt() })
@@ -1543,7 +1582,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         searchCard.visibility = if (nav || planning) View.GONE else View.VISIBLE
         val chipsWas = chipsScroll.visibility; val homeWas = homeSheet.visibility
         chipsScroll.visibility = if (nav || planning || searching) View.GONE else View.VISIBLE
-        homeSheet.visibility = if (nav || planning || searching || placeShown != null || (Places.recents().isEmpty() && Places.savedPlaces().isEmpty() && t != Theme.TRAILBLAZER)) View.GONE else View.VISIBLE
+        homeSheet.visibility = if (nav || planning || searching || placeShown != null || (Places.recents().isEmpty() && Places.savedPlaces().isEmpty() && Parked.get() == null && t != Theme.TRAILBLAZER)) View.GONE else View.VISIBLE
         if (chipsWas != chipsScroll.visibility || homeWas != homeSheet.visibility) lastHomeKey = ""
         if ((nav || planning) && suggestScroll.visibility == View.VISIBLE) closeSearch()
         recenterBtn.visibility = if (MapState.following && MapState.userBearing == null || planning) View.GONE else View.VISIBLE
@@ -1574,7 +1613,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
         controls.visibility = if (planning || searching) View.GONE else View.VISIBLE
         val homeKey = "${t.name}|${MapState.dark}|${MapState.imperial}|$etaVersion|${Explorer.version}|${Explorer.xp}|${Places.recents().joinToString { it.name }}|" +
-            "${Places.saved("home")?.name}|${Places.saved("work")?.name}|${LocationTracker.position != null}"
+            "${Places.saved("home")?.name}|${Places.saved("work")?.name}|${LocationTracker.position != null}|${Parked.get()?.at}"
         if (homeKey != lastHomeKey) {
             lastHomeKey = homeKey
             if (chipsScroll.visibility == View.VISIBLE) renderChips()
@@ -2059,6 +2098,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             } else null,
             settingRow("Map style", theme.title) { openSheet("style") },
             if (Traffic.key.isNotEmpty()) switchRow("Traffic on the map", Traffic.showLayer) { Traffic.showLayer = it } else null,
+            settingRow("Save my parking spot here", null) {
+                val here = LocationTracker.position
+                if (here == null) Toast.makeText(this, L.t("Waiting for your location…"), Toast.LENGTH_SHORT).show()
+                else { Parked.save(here); Toast.makeText(this, L.t("Parking spot saved"), Toast.LENGTH_SHORT).show(); closeSheet() }
+            },
             settingRow("Settings", null) { openSheet("settings") },
         )
         group("", *rows.toTypedArray()).forEach { sheetHost.addView(it) }
@@ -2255,10 +2299,48 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     /** gamemap://convoy/<code> (from the convoy web page) joins the group. */
     private fun handleLink(i: Intent?) {
-        val u = i?.data ?: return
-        if (u.scheme == "gamemap" && u.host == "convoy") {
+        if (i == null) return
+        val u = i.data
+        if (u != null && u.scheme == "gamemap" && u.host == "convoy") {
             val code = u.lastPathSegment ?: u.fragment ?: return
             main.post { joinConvoy(code) }
+            return
+        }
+        // a location from another app: a geo: or maps link, or a shared message with one inside
+        val text = when (i.action) {
+            Intent.ACTION_VIEW -> u?.toString()
+            Intent.ACTION_SEND -> listOfNotNull(i.getStringExtra(Intent.EXTRA_TEXT), i.getStringExtra(Intent.EXTRA_SUBJECT)).joinToString("\n")
+            else -> null
+        } ?: return
+        if (text.isBlank()) return
+        i.action = null; i.data = null // handled once, not again on rotation
+        openShared(text)
+    }
+
+    /** Shows the route to a location shared from another app (WhatsApp, Viber, Google Maps…). */
+    private fun openShared(text: String) {
+        Toast.makeText(this, L.t("Opening the shared location…"), Toast.LENGTH_SHORT).show()
+        io.execute {
+            val f = try { SharedLocation.find(text) } catch (e: Exception) { null }
+            val place: Place? = when {
+                f?.pos != null -> {
+                    val a = try { Places.addressAt(f.pos) } catch (e: Exception) { null }
+                    when {
+                        f.label != null -> Place(f.label, a?.let { listOf(it.name, it.address).filter { x -> x.isNotBlank() }.joinToString(", ") } ?: "", f.pos, "📍")
+                        a != null -> a.copy(pos = f.pos)
+                        else -> Place(L.t("Shared location"), "", f.pos, "📍")
+                    }
+                }
+                f?.query != null -> try { Places.find(f.query, LocationTracker.position, full = true)?.firstOrNull() } catch (e: Exception) { null }
+                else -> null
+            }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                if (place == null) { Toast.makeText(this, L.t("Couldn't find a place in what was shared"), Toast.LENGTH_LONG).show(); return@runOnUiThread }
+                closeSearch(); if (placeShown != null) closePlace()
+                if (NavEngine.active && !NavEngine.arrived) showPlace(place, dropped = false) // driving: Add stop / Go instead
+                else NavEngine.plan(this, place)
+            }
         }
     }
 
@@ -2597,6 +2679,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         MapState.changed += stateListener
         Voice.changed += stateListener
         Explorer.changed += stateListener
+        Parked.changed += stateListener
         Alerts.changed += stateListener
         Convoy.changed += stateListener
         refreshChrome()
@@ -2607,6 +2690,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         MapState.changed -= stateListener
         Voice.changed -= stateListener
         Explorer.changed -= stateListener
+        Parked.changed -= stateListener
         Alerts.changed -= stateListener
         Convoy.changed -= stateListener
         main.removeCallbacks(ticker)

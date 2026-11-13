@@ -75,10 +75,14 @@ class GameMapCarAppService : CarAppService() {
 class GameMapSession : Session() {
     override fun onCreateScreen(intent: Intent): Screen {
         gr.gamemap.CrashLog.note("Android Auto opened")
+        gr.gamemap.Parked.clear() // driving off: the old parking spot is history
         // the car's night mode follows its headlights (or light sensor): dark map at night
         MapState.setCarNight(carContext.isDarkMode)
         lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
-            override fun onDestroy(owner: androidx.lifecycle.LifecycleOwner) { MapState.setCarNight(null) }
+            override fun onDestroy(owner: androidx.lifecycle.LifecycleOwner) {
+                MapState.setCarNight(null)
+                gr.gamemap.Parked.carDisconnected() // the car is parked where the phone is now
+            }
         })
         return MapScreen(carContext)
     }
@@ -603,12 +607,13 @@ class RoutePreviewScreen(carContext: CarContext) : Screen(carContext) {
         opts.forEachIndexed { i, o ->
             val title = SpannableString(" ")
             title.setSpan(DurationSpan.create(o.seconds.toLong()), 0, 1, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
-            val line = SpannableString(" · " + (if (o.via.isNotBlank()) "via ${o.via}" else "route ${i + 1}"))
+            val toll = if (o.tollCost > 0) " · " + gr.gamemap.L.t("${gr.gamemap.Tolls.money(o.tollCost)} tolls") else if (o.hasToll) " · " + gr.gamemap.L.t("tolls") else ""
+            val line = SpannableString(" · " + gr.gamemap.L.t(if (o.via.isNotBlank()) "via ${o.via}" else "route ${i + 1}") + toll)
             line.setSpan(DistanceSpan.create(carDistance(o.distance)), 0, 1, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
             val row = Row.Builder().setTitle(title).addText(line)
             when {
                 o.trafficSeconds != null && i == fastest && opts.size > 1 -> row.addText(gr.gamemap.L.t("Fastest"))
-                o.delaySeconds >= 60 -> row.addText("+${o.delaySeconds / 60} min traffic")
+                o.delaySeconds >= 60 -> row.addText(gr.gamemap.L.t("+${o.delaySeconds / 60} min traffic"))
             }
             list.addItem(row.build())
         }

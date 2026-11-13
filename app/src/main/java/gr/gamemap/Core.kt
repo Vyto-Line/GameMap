@@ -29,6 +29,8 @@ class GameMapApp : Application() {
         Offline.init(this)
         Convoy.init(this)
         Fuel.init(this)
+        Parked.init(this)
+        Tolls.init(this)
         Reviews.init(this)
         NavEngine.init(this)
         // GPS precision follows navigation (precise while navigating, battery-friendly otherwise)

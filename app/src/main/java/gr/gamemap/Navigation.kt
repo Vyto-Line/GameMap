@@ -165,10 +165,24 @@ object LocationTracker : LocationListener {
         if (deg != null && speed < 1.0f) changed.fire()
     }
 
+    /** Provider name of tunnel-mode positions (estimated along the route, not measured). */
+    const val ESTIMATE = "estimate"
+
+    /** Tunnel mode: a position worked out along the route while GPS is lost. */
+    fun estimate(p: LatLng, bearing: Float, speedMps: Float) {
+        onLocationChanged(Location(ESTIMATE).apply {
+            latitude = p.lat; longitude = p.lon; this.bearing = bearing; speed = speedMps; accuracy = 15f
+            time = System.currentTimeMillis()
+        })
+    }
+
     override fun onLocationChanged(location: Location) {
-        // Prefer GPS; ignore a coarser fix that arrives right after a GPS one.
         val prev = last
-        if (prev != null && prev.provider == LocationManager.GPS_PROVIDER &&
+        // in a tunnel the phone may still report wild, inaccurate fixes: keep estimating instead
+        if (NavEngine.active && location.provider != ESTIMATE && location.hasAccuracy() && location.accuracy > 60 &&
+            prev != null && System.currentTimeMillis() - prev.time < 120_000) return
+        // Prefer GPS; ignore a coarser fix that arrives right after a GPS one.
+        if (prev != null && prev.provider == LocationManager.GPS_PROVIDER && location.provider != ESTIMATE &&
             location.provider != LocationManager.GPS_PROVIDER &&
             location.time - prev.time < 10_000
         ) return
