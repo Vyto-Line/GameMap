@@ -1,16 +1,18 @@
 <div align="center">
 
-# 🎮 GameMap
+# 🎮 Gameroute
 
 **Turn-by-turn navigation for Android and Android Auto that looks like a video-game minimap.**
 
+<sub>Formerly GameMap.</sub>
+
 Live traffic · lane guidance · spoken directions · speed & red-light cameras · places on the map · fuel prices · collectible landmarks · 8 game-inspired map styles
 
-[![Latest release](https://img.shields.io/github/v/release/Vyto-Line/GameMap?label=download&style=for-the-badge&color=7c4dff)](../../releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Vyto-Line/Gameroute?label=download&style=for-the-badge&color=7c4dff)](../../releases/latest)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84?style=for-the-badge&logo=android&logoColor=white)
 ![Android Auto](https://img.shields.io/badge/Android%20Auto-supported-4285f4?style=for-the-badge&logo=androidauto&logoColor=white)
 
-<img src="docs/screenshots/hero.jpg" alt="GameMap screens: driving, route choice, a place card, arrival card, Trailblazer landmarks" width="100%">
+<img src="docs/screenshots/hero.jpg" alt="Gameroute screens: driving, route choice, a place card, arrival card, Trailblazer landmarks" width="100%">
 
 </div>
 
@@ -55,9 +57,9 @@ Live traffic · lane guidance · spoken directions · speed & red-light cameras 
 
 ## 🚗 On the car screen
 
-<img src="docs/screenshots/android-auto.jpg" alt="GameMap on Android Auto" width="100%">
+<img src="docs/screenshots/android-auto.jpg" alt="Gameroute on Android Auto" width="100%">
 
-The same map on Android Auto, with its own buttons drawn see-through on the map: menu, style, voice, alerts, zoom and recenter. The turn card sits small in the top-left corner with lanes and "Then…". Tap a fuel station or car park on the map and go. After you arrive, the nearest car parks are one tap away. The car has its own map, so moving it never moves the one on your phone. The map turns dark when you switch on your headlights (a setting), and GameMap lightens its drawing by itself if a phone struggles to keep up.
+The same map on Android Auto, with its own buttons drawn see-through on the map: menu, style, voice, alerts, zoom and recenter. The turn card sits small in the top-left corner with lanes and "Then…". Tap a fuel station or car park on the map and go. After you arrive, the nearest car parks are one tap away. The car has its own map, so moving it never moves the one on your phone. The map turns dark when you switch on your headlights (a setting), and Gameroute lightens its drawing by itself if a phone struggles to keep up.
 
 ## 🗺️ Map styles
 
@@ -84,27 +86,27 @@ Original designs in the spirit of different game genres. Each comes in a light a
 
 ## 📲 Install
 
-Android Auto only shows apps it believes came from Google Play, so GameMap is installed with **UnknownAuto**:
+Android Auto only shows apps it believes came from Google Play, so Gameroute is installed with **UnknownAuto**:
 
 1. Android Auto settings ▸ tap **Version** 10× ▸ ⋮ ▸ Developer settings ▸ **Unknown sources**: ON.
 2. Install **Shizuku** (Play Store) and **UnknownAuto** (github.com/GitMag/UnknownAuto).
 3. Start Shizuku (Wireless debugging, or the `adb shell …libshizuku.so` command from a computer).
-4. Download `GameMap.apk` from the [latest release](../../releases/latest).
-5. UnknownAuto ▸ Load `GameMap.apk` ▸ **Install** ▸ allow Shizuku ▸ confirm. It should show ✔.
-6. Open GameMap on the phone once and allow location.
-7. Restart the phone, connect to the car and open **GameMap** from the app list.
+4. Download `Gameroute.apk` from the [latest release](../../releases/latest).
+5. UnknownAuto ▸ Load `Gameroute.apk` ▸ **Install** ▸ allow Shizuku ▸ confirm. It should show ✔.
+6. Open Gameroute on the phone once and allow location.
+7. Restart the phone, connect to the car and open **Gameroute** from the app list.
 
 Every build is signed with the same key, so new versions install over old ones.
 
 ## 🔄 Updates
 
-GameMap checks for a new release every few hours, or when you tap **Settings ▸ Check for updates**.
-It downloads the update and opens it in UnknownAuto: have Shizuku running and tap Install, so GameMap stays visible in Android Auto.
+Gameroute checks for a new release every few hours, or when you tap **Settings ▸ Check for updates**.
+It downloads the update and opens it in UnknownAuto: have Shizuku running and tap Install, so Gameroute stays visible in Android Auto.
 The car screen shows a notice when an update is ready.
 
 ## 🛠️ Build
 
-Actions ▸ **Build APK** ▸ Run workflow, or push a tag like `v1.1`. Each build becomes a release with `GameMap.apk`.
+Actions ▸ **Build APK** ▸ Run workflow, or push a tag like `v1.1`. Each build becomes a release with `Gameroute.apk`.
 Kotlin, Android Car App Library 1.4, no Google Play services. Map drawing, routing and search are all done in the app.
 
 ## 🙏 Credits

@@ -1589,7 +1589,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             setTextColor(dim()); letterSpacing = 0.06f; setPadding((4 * d).toInt(), (16 * d).toInt(), 0, 0)
         })
         if (!Alerts.reportsReady) {
-            sheetHost.addView(label("Reports are shared with other GameMap drivers through a small free online database, which isn't set up yet.", 15f).apply {
+            sheetHost.addView(label("Reports are shared with other Gameroute drivers through a small free online database, which isn't set up yet.", 15f).apply {
                 setTextColor(ink); setPadding((4 * d).toInt(), (6 * d).toInt(), 0, (12 * d).toInt())
             })
             sheetHost.addView(pill("Set up reports") { reportsSetup() }.apply {
@@ -1670,7 +1670,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val n = Alerts.myCameras().size
                 AlertDialog.Builder(this).setTitle("Cameras you marked")
                     .setMessage(if (n == 0) "None yet. While driving, tap ⚠ › Speed camera or Red-light camera to mark one where you are."
-                        else "$n camera${if (n == 1) "" else "s"} saved on this phone. GameMap warns you before each one.")
+                        else "$n camera${if (n == 1) "" else "s"} saved on this phone. Gameroute warns you before each one.")
                     .apply { if (n > 0) setNeutralButton("Delete all") { _, _ -> Alerts.clearMyCameras(); showSettings() } }
                     .setPositiveButton("OK", null).show()
             },
@@ -1804,7 +1804,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val dest = Convoy.destination?.name ?: "our destination"
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, "Join my convoy to $dest in GameMap: code ${Convoy.pretty()}\n$link")
+            putExtra(Intent.EXTRA_TEXT, "Join my convoy to $dest in Gameroute: code ${Convoy.pretty()}\n$link")
         }
         startActivity(Intent.createChooser(send, "Invite to the convoy"))
     }
@@ -2030,7 +2030,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun showAbout() {
         AlertDialog.Builder(this)
-            .setTitle("GameMap build ${Updater.currentVersion(this)}")
+            .setTitle("Gameroute build ${Updater.currentVersion(this)}")
             .setMessage("Map data and speed cameras © OpenStreetMap contributors\nVector tiles: OpenFreeMap\nTraffic, incidents, speed limits: TomTom\nRouting: OSRM\nSearch: Photon (komoot), Nominatim\nVoice: your phone's text-to-speech")
             .setPositiveButton("OK", null).show()
     }
@@ -2107,10 +2107,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     .setMessage(
                         if (viaUnknownAuto)
                             "Make sure Shizuku is running, then tap Install in UnknownAuto. " +
-                                "This keeps GameMap visible in Android Auto."
+                                "This keeps Gameroute visible in Android Auto."
                         else
                             "UnknownAuto isn't installed, so Android's normal installer will be used. " +
-                                "The update will work on the phone, but Android Auto may hide GameMap " +
+                                "The update will work on the phone, but Android Auto may hide Gameroute " +
                                 "until you reinstall it through UnknownAuto."
                     )
                     .setPositiveButton("Continue") { _, _ ->

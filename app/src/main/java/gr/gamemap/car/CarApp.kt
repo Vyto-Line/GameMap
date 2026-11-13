@@ -277,7 +277,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 if (gr.gamemap.Updater.dueForCheck(carContext)) Executors.newSingleThreadExecutor().execute {
                     val r = try { gr.gamemap.Updater.check(carContext) } catch (e: Exception) { null }
                     if (r != null) main.post {
-                        CarToast.makeText(carContext, "GameMap update ready: open the app on your phone", CarToast.LENGTH_LONG).show()
+                        CarToast.makeText(carContext, "Gameroute update ready: open the app on your phone", CarToast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -768,7 +768,7 @@ class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
         else row("Traffic", if (gr.gamemap.Traffic.showLayer) "On" else "Off") { gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer; invalidate() }
         row("Spoken directions", if (Voice.muted) "Off" else "On") { Voice.muted = !Voice.muted; invalidate() }
         row("Report") { screenManager.pop(); screenManager.push(ReportScreen(carContext)) }
-        return ListTemplate.Builder().setTitle("GameMap").setHeaderAction(Action.BACK).setSingleList(list.build()).build()
+        return ListTemplate.Builder().setTitle("Gameroute").setHeaderAction(Action.BACK).setSingleList(list.build()).build()
     }
 }
 

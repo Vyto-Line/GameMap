@@ -143,7 +143,7 @@ object VectorSource {
         val url = t.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y")
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 8000; c.readTimeout = 20000
-        c.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
+        c.setRequestProperty("User-Agent", "Gameroute/1.0 (Android; personal use)")
         return try {
             if (c.responseCode != 200) null else {
                 var bytes = c.inputStream.use { it.readBytes() }
@@ -173,7 +173,7 @@ object VectorSource {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 8000
         c.readTimeout = 15000
-        c.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
+        c.setRequestProperty("User-Agent", "Gameroute/1.0 (Android; personal use)")
         try {
             if (c.responseCode != 200) return if (file.exists()) file.readBytes() else null
             var bytes = c.inputStream.use { it.readBytes() }

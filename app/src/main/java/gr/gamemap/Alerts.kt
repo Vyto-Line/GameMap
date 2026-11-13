@@ -61,7 +61,7 @@ object Alerts {
      * (Overpass is too slow and busy to ask from a phone). Countries without a list fall back to
      * asking Overpass for the half-degree square around.
      */
-    private const val DATA = "https://raw.githubusercontent.com/Vyto-Line/GameMap/data/cameras"
+    private const val DATA = "https://raw.githubusercontent.com/Vyto-Line/Gameroute/data/cameras"
     private val national = ConcurrentHashMap<String, List<Camera>>()
     private val countryOfCell = ConcurrentHashMap<String, String>()
     @Volatile private var covered: Set<String>? = null

@@ -22,7 +22,7 @@ import java.net.URL
  * update keeps the "installed from Google Play" mark that Android Auto requires.
  */
 object Updater {
-    private const val REPO = "Vyto-Line/GameMap"
+    private const val REPO = "Vyto-Line/Gameroute"
     const val UNKNOWN_AUTO = "com.mag.unknownauto"
 
     class Release(val versionCode: Long, val tag: String, val apkUrl: String)
@@ -62,7 +62,7 @@ object Updater {
         val out = File(ctx.cacheDir, UpdateProvider.NAME)
         val c = URL(r.apkUrl).openConnection() as HttpURLConnection
         c.instanceFollowRedirects = true
-        c.setRequestProperty("User-Agent", "GameMap-updater")
+        c.setRequestProperty("User-Agent", "Gameroute-updater")
         try {
             if (c.responseCode != 200) throw RuntimeException("HTTP ${c.responseCode}")
             val total = c.contentLengthLong
@@ -104,7 +104,7 @@ object Updater {
 /** Serves the downloaded update (read-only) to UnknownAuto or the system installer. */
 class UpdateProvider : ContentProvider() {
     companion object {
-        const val NAME = "GameMap-update.apk"
+        const val NAME = "Gameroute-update.apk"
         val uri: Uri = Uri.parse("content://gr.gamemap.update/$NAME")
     }
 

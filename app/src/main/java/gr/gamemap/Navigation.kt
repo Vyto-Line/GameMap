@@ -939,7 +939,7 @@ object Http {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = minOf(10000, timeout)
         c.readTimeout = timeout
-        c.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
+        c.setRequestProperty("User-Agent", "Gameroute/1.0 (Android; personal use)")
         c.setRequestProperty("Accept-Language", java.util.Locale.getDefault().language)
         try {
             if (c.responseCode != 200) throw RuntimeException("HTTP ${c.responseCode}")
@@ -956,7 +956,7 @@ object Http {
         c.requestMethod = "POST"
         c.doOutput = true
         c.setRequestProperty("Content-Type", contentType)
-        c.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
+        c.setRequestProperty("User-Agent", "Gameroute/1.0 (Android; personal use)")
         try {
             c.outputStream.use { it.write(body.toByteArray()) }
             if (c.responseCode != 200) throw RuntimeException("HTTP ${c.responseCode}")
