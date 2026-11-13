@@ -1,4 +1,4 @@
-name: Camera data
+name: Camera and toll data
 on:
   schedule:
     - cron: "17 3 * * 1"   # Mondays
@@ -22,6 +22,8 @@ jobs:
           ls -R out | head
       - name: Export from OpenStreetMap
         run: python3 tools/cameras.py ${{ inputs.countries || 'GR CY BG' }}
+      - name: Toll stations
+        run: python3 tools/tolls.py || true
       - name: Publish to data branch
         run: |
           cd out
