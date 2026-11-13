@@ -1192,10 +1192,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             placeEta,
         ).joinToString("  ·  ")
         // facts on the left, Reviews › on the right (not for a dropped pin)
-        if (facts.isNotBlank() || !dropped) placeCard.addView(LinearLayout(this).apply {
+        if (facts.isNotBlank() || (!dropped && pl.icon != "🚗")) placeCard.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, p / 2, 0, 0)
             addView(label(facts, 15f, bold = true).apply { setTextColor(ink) }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-            if (!dropped) addView(label("Reviews ›", 14f, bold = true).apply {
+            if (!dropped && pl.icon != "🚗") addView(label("Reviews ›", 14f, bold = true).apply {
                 setTextColor(readable(accent)); setPadding(p, p, 0, p); setOnClickListener { showReviews(pl) }
             })
         })
