@@ -1018,7 +1018,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val q = (11 * d).toInt(); setPadding(q, q, q, q)
             background = bg(if (on) Color.argb(50, Color.red(accent), Color.green(accent), Color.blue(accent)) else dim(30), radius = 23f)
         }, LinearLayout.LayoutParams((46 * d).toInt(), (46 * d).toInt()))
-        addView(label(title, 12f, bold = true).apply { setTextColor(tint); setPadding(0, (4 * d).toInt(), 0, 0) })
+        addView(label(title, 12f, bold = true).apply {
+            setTextColor(tint); setPadding(0, (4 * d).toInt(), 0, 0); maxLines = 1; gravity = Gravity.CENTER
+            // long words (Greek "Κοινοποίηση") shrink to fit under their icon
+            setAutoSizeTextTypeUniformWithConfiguration(8, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+        }, LinearLayout.LayoutParams(MATCH_PARENT, (18 * d).toInt()))
     }
 
     /** Shows a dialog with its texts (title, message, buttons, list) in the app's language. */

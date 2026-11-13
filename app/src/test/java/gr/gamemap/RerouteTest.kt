@@ -52,11 +52,20 @@ class RerouteTest {
 
         // 2. wrong turns: before each real turn, turn 90° into a side street ~50 m early
         val turns = r.steps.filter { it.type == "turn" || it.type == "end of road" }.filter { r.cum[it.routeIndex] > 120 }
+        fun settle() { // let a pending route request finish, then forget when it happened
+            var k = 0
+            while (NavEngine.loading && k++ < 100) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(100) }
+            NavEngine::class.java.getDeclaredField("lastRouteAt").apply { isAccessible = true }.setLong(NavEngine, 0L)
+        }
         for (st in turns.take(4)) {
+            settle()
             NavEngine.debugDrive(dest, r, 0)
             val turnAt = r.cum[st.routeIndex]
-            var mm = turnAt - 160
-            while (mm < turnAt - 50) { val (p, b) = at(mm); fix(p, b, 9f); mm += 9.0 }
+            var mm = 0.0; var early = false
+            while (mm < turnAt - 50) { val (p, b) = at(mm); fix(p, b, 9f); if (NavEngine.loading) early = true; mm += 9.0 }
+            if (early) { log.append("  (a false reroute on the way to '${st.text}')\n"); settle(); NavEngine.debugDrive(dest, r, 0)
+                mm = 0.0; while (mm < turnAt - 50) { val (p, b) = at(mm); fix(p, b, 9f); mm += 9.0 } }
+            settle()
             val (p0, b0) = at(turnAt - 50)
             val side = if (st.direction.contains("left")) 90f else -90f // the other way from the real turn
             val nb = (b0 + side + 360f) % 360f

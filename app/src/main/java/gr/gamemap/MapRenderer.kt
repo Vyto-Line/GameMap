@@ -1278,7 +1278,7 @@ class MapRenderer(private val car: Boolean = false) {
         panel(c, r, d, t, outline = true)
         text.textAlign = Paint.Align.LEFT; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 11 * d
         text.color = Ui.onPanel(t, t.route, 3.0)
-        c.drawText("CONVOY · ${Convoy.destination?.name?.uppercase()?.take(24) ?: ""}", r.left + 12 * d, r.top + 17 * d, text)
+        c.drawText(gr.gamemap.L.t("CONVOY") + " · ${Convoy.destination?.name?.uppercase()?.take(24) ?: ""}", r.left + 12 * d, r.top + 17 * d, text)
         // progress line
         val x0 = r.left + 14 * d; val x1 = r.right - 30 * d; val ly = r.top + 31 * d
         fill.color = withAlpha(Ui.ink(t), 60); c.drawRoundRect(x0, ly - 1.5f * d, x1, ly + 1.5f * d, 2 * d, 2 * d, fill)
@@ -1296,7 +1296,7 @@ class MapRenderer(private val car: Boolean = false) {
             c.drawText(ellipsize(name, 90 * d), r.left + 30 * d, y + 18 * d, text)
             val nw = text.measureText(ellipsize(name, 90 * d))
             text.typeface = Typeface.DEFAULT; text.textSize = 13 * d; text.color = Ui.dim(t, 190)
-            c.drawText(ellipsize(" · " + Convoy.relative(row), w - nw - 160 * d), r.left + 30 * d + nw, y + 18 * d, text)
+            c.drawText(ellipsize(gr.gamemap.L.t(" · " + Convoy.relative(row)), w - nw - 160 * d), r.left + 30 * d + nw, y + 18 * d, text)
             text.textAlign = Paint.Align.RIGHT; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d
             text.color = if (row.kmh == 0 && row.state == "driving") Color.rgb(255, 120, 120) else Ui.ink(t)
             c.drawText(if (row.state == "arrived") "✓" else "${row.kmh}", r.right - 72 * d, y + 18 * d, text)
@@ -1328,10 +1328,10 @@ class MapRenderer(private val car: Boolean = false) {
         val sub = listOfNotNull(pl.address.takeIf { it.isNotBlank() }, near?.let { NavEngine.formatDistance(Geo.distance(it, pl.pos)) },
             Reviews.stars(pl.rating, pl.ratings)).joinToString(" · ")
         text.typeface = Typeface.DEFAULT; text.textSize = 15 * d; text.color = Ui.dim(t, 200)
-        c.drawText(ellipsize(sub, w - 120 * d), box.left + 58 * d, box.top + 56 * d, text)
+        c.drawText(ellipsize(gr.gamemap.L.t(sub), w - 120 * d), box.left + 58 * d, box.top + 56 * d, text)
         if (hasExtra) {
             text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d; text.color = Ui.onPanel(t, t.route, 3.0)
-            c.drawText(ellipsize(Fuel.brief(pl.extra), w - 36 * d), box.left + 18 * d, box.top + 84 * d, text)
+            c.drawText(ellipsize(gr.gamemap.L.t(Fuel.brief(pl.extra)), w - 36 * d), box.left + 18 * d, box.top + 84 * d, text)
         }
         // ✕
         val x = RectF(box.right - 54 * d, box.top + 6 * d, box.right - 8 * d, box.top + 52 * d)
