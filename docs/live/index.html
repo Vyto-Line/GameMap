@@ -29,8 +29,19 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 // GameRoute posts the driver's position and arrival time to a private ntfy.sh topic named in the
-// link (#topic); this page shows the latest one and follows new ones live. Nothing is stored here.
-const topic = (location.hash || "").slice(1).replace(/[^A-Za-z0-9_-]/g, "");
+// link (#topic.key); this page shows the latest one and follows new ones live. Nothing is stored here.
+const enc = new TextEncoder(), dec = new TextDecoder();
+function unb64(s) { s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "="; return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
+// Messages are end-to-end encrypted (AES-GCM, "e1." + base64url(iv + data)); the key is only in this link.
+async function openMsg(key, msg) {
+  if (!key || !msg || !msg.startsWith("e1.")) return null;
+  try { const b = unb64(msg.slice(3)); return dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b.slice(0, 12) }, key, b.slice(12))); }
+  catch (e) { return null; }
+}
+let chain = Promise.resolve();
+function feed(m) { chain = chain.then(() => take(m)).catch(() => {}); } // keep messages in order
+const [topic, keyText] = (location.hash || "").slice(1).replace(/[^A-Za-z0-9_.-]/g, "").split(".");
+let key = null;
 const card = document.getElementById("card");
 const map = L.map("map", { zoomControl: false, attributionControl: true }).setView([37.98, 23.73], 12);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
@@ -63,21 +74,23 @@ function render() {
   else if (!fitted) { map.setView([last.lat, last.lon], 14); fitted = true; }
 }
 
-function take(msg) {
-  try { const d = JSON.parse(msg.message); if (!last || d.ts >= last.ts) { last = d; render(); } } catch (e) {}
+async function take(msg) {
+  const plain = await openMsg(key, msg.message); if (!plain) return;
+  try { const d = JSON.parse(plain); if (!last || d.ts >= last.ts) { last = d; render(); } } catch (e) {}
 }
 
-if (!topic) {
+if (!topic || !keyText) {
   card.innerHTML = '<div class="wait">This link is missing its code. Ask for a new one.</div>';
-} else {
+} else crypto.subtle.importKey("raw", unb64(keyText), "AES-GCM", false, ["decrypt"]).then(k => {
+  key = k;
   fetch("https://ntfy.sh/" + topic + "/json?poll=1&since=12h").then(r => r.text()).then(t => {
-    t.split("\n").filter(Boolean).forEach(l => { try { const m = JSON.parse(l); if (m.event === "message") take(m); } catch (e) {} });
-    if (!last) card.innerHTML = '<div class="wait">Waiting for the driver\'s first update…</div>';
+    t.split("\n").filter(Boolean).forEach(l => { try { const m = JSON.parse(l); if (m.event === "message") feed(m); } catch (e) {} });
+    chain = chain.then(() => { if (!last) card.innerHTML = '<div class="wait">Waiting for the driver\'s first update…</div>'; });
   }).catch(() => {});
   const es = new EventSource("https://ntfy.sh/" + topic + "/sse");
-  es.onmessage = e => { try { const m = JSON.parse(e.data); if (m.event === "message") take(m); } catch (x) {} };
+  es.onmessage = e => { try { const m = JSON.parse(e.data); if (m.event === "message") feed(m); } catch (x) {} };
   setInterval(render, 15000);
-}
+}).catch(() => { card.innerHTML = '<div class="wait">This link is damaged. Ask for a new one.</div>'; });
 </script>
 </body>
 </html>

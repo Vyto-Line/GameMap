@@ -22,6 +22,8 @@ import java.net.URL
  * update keeps the "installed from Google Play" mark that Android Auto requires.
  */
 object Updater {
+    /** The GitHub version updates itself; the Play Store version (src/play) leaves that to Play. */
+    const val ENABLED = true
     private const val REPO = "Vyto-Line/GameRoute"
     const val UNKNOWN_AUTO = "com.mag.unknownauto"
 

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GameRoute · Privacy policy</title>
+<style>
+  body { font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1d1b26; background: #faf9fd; margin: 0; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 32px 0 8px; }
+  .date { color: #6b6880; margin: 0 0 24px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid #e4e1ee; }
+  th { background: #f0eef7; }
+  a { color: #5b2bd6; }
+</style>
+</head>
+<body>
+<main>
+<h1>GameRoute privacy policy</h1>
+<p class="date">Last updated: 13 November 2026</p>
+
+<p>GameRoute is a navigation app for Android phones and Android Auto, made by Vyto-Line. This page explains
+what the app does with your information. In short: there are no accounts, no ads, no analytics and no
+tracking, and we don't run servers that collect your data. To show maps, find places and plan routes, the app
+has to ask outside services, and those requests are listed below.</p>
+
+<h2>Your location</h2>
+<p>GameRoute uses your phone's location to show where you are, guide you, and warn you about cameras and
+speed limits. While you navigate it keeps using location in the background through a visible notification,
+so directions continue when the screen is off or you use Android Auto. Your location stays on your phone,
+except for the requests listed below.</p>
+
+<h2>Services the app contacts</h2>
+<table>
+<tr><th>Service</th><th>What it receives</th><th>Why</th></tr>
+<tr><td>OpenFreeMap</td><td>Which map tiles to download (shows the area you're looking at)</td><td>Map</td></tr>
+<tr><td>OSRM (Project OSRM)</td><td>Start, stops and destination of a route</td><td>Routing</td></tr>
+<tr><td>TomTom</td><td>Search text, nearby position, route area</td><td>Search, traffic, speed limits</td></tr>
+<tr><td>Photon (komoot), Nominatim and Overpass (OpenStreetMap)</td><td>Search text or a nearby position</td><td>Search, addresses, street names</td></tr>
+<tr><td>fuel-prices.eu</td><td>The area of a fuel station you open</td><td>Fuel prices</td></tr>
+<tr><td>GitHub</td><td>A request for the speed camera list, and (GitHub version only) checks for app updates</td><td>Cameras, updates</td></tr>
+<tr><td>Google Places (only if you add your own key)</td><td>The place you open</td><td>Ratings and reviews</td></tr>
+</table>
+<p>Like any website, these services see your internet address when the app connects to them. Their own
+privacy policies apply to what they log.</p>
+
+<h2>Convoy and live arrival sharing (only if you turn them on)</h2>
+<p>When you start a convoy or share your arrival time, the app sends your position, speed, arrival time,
+destination and the name you chose to the people you invited. These updates pass through the public
+<a href="https://ntfy.sh">ntfy.sh</a> relay, which keeps them for up to 12 hours. They are end-to-end
+encrypted: the key is in the code or link you share, so only people with that code or link can read them
+(not ntfy.sh, not us). Anyone you give the code or link to can see your position until you leave the convoy
+or stop sharing. Sharing stops by itself when you arrive.</p>
+
+<h2>Road reports (only if you send one)</h2>
+<p>If you report something on the road, such as an accident or a hazard, the type of report, its location,
+your direction and the time are shared with other GameRoute users so they can be warned. Reports don't
+include your name or any account, and other drivers see them only for a few hours.</p>
+
+<h2>What stays on your phone</h2>
+<p>Settings, saved places (Home, Work and favourites), trip history, offline map areas, cameras you marked
+and your convoy name are stored only on your phone. Uninstalling the app or clearing its data removes them.</p>
+
+<h2>Children</h2>
+<p>GameRoute is a driving app and isn't directed at children.</p>
+
+<h2>Changes and contact</h2>
+<p>If this policy changes, the new version will be posted on this page with a new date. For questions, open
+an issue at <a href="https://github.com/Vyto-Line/GameRoute/issues">github.com/Vyto-Line/GameRoute/issues</a>.</p>
+</main>
+</body>
+</html>

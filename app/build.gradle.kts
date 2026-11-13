@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "gr.gamemap"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "gr.gamemap"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         // CI passes -PbuildNumber=<run number>; the updater compares against it.
         val build = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 1
         versionCode = build
@@ -18,6 +18,13 @@ android {
         // Built-in TomTom key, from the TOMTOM_KEY secret at build time (never stored in the code).
         buildConfigField("String", "REPORTS_URL", "\"${System.getenv("REPORTS_URL") ?: ""}\"")
         buildConfigField("String", "TOMTOM_KEY", "\"${System.getenv("TOMTOM_KEY") ?: ""}\"")
+    }
+    // Two versions of the same app: "github" (sideloaded, updates itself from GitHub releases)
+    // and "play" (Google Play: no self-updater, no install-packages permission).
+    flavorDimensions += "store"
+    productFlavors {
+        create("github") { dimension = "store" }
+        create("play") { dimension = "store" }
     }
     signingConfigs {
         // Fixed key in the repo so every build can update the previous one in place.
@@ -28,8 +35,19 @@ android {
             keyPassword = "android"
         }
     }
+    // Play upload key: CI decodes the PLAY_KEYSTORE secret to a file and passes it in here.
+    val uploadStore = System.getenv("PLAY_KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+    if (uploadStore != null) signingConfigs.create("upload") {
+        storeFile = uploadStore
+        storePassword = System.getenv("PLAY_KEYSTORE_PASSWORD")
+        keyAlias = "upload"
+        keyPassword = System.getenv("PLAY_KEYSTORE_PASSWORD")
+    }
     buildTypes {
-        release { isMinifyEnabled = false }
+        release {
+            isMinifyEnabled = false
+            if (uploadStore != null) signingConfig = signingConfigs.getByName("upload")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

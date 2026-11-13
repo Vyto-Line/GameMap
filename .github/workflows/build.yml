@@ -35,13 +35,28 @@ jobs:
           REPORTS_URL: ${{ secrets.REPORTS_URL }}
         run: |
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          gradle assembleDebug --no-daemon -PbuildNumber=${{ github.run_number }}
-          mkdir -p ../out && cp app/build/outputs/apk/debug/*.apk ../out/GameRoute.apk
+          gradle assembleGithubDebug --no-daemon -PbuildNumber=${{ github.run_number }}
+          mkdir -p ../out && cp app/build/outputs/apk/github/debug/*.apk ../out/GameRoute.apk
+      - name: Build Play Store bundle
+        working-directory: src
+        env:
+          TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
+          REPORTS_URL: ${{ secrets.REPORTS_URL }}
+          PLAY_KEYSTORE: ${{ secrets.PLAY_KEYSTORE }}
+          PLAY_KEYSTORE_PASSWORD: ${{ secrets.PLAY_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$PLAY_KEYSTORE" ]; then echo "No PLAY_KEYSTORE secret: skipping the Play bundle"; exit 0; fi
+          export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
+          echo "$PLAY_KEYSTORE" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          export PLAY_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          gradle bundlePlayRelease --no-daemon -PbuildNumber=${{ github.run_number }}
+          cp app/build/outputs/bundle/playRelease/*.aab ../out/GameRoute-play.aab
+          rm -f "$RUNNER_TEMP/upload.jks"
       - name: Publish release
         if: github.event_name == 'push' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}"
-          gh release create "$TAG" out/GameRoute.apk -R "${{ github.repository }}" \
+          gh release create "$TAG" out/GameRoute.apk $(ls out/GameRoute-play.aab 2>/dev/null) -R "${{ github.repository }}" \
             --target "${{ github.sha }}" --title "GameRoute $TAG" --notes "Automatic build. versionCode: ${{ github.run_number }}"

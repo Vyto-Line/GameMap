@@ -1690,8 +1690,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             settingRow("Trip history", "${Explorer.history().size} trips") { openSheet("trips") },
             settingRow("Convoy", if (Convoy.active) "On · ${Convoy.members.size + 1} drivers" else "Drive together") { openSheet("convoy") },
             settingRow("Your name in convoys", Convoy.myName.ifBlank { "Not set" }) { editConvoyName { showSettings() } },
-            settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) },
+            if (Updater.ENABLED) settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) }
+            else settingRow("Version", "build ${Updater.currentVersion(this)}") { showAbout() },
             settingRow("About & map credits", null) { showAbout() },
+            settingRow("Privacy policy", null) {
+                try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://vyto-line.github.io/GameRoute/privacy/"))) } catch (_: Exception) {}
+            },
         )).forEach { body.addView(it) }
         sheetHost.addView(ScrollView(this).apply { addView(body) },
             LinearLayout.LayoutParams(MATCH_PARENT, minOf((resources.displayMetrics.heightPixels * 0.72f).toInt(), (640 * d).toInt())))

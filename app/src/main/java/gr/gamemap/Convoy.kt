@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Convoy: a group driving to the same place. Everyone in it sees the others on the map with
  * their speed, arrival time and how far along the route they are.
  *
- * No accounts or server of our own: each convoy is a private, random topic on the free ntfy.sh
+ * No accounts or server of our own: each convoy is a private topic on the free ntfy.sh (end-to-end encrypted with a key from the code, see Seal)
  * relay. Members post a small update (~every 15 s while driving) and listen to the others.
  */
 object Convoy {
@@ -219,7 +219,9 @@ object Convoy {
     private fun publish(o: JSONObject, topic: String? = code) {
         val t = topic ?: return
         sentAt = System.currentTimeMillis()
-        sender.execute { try { Http.post("https://ntfy.sh/gmc$t", o.toString(), "text/plain", timeout = 8000) } catch (_: Exception) {} }
+        sender.execute {
+            try { Http.post("https://ntfy.sh/" + Seal.convoyTopic(t), Seal.seal(Seal.convoyKey(t), o.toString()), "text/plain", timeout = 8000) } catch (_: Exception) {}
+        }
     }
 
     // ------------------------------------------------------------- listening
@@ -230,9 +232,11 @@ object Convoy {
         listener?.interrupt()
         val t = Thread {
             var since = "12h"
+            val key = try { Seal.convoyKey(c) } catch (e: Exception) { return@Thread }
+            val topic = Seal.convoyTopic(c)
             while (code == c && !Thread.currentThread().isInterrupted) {
                 try {
-                    val conn = URL("https://ntfy.sh/gmc$c/json?since=$since").openConnection() as HttpURLConnection
+                    val conn = URL("https://ntfy.sh/$topic/json?since=$since").openConnection() as HttpURLConnection
                     conn.connectTimeout = 10_000; conn.readTimeout = 90_000 // ntfy sends a keepalive every 45 s
                     conn.setRequestProperty("User-Agent", "GameRoute/1.0 (Android)")
                     conn.inputStream.bufferedReader().use { r ->
@@ -241,7 +245,7 @@ object Convoy {
                             val m = try { JSONObject(line) } catch (e: Exception) { continue }
                             if (m.optString("event") != "message") continue
                             since = m.optString("id", since)
-                            try { take(JSONObject(m.getString("message"))) } catch (_: Exception) {}
+                            Seal.open(key, m.optString("message"))?.let { try { take(JSONObject(it)) } catch (_: Exception) {} }
                         }
                     }
                 } catch (e: InterruptedException) { return@Thread } catch (_: Exception) {}

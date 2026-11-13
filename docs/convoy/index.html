@@ -24,7 +24,7 @@
 <body>
 <div id="map"></div>
 <div class="card">
-  <div class="k">GAMEMAP CONVOY</div>
+  <div class="k">GAMEROUTE CONVOY</div>
   <h1 id="title">Joining…</h1>
   <div id="rows"></div>
   <a class="btn" id="join" href="#">Join in GameRoute</a>
@@ -32,7 +32,17 @@
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// Members post to a private ntfy.sh topic named by the code in the link; this page follows it.
+// Members post to a private ntfy.sh topic (a hash of the code in the link); this page follows it.
+const enc = new TextEncoder(), dec = new TextDecoder();
+function unb64(s) { s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "="; return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
+// Messages are end-to-end encrypted (AES-GCM, "e1." + base64url(iv + data)); the key is only in this link.
+async function openMsg(key, msg) {
+  if (!key || !msg || !msg.startsWith("e1.")) return null;
+  try { const b = unb64(msg.slice(3)); return dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b.slice(0, 12) }, key, b.slice(12))); }
+  catch (e) { return null; }
+}
+let chain = Promise.resolve();
+function feed(m) { chain = chain.then(() => take(m)).catch(() => {}); } // keep messages in order
 const code = (location.hash || "").slice(1).replace(/[^a-z0-9]/gi, "").toLowerCase();
 document.getElementById("join").href = "gamemap://convoy/" + code;
 const map = L.map("map", { zoomControl: false }).setView([37.98, 23.73], 11);
@@ -59,24 +69,34 @@ function render() {
   const pts = list.filter(p => p.lat != null).map(p => [p.lat, p.lon]).concat(dest ? [[dest.lat, dest.lon]] : []);
   if (!fitted && pts.length) { map.fitBounds(pts, { padding: [60, 60], maxZoom: 15 }); fitted = true; }
 }
-function take(m) {
-  let d; try { d = JSON.parse(m.message); } catch (e) { return; }
+let key = null, topic = null;
+async function setup() {
+  const base = await crypto.subtle.importKey("raw", enc.encode(code), "PBKDF2", false, ["deriveKey"]);
+  key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: enc.encode("gameroute-convoy-v1"), iterations: 60000, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode("gameroute-topic-v1:" + code)));
+  topic = "gmc" + Array.from(h.slice(0, 12), x => x.toString(16).padStart(2, "0")).join("");
+}
+async function take(m) {
+  const plain = await openMsg(key, m.message); if (!plain) return;
+  let d; try { d = JSON.parse(plain); } catch (e) { return; }
   if (!d.id) return;
+  if (people[d.id] && people[d.id].ts > d.ts) return;
   if (d.dlat && !dest) dest = { n: d.dn || "Destination", lat: d.dlat, lon: d.dlon };
   if (d.t === "bye") { if (people[d.id]) people[d.id].st = "bye"; if (marks[d.id]) { map.removeLayer(marks[d.id]); delete marks[d.id]; } render(); return; }
   const p = people[d.id] || (people[d.id] = { id: d.id, c: palette[Object.keys(people).length % palette.length] });
   Object.assign(p, { n: d.n || "Driver", lat: d.lat, lon: d.lon, s: d.s, eta: d.eta, left: d.left, st: d.st, ts: d.ts });
   render();
 }
-if (code.length >= 6) {
-  fetch("https://ntfy.sh/gmc" + code + "/json?poll=1&since=12h").then(r => r.text()).then(t => {
-    t.split("\n").filter(Boolean).forEach(l => { try { const m = JSON.parse(l); if (m.event === "message") take(m); } catch (e) {} });
-    render();
+if (code.length >= 6) setup().then(() => {
+  fetch("https://ntfy.sh/" + topic + "/json?poll=1&since=12h").then(r => r.text()).then(t => {
+    t.split("\n").filter(Boolean).forEach(l => { try { const m = JSON.parse(l); if (m.event === "message") feed(m); } catch (e) {} });
+    chain = chain.then(render);
   });
-  const es = new EventSource("https://ntfy.sh/gmc" + code + "/sse");
-  es.onmessage = e => { try { const m = JSON.parse(e.data); if (m.event === "message") take(m); } catch (x) {} };
+  const es = new EventSource("https://ntfy.sh/" + topic + "/sse");
+  es.onmessage = e => { try { const m = JSON.parse(e.data); if (m.event === "message") feed(m); } catch (x) {} };
   setInterval(render, 20000);
-} else document.getElementById("title").textContent = "This link is missing its code";
+}); else document.getElementById("title").textContent = "This link is missing its code";
 </script>
 </body>
 </html>

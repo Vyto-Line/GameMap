@@ -26,7 +26,7 @@ jobs:
           TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
         run: |
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          gradle testDebugUnitTest --no-daemon -PbuildNumber=1 --tests "gr.gamemap.${{ inputs.test }}" \
+          gradle testGithubDebugUnitTest --no-daemon -PbuildNumber=1 --tests "gr.gamemap.${{ inputs.test }}" \
             -DpreviewData=$PWD/previewdata -DpreviewOut=$PWD/previews || \
             (find app/build/test-results -name '*.xml' | xargs grep -h -A12 '<failure' | head -80; true)
           # system properties for the test JVM

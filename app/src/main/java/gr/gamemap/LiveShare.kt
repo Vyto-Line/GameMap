@@ -4,7 +4,7 @@ import org.json.JSONObject
 import java.security.SecureRandom
 
 /**
- * Live arrival sharing: while on, GameMap posts your position and arrival time to a private,
+ * Live arrival sharing: while on, GameRoute posts your position (end-to-end encrypted) and arrival time to a private,
  * random ntfy.sh topic every ~40 s; the link opens a page that shows them on a map, live.
  * It stops by itself when you arrive or end the trip (posting a last "arrived"/"ended").
  */
@@ -12,6 +12,7 @@ object LiveShare {
     const val PAGE = "https://vyto-line.github.io/GameRoute/live/"
     @Volatile var topic: String? = null
         private set
+    @Volatile private var key: ByteArray? = null
     val active get() = topic != null
     private val io = Bg.pool("liveshare", 1)
     @Volatile private var sentAt = 0L
@@ -24,16 +25,18 @@ object LiveShare {
             val r = SecureRandom()
             "gm" + (1..22).map { abc[r.nextInt(abc.length)] }.joinToString("")
         }
-        topic = t
+        val k = key ?: Seal.randomKey()
+        topic = t; key = k
         sentAt = 0
         tick(force = true)
-        return PAGE + "#" + t
+        // the key rides after "#": browsers never send that part to any server
+        return PAGE + "#" + t + "." + Seal.b64(k)
     }
 
     fun stop(state: String = "stopped") {
         val t = topic ?: return
         post(t, payload(state))
-        topic = null
+        topic = null; key = null
     }
 
     /** Called on every location fix while navigating; posts at most every 40 s. */
@@ -59,7 +62,8 @@ object LiveShare {
         return o.toString()
     }
 
-    private fun post(topic: String, body: String) = io.execute {
-        try { Http.post("https://ntfy.sh/$topic", body, "text/plain", timeout = 8000) } catch (_: Exception) {}
+    private fun post(topic: String, body: String) {
+        val k = key ?: return
+        io.execute { try { Http.post("https://ntfy.sh/$topic", Seal.seal(k, body), "text/plain", timeout = 8000) } catch (_: Exception) {} }
     }
 }
