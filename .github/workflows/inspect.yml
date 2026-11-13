@@ -1,0 +1,27 @@
+name: Inspect releases
+# Prints package, version, target SDK and signing certificate of a few released APKs.
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Release tags, space separated"
+        default: "build-54 build-58 build-59 build-60"
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          for t in ${{ inputs.tags }}; do
+            echo "=== $t"
+            gh release download "$t" -R "${{ github.repository }}" -p "*.apk" -D "a_$t" --clobber || continue
+            f=$(ls a_$t/*.apk | head -1)
+            ls -la "$f"
+            "$BT/aapt2" dump badging "$f" | grep -E "^package|targetSdk|sdkVersion|application-debuggable|testOnly" || true
+            "$BT/apksigner" verify --print-certs -v "$f" 2>&1 | grep -E "Verified using|Signer #1 certificate SHA-256|DOES NOT|ERROR|WARNING" | head -12
+          done
