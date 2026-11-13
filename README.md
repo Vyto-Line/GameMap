@@ -1,119 +1,151 @@
 <div align="center">
 
-# 🎮 GameRoute
+<img src="docs/screenshots/icon.png" alt="" width="96">
 
-**Turn-by-turn navigation for Android and Android Auto that looks like a video-game minimap.**
+# GameRoute
 
-<sub>Formerly GameMap.</sub>
+**Navigation for Android and Android Auto that looks like a video-game minimap.**
 
-Live traffic · lane guidance · spoken directions · speed & red-light cameras · places on the map · fuel prices · collectible landmarks · 8 game-inspired map styles
+Live traffic · spoken directions in English and Greek · drive together in a convoy · 8 game-inspired map styles
 
-[![Latest release](https://img.shields.io/github/v/release/Vyto-Line/GameRoute?label=download&style=for-the-badge&color=7c4dff)](../../releases/latest)
-![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84?style=for-the-badge&logo=android&logoColor=white)
+[![Download](https://img.shields.io/github/v/release/Vyto-Line/GameRoute?label=download&style=for-the-badge&color=7c4dff)](../../releases/latest)
+![Android 8+](https://img.shields.io/badge/Android-8.0%2B-3ddc84?style=for-the-badge&logo=android&logoColor=white)
 ![Android Auto](https://img.shields.io/badge/Android%20Auto-supported-4285f4?style=for-the-badge&logo=androidauto&logoColor=white)
+![Ελληνικά](https://img.shields.io/badge/Ελληνικά-✓-0d5eaf?style=for-the-badge)
 
-<img src="docs/screenshots/hero.jpg" alt="GameRoute screens: driving, route choice, a place card, arrival card, Catch 'Em Trail landmarks" width="100%">
+<img src="docs/screenshots/hero.jpg" alt="GameRoute: the home screen, driving in Midnight Run, a convoy in Might City, choosing a route, and the arrival card" width="100%">
+
+[Features](#-features) · [Convoy](#-convoy) · [Android Auto](#-android-auto) · [Map styles](#-map-styles) · [Install](#-install) · [Privacy](#-privacy)
 
 </div>
 
 ---
 
-## ✨ What it does
+## ✨ Features
 
 <table>
 <tr>
-<td width="33%" valign="top"><img src="docs/screenshots/driving.jpg" alt="Driving screen"><br>
-<b>🧭 Drive</b><br>Big turn card with the next turn, lane arrows at junctions, your speed next to the speed limit, jam warnings and an arrival time that counts traffic. Drag the map any time; recenter brings you back.</td>
-<td width="33%" valign="top"><img src="docs/screenshots/route-preview.jpg" alt="Route preview"><br>
-<b>🛣️ Pick a route</b><br>Up to three routes, each timed with live traffic and a bar showing where the jams are. "Leave later" shows the time for another departure.</td>
-<td width="33%" valign="top"><img src="docs/screenshots/faster-route.jpg" alt="Faster route found"><br>
-<b>⚡ Faster routes</b><br>Traffic is re-checked as you drive. When another way saves 3+ minutes you get Switch / Keep, or it switches by itself. Leave the route and the new one carries on the way you're going.</td>
+<td width="33%" valign="top" align="center"><img src="docs/screenshots/search.webp" alt="Search results" width="260"></td>
+<td width="33%" valign="top" align="center"><img src="docs/screenshots/routes.webp" alt="Choosing a route" width="260"></td>
+<td width="33%" valign="top" align="center"><img src="docs/screenshots/drive.webp" alt="Driving" width="260"></td>
 </tr>
 <tr>
-<td valign="top"><img src="docs/screenshots/home.jpg" alt="Home screen"><br>
-<b>🏠 Search</b><br>Results as you type, nearest first. Greek or English, even Greek typed in Latin letters ("eggeli 32" finds Έγγελη 32), exact house numbers, and Home / Work / Fuel / Food / Parking one tap away.</td>
-<td valign="top"><img src="docs/screenshots/place-card.jpg" alt="A place card"><br>
-<b>📍 Places on the map</b><br>Fuel, parking, food, cafés, pharmacies and supermarkets appear as icons at street level. Tap one for its card: <b>Go</b>, compare routes, share, ratings and reviews.</td>
-<td valign="top"><img src="docs/screenshots/dropped-pin.jpg" alt="Dropped pin"><br>
-<b>📌 Tap and hold</b><br>Hold anywhere on the map to drop a pin. You get the street address, distance and time, and can go there, set it as Home or Work, or share it.</td>
+<td valign="top"><h3>🔎 Find anything</h3>Shops, cafés and businesses from TomTom, OpenStreetMap and Overture Maps (nearly half a million places in Greece and Cyprus), searched together and ranked by how well the name fits, then by distance. Type in Greek, English or Greeklish ("κρεπα λαντ", "crepaland glyfada"), add a town to search there, or open any Google Maps, Apple Maps, Waze or OpenStreetMap link with GameRoute.</td>
+<td valign="top"><h3>🛣️ Pick a route</h3>Up to three routes, each timed with live traffic, with a bar that shows where the jams are and the toll cost for the trip. "Leave later" times another departure.</td>
+<td valign="top"><h3>🧭 Drive</h3>A big turn card with lanes and "Then…", your speed next to the limit, jam and toll warnings, and an arrival time that counts traffic. Take another street and a new route comes within seconds. In tunnels the arrow keeps moving along the route.</td>
 </tr>
 <tr>
-<td valign="top"><img src="docs/screenshots/alerts.jpg" alt="Alerts while driving"><br>
-<b>📷 Alerts</b><br>Speed and red-light cameras from OpenStreetMap (refreshed every week), accidents and roadworks from TomTom, each with a spoken warning before you reach it.</td>
-<td valign="top"><img src="docs/screenshots/places.jpg" alt="Places and fuel"><br>
-<b>⛽ Fuel prices & parking</b><br>Fuel stations show their prices (in Greece the official area average of the day). Parking near your destination is ready before you arrive.</td>
-<td valign="top"><img src="docs/screenshots/arrival.jpg" alt="Quest complete card"><br>
-<b>🏆 Arrive in style</b><br>Every trip ends with a themed card: journey time, distance, time saved, XP and your explorer level, with a one-tap list of car parks nearby.</td>
+<td valign="top" align="center"><img src="docs/screenshots/place.webp" alt="A place card" width="260"></td>
+<td valign="top" align="center"><img src="docs/screenshots/fuel.webp" alt="Fuel prices nearby" width="260"></td>
+<td valign="top" align="center"><img src="docs/screenshots/countries.webp" alt="Zoomed out: countries" width="260"></td>
 </tr>
 <tr>
-<td valign="top"><img src="docs/screenshots/landmarks.jpg" alt="Catch 'Em Trail landmarks"><br>
-<b>⭐ Collect landmarks</b><br>In the Catch 'Em Trail style, museums, monuments and viewpoints show as blue <b>?</b> markers. Pass by one to discover it (+25 XP).</td>
-<td valign="top"><img src="docs/screenshots/style-picker.jpg" alt="Map style picker"><br>
-<b>🎨 Your look</b><br>Eight styles, each with light, dark or automatic sunset switching. Panels and buttons take the shape of each style.</td>
-<td valign="top"><img src="docs/screenshots/settings.jpg" alt="Settings"><br>
-<b>⚙️ Settings</b><br>Voice in English or Ελληνικά, avoid tolls or motorways, traffic on/off, which alerts you want, places on the map, kilometres or miles, and a separate style for the car.</td>
+<td valign="top"><h3>📍 Places on the map</h3>Fuel, parking, food, cafés, pharmacies and supermarkets show as icons on the streets. Tap one for <b>Go</b>, routes, save, share, or Home/Work. Hold anywhere to drop a pin with its address.</td>
+<td valign="top"><h3>⛽ Fuel by price</h3>Stations sorted by price for the fuels you use, with prices on the map pins. EV chargers can be filtered by plug type and power, and stations by brand. Add a fuel stop without ending the trip.</td>
+<td valign="top"><h3>🌍 The bigger picture</h3>Zoom out to the whole continent, with country borders and names in your language. Download the area around you for offline maps.</td>
 </tr>
 </table>
 
-## 🚗 On the car screen
+### And the small things
 
-<img src="docs/screenshots/android-auto.jpg" alt="GameRoute on Android Auto" width="100%">
+- 🚗 **Where I parked:** saved by itself when the phone leaves Android Auto, with walking directions back.
+- 💶 **Tolls:** the cost of each route, and a warning before each toll station (Greek motorways).
+- 📷 **Alerts:** speed and red-light cameras, accidents and roadworks, each spoken before you reach it.
+- ⚡ **Faster routes:** traffic is re-checked as you drive, with one tap to switch when another way saves 3+ minutes.
+- 🗣️ **Voice and screens in Ελληνικά or English:** automatic, or chosen in Settings.
+- 🏆 **Arrival card:** journey time, distance, time saved and XP, with car parks nearby one tap away.
 
-The same map on Android Auto, with its own buttons drawn see-through on the map: menu, style, voice, alerts, zoom and recenter. The turn card sits small in the top-left corner with lanes and "Then…". Tap a fuel station or car park on the map and go. After you arrive, the nearest car parks are one tap away. The car has its own map, so moving it never moves the one on your phone. The map turns dark when you switch on your headlights (a setting), and GameRoute lightens its drawing by itself if a phone struggles to keep up.
+## 👥 Convoy
 
-## 🗺️ Map styles
+<table>
+<tr>
+<td width="33%" valign="top" align="center"><img src="docs/screenshots/convoy.webp" alt="Driving in a convoy" width="260"></td>
+<td width="33%" valign="top" align="center"><img src="docs/screenshots/convoy-list.webp" alt="The convoy list" width="260"></td>
+<td width="33%" valign="top" align="center"><img src="docs/screenshots/race.webp" alt="3, 2, 1, GO" width="260"></td>
+</tr>
+<tr>
+<td valign="top"><b>See everyone, live.</b> Each friend has their own colour, arrow, name and speed, updated every second and gliding smoothly between updates. Tap a friend to jump to them, or drive to where they are.</td>
+<td valign="top"><b>One code, no accounts.</b> Create a convoy, share the 6-letter code or link, and anyone can join. Anyone can choose the destination; the others are asked before their route changes. Anyone can also drive somewhere of their own and still share where they are.</td>
+<td valign="top"><b>Race start.</b> Everyone presses <i>I'm ready</i>, a 3-2-1 countdown runs on every phone and car, and the routes start together. Friends without the app can follow on a web page.</td>
+</tr>
+</table>
 
-Original designs in the spirit of different game genres. Each comes in a light and a dark version.
+Positions are end-to-end encrypted with a key that comes from the code, so only people with the code can read them.
 
-<img src="docs/screenshots/themes-light.jpg" alt="The eight map styles, light" width="100%">
+## 🚘 Android Auto
+
+<img src="docs/screenshots/car-drive.webp" alt="Driving on Android Auto" width="100%">
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/car-convoy.webp" alt="A convoy on the car screen"></td>
+<td width="50%"><img src="docs/screenshots/car-place.webp" alt="A fuel station on the car screen"></td>
+</tr>
+</table>
+
+The same map on the car screen, with its own buttons drawn see-through on the map. The turn card sits small in a corner. The convoy box shows everyone's place and arrival time. Tap a fuel station or car park on the map and go. The car has its own map and style, the map can turn dark with your headlights, and convoy prompts (Ready, a new destination) work right on the car screen.
+
+## 🎨 Map styles
+
+Original designs in the spirit of different game genres. Each has a light and a dark version, or switches by itself at sunset.
+
+<img src="docs/screenshots/themes-light.webp" alt="The eight map styles, light" width="100%">
+
+<details>
+<summary><b>Dark versions</b></summary>
+<br>
+<img src="docs/screenshots/themes-dark.webp" alt="The eight map styles, dark" width="100%">
+</details>
 
 | Style | Feel |
 |---|---|
-| **Free Roam** | Asphalt-grey streets, slate water, purple GPS line |
-| **Might City** | Teal megacity grid, yellow route, cut-corner panels, scanlines |
-| **Midnight Run** | Neon roads, grid and horizon glow |
-| **Blockworld** | A block world built from real buildings: planks, bricks, stone and terracotta roofs |
-| **Realm Map** | Old paper map, ink roads, red dashed route, serif lettering |
-| **Fire Tower** | Dusk palette from purple to sunset orange |
+| **Free Roam** | Asphalt-grey streets, slate water, a purple route |
+| **Might City** | Teal megacity grid, yellow route, cut-corner panels |
+| **Midnight Run** | Neon roads with a grid and horizon glow |
+| **Blockworld** | A block world built from the real buildings |
+| **Realm Map** | Old paper map, ink roads, a red dashed route |
+| **Fire Tower** | Dusk colours from purple to sunset orange |
 | **8-Bit** | Handheld-console greens and pixel panels |
-| **Catch 'Em Trail** | Bright outdoor-adventure look, with landmarks to collect |
+| **Catch 'Em Trail** | A bright outdoor look, with landmarks to collect (+25 XP each) |
 
-<details>
-<summary>Dark versions</summary>
-
-<img src="docs/screenshots/themes-dark.jpg" alt="The eight map styles, dark" width="100%">
-</details>
+<table>
+<tr>
+<td width="33%" align="center"><img src="docs/screenshots/styles.webp" alt="The style picker" width="240"></td>
+<td width="33%" align="center"><img src="docs/screenshots/blocky.webp" alt="Blockworld" width="240"></td>
+<td width="33%" align="center"><img src="docs/screenshots/settings.webp" alt="Settings" width="240"></td>
+</tr>
+</table>
 
 ## 📲 Install
 
 Android Auto only shows apps it believes came from Google Play, so GameRoute is installed with **UnknownAuto**:
 
-1. Android Auto settings ▸ tap **Version** 10× ▸ ⋮ ▸ Developer settings ▸ **Unknown sources**: ON.
-2. Install **Shizuku** (Play Store) and **UnknownAuto** (github.com/GitMag/UnknownAuto).
-3. Start Shizuku (Wireless debugging, or the `adb shell …libshizuku.so` command from a computer).
+1. Android Auto settings ▸ tap **Version** 10 times ▸ ⋮ ▸ Developer settings ▸ **Unknown sources**: on.
+2. Install **Shizuku** (Play Store) and **UnknownAuto** ([github.com/GitMag/UnknownAuto](https://github.com/GitMag/UnknownAuto)).
+3. Start Shizuku (Wireless debugging, or the `adb shell` command it shows, from a computer).
 4. Download `GameRoute.apk` from the [latest release](../../releases/latest).
-5. UnknownAuto ▸ Load `GameRoute.apk` ▸ **Install** ▸ allow Shizuku ▸ confirm. It should show ✔.
+5. UnknownAuto ▸ Load `GameRoute.apk` ▸ **Install** ▸ allow Shizuku ▸ confirm (it shows ✔).
 6. Open GameRoute on the phone once and allow location.
 7. Restart the phone, connect to the car and open **GameRoute** from the app list.
 
-Every build is signed with the same key, so new versions install over old ones.
+**Updates:** GameRoute checks for a new release every few hours (or tap Settings ▸ App ▸ Check for updates). It downloads the update and hands it to UnknownAuto: have Shizuku running and tap Install. Every build is signed with the same key, so new versions install over old ones.
 
-## 🔄 Updates
+## 🔒 Privacy
 
-GameRoute checks for a new release every few hours, or when you tap **Settings ▸ Check for updates**.
-It downloads the update and opens it in UnknownAuto: have Shizuku running and tap Install, so GameRoute stays visible in Android Auto.
-The car screen shows a notice when an update is ready.
+No account and no tracking. Your trips, places and settings stay on your phone. Searches and routes go to the services listed below. Convoy and live-arrival positions are end-to-end encrypted before they leave the phone. Full details: [privacy page](https://vyto-line.github.io/GameRoute/privacy/).
 
 ## 🛠️ Build
 
-Actions ▸ **Build APK** ▸ Run workflow, or push a tag like `v1.1`. Each build becomes a release with `GameRoute.apk`.
-Kotlin, Android Car App Library 1.4, no Google Play services. Map drawing, routing and search are all done in the app.
+Actions ▸ **Build APK** ▸ Run workflow. Each build becomes a release with `GameRoute.apk`.
+Kotlin, Android Car App Library 1.4, no Google Play services: the map drawing, routing and search are all done in the app.
+The pictures on this page are the app's own screens, drawn by `ReadmeShotsTest` and framed by `tools/readme_images.py`.
 
 ## 🙏 Credits
 
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors · vector tiles by [OpenFreeMap](https://openfreemap.org) ·
-live traffic, incidents and speed limits by [TomTom](https://developer.tomtom.com) · routing by [OSRM](https://project-osrm.org) ·
-search by TomTom and Nominatim · fuel prices by [fuel-prices.eu](https://www.fuel-prices.eu) ·
-star ratings and reviews (optional, your own key) by Google Places. Free services: please keep use personal and moderate.
+places by [Overture Maps](https://overturemaps.org) · live traffic, incidents, speed limits and search by [TomTom](https://developer.tomtom.com) ·
+routing by [OSRM](https://project-osrm.org) · search by Photon and Nominatim · fuel prices by [fuel-prices.eu](https://www.fuel-prices.eu) ·
+convoy relays: ntfy.sh, EMQX and HiveMQ public brokers · star ratings and reviews (optional, your own key) by Google Places.
+These are free services: please keep use personal and moderate.
 
 > ⚠️ Keep your eyes on the road. Set your destination before you drive, and follow local laws about speed camera alerts.
