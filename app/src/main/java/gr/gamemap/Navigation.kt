@@ -217,6 +217,10 @@ data class Place(
     val extra: String = "",
     /** Google star rating and how many ratings (Settings › Reviews) */
     val rating: Double? = null, val ratings: Int = 0,
+    /** Fuel prices by kind ("sp95", "diesel", "lpg"…), € per litre; [areaAvg] = an area average, not this station's */
+    val prices: Map<String, Double> = emptyMap(), val areaAvg: Boolean = false,
+    /** Brand (fuel stations), and for chargers: plug kinds ("type2", "ccs", "chademo", "tesla") and top power */
+    val brand: String = "", val plugs: Set<String> = emptySet(), val kw: Int = 0,
 )
 
 /** Destination search: Photon for live suggestions, Nominatim as a fallback, plus recents. */
@@ -299,13 +303,25 @@ object Places {
             if (name.isBlank()) continue
             val code = poi?.optJSONArray("classifications")?.optJSONObject(0)?.optString("code").orEmpty()
             val address = free.removePrefix(name).trimStart(',', ' ').ifBlank { addr?.optString("municipality").orEmpty() }
-            out += Place(name, address, LatLng(pos.getDouble("lat"), pos.getDouble("lon")), tomtomIcon(code, r.optString("type")))
+            val brand = poi?.optJSONArray("brands")?.optJSONObject(0)?.optString("name").orEmpty()
+            // chargers: which plugs and how fast
+            val plugs = HashSet<String>(); var kw = 0
+            r.optJSONObject("chargingPark")?.optJSONArray("connectors")?.let { cs ->
+                for (k in 0 until cs.length()) {
+                    val cn = cs.optJSONObject(k) ?: continue
+                    Fuel.plugKind(cn.optString("connectorType"))?.let { plugs += it }
+                    kw = maxOf(kw, cn.optDouble("ratedPowerKW", 0.0).toInt())
+                }
+            }
+            out += Place(name, address, LatLng(pos.getDouble("lat"), pos.getDouble("lon")), tomtomIcon(code, r.optString("type")),
+                brand = brand, plugs = plugs, kw = kw)
         }
         return out.distinctBy { it.name + "|" + it.address }
     }
 
     private fun tomtomIcon(code: String, type: String) = when {
-        code == "PETROL_STATION" || code == "ELECTRIC_VEHICLE_STATION" -> "⛽"
+        code == "ELECTRIC_VEHICLE_STATION" -> "🔌"
+        code == "PETROL_STATION" -> "⛽"
         code == "RESTAURANT" -> "🍽"
         code == "CAFE_PUB" -> "☕"
         code == "PARKING_GARAGE" || code == "OPEN_PARKING_AREA" -> "🅿"

@@ -796,12 +796,30 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
         }
     }
 
+    private val isFuel = "fuel" in types
+
     override fun onGetTemplate(): Template {
-        val b = ListTemplate.Builder().setTitle(title).setHeaderAction(Action.BACK)
-        val r = results
-        if (r == null && !failed) return b.setLoading(true).build()
-        val list = ItemList.Builder().setNoItemsMessage(if (failed) gr.gamemap.L.t("Couldn't search: no location or internet") else gr.gamemap.L.t("Nothing found nearby"))
+        val F = gr.gamemap.Fuel
+        val head = if (isFuel) gr.gamemap.L.t("Fuel") + " · " + F.nameOf(F.chosen) + " · " + gr.gamemap.L.t(when (F.sort) { "nearest" -> "nearest"; "route" -> "on my route"; else -> "cheapest" }) else title
+        val b = ListTemplate.Builder().setTitle(head).setHeaderAction(Action.BACK)
+        if (isFuel) {
+            // fuel type and sort, as the two buttons up top
+            val kinds = F.fuelKinds.filter { it.first in F.myFuels }.map { it.first } + (if (F.showChargers) listOf("ev") else emptyList())
+            val sorts = listOfNotNull("cheapest", "nearest", if (NavEngine.active && !NavEngine.arrived) "route" else null)
+            b.setActionStrip(ActionStrip.Builder()
+                .addAction(Action.Builder().setTitle(if (F.chosen == "ev") "⚡ EV" else F.nameOf(F.chosen)).setOnClickListener {
+                    F.chosen = kinds[(kinds.indexOf(F.chosen) + 1) % kinds.size]; invalidate()
+                }.build())
+                .addAction(Action.Builder().setTitle(gr.gamemap.L.t(when (F.sort) { "nearest" -> "Nearest"; "route" -> "On my route"; else -> "Cheapest" })).setOnClickListener {
+                    F.sort = sorts[(sorts.indexOf(F.sort).coerceAtLeast(0) + 1) % sorts.size]; invalidate()
+                }.build())
+                .build())
+        }
+        val r0 = results
+        if (r0 == null && !failed) return b.setLoading(true).build()
         val near = LocationTracker.position
+        val r = if (isFuel && near != null) F.arrange(r0.orEmpty(), near) else r0
+        val list = ItemList.Builder().setNoItemsMessage(if (failed) gr.gamemap.L.t("Couldn't search: no location or internet") else gr.gamemap.L.t("Nothing found nearby"))
         r.orEmpty().take(6).forEach { p ->
             val row = Row.Builder().setTitle(p.name).setOnClickListener {
                 screenManager.pop()
@@ -813,7 +831,13 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
                 gr.gamemap.Reviews.stars(p.rating, p.ratings),
             ).joinToString(" · ")
             if (line.isNotEmpty()) row.addText(line)
-            if (p.extra.isNotBlank()) row.addText(gr.gamemap.Fuel.brief(p.extra))
+            if (isFuel) {
+                // your fuel's price first (or a charger's power)
+                val price = if (F.isCharger(p)) (if (p.kw > 0) "⚡ ${p.kw} kW" else "⚡ " + gr.gamemap.L.t("charger"))
+                    else F.priceOf(p, F.chosen)?.let { "${F.nameOf(F.chosen)} €${"%.3f".format(java.util.Locale.US, it)}" + if (p.areaAvg) " (" + gr.gamemap.L.t("area avg.") + ")" else "" }
+                val det = F.detour(p)?.let { " · +${maxOf(1, (it / 12 / 60).toInt() + 1)} min" }.orEmpty()
+                if (price != null) row.addText(price + det) else if (det.isNotEmpty()) row.addText(det.removePrefix(" · "))
+            } else if (p.extra.isNotBlank()) row.addText(gr.gamemap.Fuel.brief(p.extra))
             list.addItem(row.build())
         }
         return b.setSingleList(list.build()).build()

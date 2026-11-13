@@ -182,6 +182,8 @@ class MapRenderer(private val car: Boolean = false) {
         if (MapState.showPlaces && !NavEngine.planning) {
             pois.draw(c, camera!!, zoom, w, h, d, if (NavEngine.active) NAV_PLACES else null, selectedPlace?.pos)
         }
+        // the fuel list's prices, while it's open
+        if (!car && Fuel.pins.isNotEmpty()) drawPricePins(c, camera!!, w, h, d, theme)
         // stops on the way: amber pins
         for (st in NavEngine.stops) { val (sx, sy) = toScreen(st.pos, camera!!); drawDroppedPin(c, sx, sy, d, Color.rgb(245, 159, 0)) }
         selectedPlace?.takeIf { it.icon == "📍" }?.let { pin ->
@@ -1208,6 +1210,30 @@ class MapRenderer(private val car: Boolean = false) {
     }
 
     // ------------------------------------------------------------------ convoy
+
+    /** The fuel list's stations as price tags on the phone map ("D €1.74"); the cheapest is green. */
+    private fun drawPricePins(c: Canvas, cam: Camera, w: Int, h: Int, d: Float, t: Theme) {
+        val pins = Fuel.pins
+        val cheapest = pins.minByOrNull { it.second.substringAfter("€", "9").toDoubleOrNull() ?: 9.0 }
+        text.textAlign = Paint.Align.CENTER; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 12.5f * d
+        for ((pos, label) in pins) {
+            val (x, y) = toScreen(pos, cam)
+            if (x < -60 || y < -40 || x > w + 60 || y > h + 40) continue
+            val tw = text.measureText(label) + 16 * d
+            val r = RectF(x - tw / 2, y - 34 * d, x + tw / 2, y - 12 * d)
+            fill.color = when {
+                label.startsWith("⚡") -> Color.rgb(124, 58, 237)
+                cheapest != null && label == cheapest.second && pos == cheapest.first -> Color.rgb(30, 158, 90)
+                else -> Color.rgb(232, 89, 12)
+            }
+            c.drawRoundRect(r, 10 * d, 10 * d, fill)
+            path.reset(); path.moveTo(x - 5 * d, r.bottom - 1); path.lineTo(x + 5 * d, r.bottom - 1); path.lineTo(x, r.bottom + 6 * d); path.close()
+            c.drawPath(path, fill)
+            text.color = Color.WHITE
+            c.drawText(label, x, r.centerY() + 4.5f * d, text)
+        }
+        text.typeface = t.typeface
+    }
 
     /** Where the phone's convoy strip is (taps open the list). */
     val convoyStrip = RectF()

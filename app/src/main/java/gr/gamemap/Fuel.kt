@@ -18,6 +18,7 @@ object Fuel {
         /** "sp95", "sp98", "diesel", "gpl", "e10"… → € per litre */
         val prices: Map<String, Double>,
         val updated: String,
+        val brand: String = "",
     )
 
     class Area(val stations: List<Station>, val country: String) {
@@ -74,7 +75,7 @@ object Fuel {
                 s.optString("address").takeIf { it.isNotBlank() && it != "null" },
                 s.optString("city").takeIf { it.isNotBlank() && it != "null" },
             ).joinToString(", ")
-            Station(prettyName(name), address, LatLng(s.getDouble("lat"), s.getDouble("lng")), prices, updated)
+            Station(prettyName(name), address, LatLng(s.getDouble("lat"), s.getDouble("lng")), prices, updated, brand?.let { prettyName(it) }.orEmpty())
         }
         val a = Area(list, cc)
         areas[key] = System.currentTimeMillis() to a
@@ -119,16 +120,120 @@ object Fuel {
         for (s in a.stations) {
             val same = others.firstOrNull { it.icon == "⛽" && Geo.distance(it.pos, s.pos) < 90 }
             val name = same?.name?.takeIf { it != "Fuel" } ?: s.name
-            out += Place(name, s.address.ifBlank { same?.address.orEmpty() }, s.pos, "⛽", extra = describe(s, a))
+            out += Place(name, s.address.ifBlank { same?.address.orEmpty() }, s.pos, "⛽", extra = describe(s, a),
+                prices = s.prices, areaAvg = a.averageOnly, brand = same?.brand?.ifBlank { null } ?: s.brand)
         }
         // stations the price feed doesn't have; where prices are an area average, it's theirs too
         val avg = a.stations.firstOrNull()?.takeIf { a.averageOnly }
         for (o in others) if (out.none { Geo.distance(it.pos, o.pos) < 90 && (o.icon == "⛽" || it.name == o.name) }) {
-            out += if (avg != null && o.icon == "⛽" && o.extra.isBlank()) o.copy(extra = describe(avg, a)) else o
+            out += if (avg != null && o.icon == "⛽" && o.extra.isBlank()) o.copy(extra = describe(avg, a), prices = avg.prices, areaAvg = true) else o
         }
         return out.sortedBy { Geo.distance(p, it.pos) }
             .fold(ArrayList<Place>()) { acc, x -> if (acc.none { it.name == x.name && Geo.distance(it.pos, x.pos) < 40 }) acc += x; acc }
     }
+
+    // ------------------------------------------------------------ your fuels, chargers, brands
+
+    /** The fuels people pick from, with the price feed's names for each. */
+    val fuelKinds = listOf(
+        Triple("sp95", "95", listOf("sp95", "e10")),
+        Triple("sp98", "98/100", listOf("sp98", "sp100")),
+        Triple("diesel", "Diesel", listOf("diesel")),
+        Triple("lpg", "LPG", listOf("gpl", "lpg")),
+        Triple("cng", "CNG", listOf("cng", "gnv")),
+    )
+    val plugKinds = listOf("type2" to "Type 2", "ccs" to "CCS", "chademo" to "CHAdeMO", "tesla" to "Tesla")
+    val brandList = listOf("EKO", "Shell", "BP", "Avin", "Aegean", "Revoil", "Elin", "Cyclon", "Jet Oil")
+
+    fun plugKind(t: String): String? = when {
+        t.contains("CCS", true) || t.contains("Combo", true) -> "ccs"
+        t.contains("Chademo", true) -> "chademo"
+        t.contains("Tesla", true) -> "tesla"
+        t.contains("Type2", true) || t.contains("Type 2", true) -> "type2"
+        else -> null
+    }
+
+    private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
+    private fun set(key: String, def: Set<String>) = if (::appContext.isInitialized) prefs().getStringSet(key, def)?.toSet() ?: def else def
+
+    /** The fuels you use (their prices show on the map and in the lists). */
+    var myFuels: Set<String>
+        get() = set("fuelMine", setOf("sp95", "diesel")).ifEmpty { setOf("sp95") }
+        set(v) { prefs().edit().putStringSet("fuelMine", v).apply() }
+    /** The fuel the list is sorted and priced by ("ev" = chargers). */
+    var chosen: String
+        get() = (if (::appContext.isInitialized) prefs().getString("fuelChosen", null) else null)?.takeIf { it in myFuels || (it == "ev" && showChargers) } ?: myFuels.first()
+        set(v) { prefs().edit().putString("fuelChosen", v).apply() }
+    /** "cheapest", "nearest" or "route" */
+    var sort: String
+        get() = if (::appContext.isInitialized) prefs().getString("fuelSort", "cheapest") ?: "cheapest" else "cheapest"
+        set(v) { prefs().edit().putString("fuelSort", v).apply() }
+    var showChargers: Boolean
+        get() = ::appContext.isInitialized && prefs().getBoolean("fuelChargers", true)
+        set(v) { prefs().edit().putBoolean("fuelChargers", v).apply() }
+    var plugs: Set<String>
+        get() = set("fuelPlugs", plugKinds.map { it.first }.toSet())
+        set(v) { prefs().edit().putStringSet("fuelPlugs", v).apply() }
+    var fastOnly: Boolean
+        get() = ::appContext.isInitialized && prefs().getBoolean("fuelFast", false)
+        set(v) { prefs().edit().putBoolean("fuelFast", v).apply() }
+    /** Empty = every brand. */
+    var brands: Set<String>
+        get() = set("fuelBrands", emptySet())
+        set(v) { prefs().edit().putStringSet("fuelBrands", v).apply() }
+
+    fun reset() {
+        prefs().edit().remove("fuelMine").remove("fuelChosen").remove("fuelSort").remove("fuelChargers")
+            .remove("fuelPlugs").remove("fuelFast").remove("fuelBrands").apply()
+    }
+
+    fun nameOf(kind: String) = if (kind == "ev") "EV" else fuelKinds.firstOrNull { it.first == kind }?.second ?: kind
+
+    /** This place's price for [kind], or null. */
+    fun priceOf(p: Place, kind: String): Double? {
+        val keys = fuelKinds.firstOrNull { it.first == kind }?.third ?: return null
+        return keys.firstNotNullOfOrNull { p.prices[it] }
+    }
+
+    fun isCharger(p: Place) = p.icon == "🔌"
+
+    /** How far off the route [p] is (metres there and back, roughly) and whether it's still ahead; null when not driving. */
+    fun detour(p: Place): Double? {
+        val r = NavEngine.current ?: return null
+        if (!NavEngine.active || r.points.size < 2) return null
+        val (along, idx) = r.alongOf(p.pos, 0, r.points.size)
+        if (along < NavEngine.along - 50) return null // already behind us
+        val off = Geo.distanceToSegment(p.pos, r.points[idx], r.points[minOf(idx + 1, r.points.size - 1)])
+        return off * 2
+    }
+
+    /**
+     * Your filters and sort applied to a "fuel nearby" list: chargers only if you want them (with your
+     * plugs and power), fuel stations of your brands, then cheapest / nearest / smallest detour.
+     */
+    fun arrange(list: List<Place>, near: LatLng): List<Place> {
+        val kind = chosen
+        val brandSet = brands
+        val keep = list.filter { p ->
+            if (isCharger(p)) {
+                showChargers && (p.plugs.isEmpty() || p.plugs.any { it in plugs }) && (!fastOnly || p.kw == 0 || p.kw >= 50)
+            } else {
+                (brandSet.isEmpty() || brandSet.any { b -> p.brand.contains(b, true) || p.name.contains(b, true) }) &&
+                    // a station's own price list without your fuel: it doesn't sell it
+                    (p.areaAvg || p.prices.isEmpty() || kind == "ev" || priceOf(p, kind) != null)
+            }
+        }.let { l -> if (kind == "ev") l.filter { isCharger(it) } else l.filterNot { isCharger(it) } + l.filter { isCharger(it) } }
+        val dist = { p: Place -> Geo.distance(near, p.pos) }
+        return when (sort) {
+            "route" -> keep.mapNotNull { p -> detour(p)?.let { p to it } }.sortedBy { it.second }.map { it.first }.ifEmpty { keep.sortedBy(dist) }
+            "nearest" -> keep.sortedBy(dist)
+            else -> keep.sortedWith(compareBy<Place> { if (isCharger(it) && kind != "ev") 1 else 0 }
+                .thenBy { if (kind == "ev") -(it.kw.toDouble()) else priceOf(it, kind) ?: 99.0 }.thenBy(dist))
+        }
+    }
+
+    /** Price tags for the map while the fuel list is open: (where, "D €1.74"). */
+    @Volatile var pins: List<Pair<LatLng, String>> = emptyList()
 
     /** Prices for one place (a fuel station picked from search), or null. */
     fun forPlace(pl: Place): String? {
