@@ -235,7 +235,11 @@ data class Place(
     val prices: Map<String, Double> = emptyMap(), val areaAvg: Boolean = false,
     /** Brand (fuel stations), and for chargers: plug kinds ("type2", "ccs", "chademo", "tesla") and top power */
     val brand: String = "", val plugs: Set<String> = emptySet(), val kw: Int = 0,
-)
+    /** Where to drive to: the entrance on the street, when known (else the place itself). */
+    val entry: LatLng? = null,
+) {
+    val goal: LatLng get() = entry ?: pos
+}
 
 /** Destination search: Photon for live suggestions, Nominatim as a fallback, plus recents. */
 object Places {
@@ -327,14 +331,29 @@ object Places {
                     kw = maxOf(kw, cn.optDouble("ratedPowerKW", 0.0).toInt())
                 }
             }
-            out += Place(name, address, LatLng(pos.getDouble("lat"), pos.getDouble("lon")), tomtomIcon(code, r.optString("type")),
-                brand = brand, plugs = plugs, kw = kw)
+            // the main entrance, on the street the route should end in
+            val ep = r.optJSONArray("entryPoints")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+                ?.let { l -> l.firstOrNull { it.optString("type") == "main" } ?: l.firstOrNull() }?.optJSONObject("position")
+            val entry = ep?.let { LatLng(it.getDouble("lat"), it.getDouble("lon")) }
+            val cats = poi?.optJSONArray("categories")?.let { a -> (0 until a.length()).joinToString(" ") { a.optString(it) } }.orEmpty()
+            val at = LatLng(pos.getDouble("lat"), pos.getDouble("lon"))
+            out += Place(name, address, at, tomtomIcon(code, r.optString("type"), cats),
+                brand = brand, plugs = plugs, kw = kw, entry = entry?.takeIf { Geo.distance(it, at) in 3.0..400.0 })
         }
         return out.distinctBy { it.name + "|" + it.address }
     }
 
-    private fun tomtomIcon(code: String, type: String) = when {
+    private fun tomtomIcon(code: String, type: String, cats: String = "") = when {
         code == "ELECTRIC_VEHICLE_STATION" -> "🔌"
+        "bakery" in cats || "pastry" in cats || "ice cream" in cats || "dessert" in cats || "confection" in cats -> "🍰"
+        "café" in cats || "coffee" in cats -> "☕"
+        code == "NIGHTLIFE" || "bar" in cats.split(' ') || "pub" in cats -> "🍸"
+        "supermarket" in cats || "grocer" in cats || "food shop" in cats || "convenience" in cats -> "🛒"
+        code == "BANK" || code == "CASH_DISPENSER" -> "🏦"
+        code == "DENTIST" -> "🦷"
+        code == "PLACE_OF_WORSHIP" -> "⛪"
+        code == "SPORTS_CENTER" || code == "FITNESS_CLUB_CENTER" -> "🏋"
+        code == "REPAIR_FACILITY" || code == "CAR_DEALER" || code == "RENT_A_CAR_FACILITY" -> "🔧"
         code == "PETROL_STATION" -> "⛽"
         code == "RESTAURANT" -> "🍽"
         code == "CAFE_PUB" -> "☕"
@@ -402,7 +421,7 @@ object Places {
             .replace('η', 'ι').replace('υ', 'ι').replace('ω', 'ο')
             .replace("ει", "ι").replace("οι", "ι").replace("αι", "ε").replace("\u0001", "ου")
             // sounds Greeklish spells loosely: μπ/β (b), ντ/δ (d), γκ/γγ/νγ (g), ξ/χ (x), κσ (ks)
-            .replace("μπ", "β").replace("ντ", "δ").replace("γκ", "γ").replace("νγ", "γ")
+            .replace("μπ", "β").replace("ντ", "δ").replace("νδ", "δ").replace("γκ", "γ").replace("νγ", "γ")
             .replace("κσ", "χ").replace('ξ', 'χ').replace("πσ", "ψ")
         return t.replace(Regex("(\\p{L})\\1"), "$1")
     }
@@ -476,10 +495,109 @@ object Places {
         /** Each word as typed and as Greek, by sound. */
         val forms: List<List<String>> = words.map { listOf(sound(it), sound(greeklish(it))).filter { f -> f.isNotEmpty() }.distinct() }
         fun matches(e: List<String>, k: Int) = forms[k].any { f -> e.any { it.startsWith(f) } }
+        /** All the words run together ("crepa land" also finds "Crepaland"). */
+        val joined: List<String> = if (words.size < 2) emptyList() else
+            words.joinToString("").let { listOf(sound(it), sound(greeklish(it))) }.distinct()
     }
 
-    fun local(query: String, near: LatLng?): List<Place> = localNamed(Query(query), near).map { e ->
-        Place(e.name, when (e.kind) { 0 -> "Area"; 2 -> "Street"; else -> "" }, e.pos, e.icon)
+    /** Instant results, offline: names in the map data and the places squares on the phone, best first. */
+    fun local(query: String, near: LatLng?): List<Place> {
+        val q = Query(query)
+        val tiles = localNamed(q, near).map { e -> Place(e.name, when (e.kind) { 0 -> "Area"; 2 -> "Street"; else -> "" }, e.pos, e.icon) }
+        val open = try { OpenPlaces.search(q, near) } catch (e: Exception) { emptyList() }
+        return rank(q, near, null, listOf(open to SRC_OPEN, tiles to SRC_TILES)).take(8)
+    }
+
+    // ---- ranking: what fits the words best, then what's nearest
+
+    private const val SRC_TOMTOM = 0
+    private const val SRC_OPEN = 1
+    private const val SRC_TILES = 2
+    private const val SRC_OSM = 3
+
+    /**
+     * How well a name fits what was typed: 1 = every word starts a word of the name (or the words
+     * run together are one), in any spelling (Greek, Latin, Greeklish). Words found only in the
+     * address (the street, the area) count half.
+     */
+    fun nameScore(q: Query, name: String, address: String = ""): Double {
+        if (q.words.isEmpty()) return 0.0
+        val s = OpenPlaces.searchText(name)
+        if (q.joined.any { s.contains(" $it") }) return 1.0
+        val a = if (address.isNotBlank()) OpenPlaces.searchText(address) else ""
+        var m = 0.0; var firstHit = false
+        for ((k, fs) in q.forms.withIndex()) {
+            if (fs.any { s.contains(" $it") }) { m += 1.0; if (k == 0) firstHit = true }
+            else if (a.isNotEmpty() && fs.any { a.contains(" $it") }) m += 0.5
+        }
+        var sc = m / q.words.size
+        if (sc > 0 && !firstHit) sc *= 0.85
+        return sc.coerceAtMost(1.0)
+    }
+
+    /** The same place from two sources: the same name (by sound, spaces aside) within 250 m. */
+    private fun samePlace(a: Place, b: Place): Boolean {
+        if (Geo.distance(a.pos, b.pos) > 250) return false
+        val x = sound(greeklish(a.name)).filter { it.isLetterOrDigit() }
+        val y = sound(greeklish(b.name)).filter { it.isLetterOrDigit() }
+        if (x.isEmpty() || y.isEmpty()) return false
+        return x == y || (minOf(x.length, y.length) >= 5 && (x.startsWith(y) || y.startsWith(x)))
+    }
+
+    /**
+     * All sources together, best first: how well the name fits (most), how close it is to [focus]
+     * (the user, or the area named in the search), and a little for being in that area.
+     */
+    private fun rank(q: Query, focus: LatLng?, area: Named?, lists: List<Pair<List<Place>, Int>>): List<Place> {
+        class C(val p: Place, val score: Double, val fit: Double)
+        val all = ArrayList<C>()
+        for ((list, src) in lists) for (p in list) {
+            val fit = nameScore(q, p.name, p.address)
+            val isAddr = p.icon == "🏠" || p.icon == "🛣" || p.icon == "🏙"
+            var s = fit * 100
+            if (isAddr && q.number != null) s = maxOf(s, 75.0)
+            val d = focus?.let { Geo.distance(it, p.pos) } ?: 0.0
+            s -= 14 * Math.log10(1 + d / 1000) // 1 km −4, 10 km −15, 100 km −28
+            if (area != null && d < 5000) s += 8
+            if (src == SRC_TOMTOM || src == SRC_OPEN) s += 1 // richer data (address, entrance)
+            all += C(p, s, if (isAddr && q.number != null) 1.0 else fit)
+        }
+        all.sortByDescending { it.score }
+        val out = ArrayList<Place>()
+        for (c in all) {
+            val i = out.indexOfFirst { samePlace(it, c.p) }
+            if (i >= 0) { if (out[i].entry == null && c.p.entry != null) out[i] = out[i].copy(entry = c.p.entry); continue }
+            out += c.p
+        }
+        // the ones that fit; if none do, the best guesses still show
+        val good = out.filter { p -> all.first { it.p === p || samePlace(it.p, p) }.fit >= 0.5 }
+        return if (good.isNotEmpty()) good else out.take(5)
+    }
+
+    /**
+     * "crepa land glyfada" → ("crepa land", Γλυφάδα): a town or neighbourhood named at the end
+     * (or the start) of a search, so the search looks there.
+     */
+    private fun splitArea(query: String, near: LatLng?): Pair<String, Named>? {
+        val words = query.trim().split(Regex("[\\s,]+")).filter { it.isNotEmpty() }
+        if (words.size < 2) return null
+        val towns = gazetteer
+        if (towns.isEmpty()) return null
+        val from = near ?: LocationTracker.position
+        for (n in listOf(2, 1)) for (atEnd in listOf(true, false)) {
+            if (words.size - n < 1) continue
+            val part = (if (atEnd) words.takeLast(n) else words.take(n)).joinToString(" ")
+            val keys = listOf(sound(part), sound(greeklish(part))).filter { it.length >= 3 }.distinct()
+            val hit = towns.filter { t ->
+                keys.any { k -> if (n == 1) k in t.norm else t.full.startsWith(k) || t.full.contains(" $k") }
+            }.minByOrNull { t -> from?.let { Geo.distance(it, t.pos) } ?: 0.0 } ?: continue
+            var rest = if (atEnd) words.dropLast(n) else words.drop(n)
+            // "… in glyfada", "… στη γλυφάδα"
+            if (atEnd) while (rest.size > 1 && rest.last().lowercase() in setOf("in", "at", "near", "στη", "στην", "στο", "στον", "κοντα", "κοντά")) rest = rest.dropLast(1)
+            if (rest.isEmpty()) continue
+            return rest.joinToString(" ") to hit
+        }
+        return null
     }
 
     /**
@@ -531,18 +649,39 @@ object Places {
         else Place(street.name, "Street · number $num not on the map", street.pos, "🛣")
     }
 
+    private val finders = Executors.newCachedThreadPool(Bg.factory("find"))
+
     /**
-     * Local results, then the search services, merged: the nearest exact address first.
-     * Used by the phone and the car.
+     * Everything at once: the exact address, TomTom, OpenStreetMap (Photon), the places squares
+     * and the map data, ranked together (see [rank]). A town named in the search ("… glyfada")
+     * moves the search there. Used by the phone and the car. Null = no connection and nothing local.
      */
     fun find(query: String, near: LatLng?, full: Boolean, local: List<Place> = local(query, near)): List<Place>? {
-        val addr = try { address(query, near) } catch (e: Exception) { null }
-        val net = try { nearFirst(if (full) search(query, near) else suggest(query, near), near) } catch (e: Exception) { null }
-        if (net == null && local.isEmpty() && addr == null) return null
-        fun same(a: Place, b: Place) = norm(a.name) == norm(b.name) && Geo.distance(a.pos, b.pos) < 300
+        val split = try { splitArea(query, near) } catch (e: Exception) { null }
+        val core = split?.first ?: query
+        val area = split?.second
+        val focus = area?.pos ?: near
+        val q = Query(core)
+        val fTom = finders.submit(java.util.concurrent.Callable { tryTomtom(query, focus, !full) }) // the whole text: TomTom knows the areas
+        val fPho = finders.submit(java.util.concurrent.Callable { tryPhoton(core, focus) })
+        val fAddr = finders.submit(java.util.concurrent.Callable { try { address(query, near) } catch (e: Exception) { null } })
+        // the places squares there (downloaded the first time a far area is searched)
+        if (area != null && OpenPlaces.ready) try { OpenPlaces.prepare(area.pos) } catch (_: Exception) {}
+        val open = try { OpenPlaces.search(q, focus, 20) } catch (e: Exception) { emptyList() }
+        val tiles = if (area == null) local else try { local(core, focus) } catch (e: Exception) { local }
+        fun <T> get(f: java.util.concurrent.Future<T>, ms: Long): T? =
+            try { f.get(ms, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (e: Exception) { f.cancel(true); null }
+        val tom = get(fTom, 7000)
+        val pho = get(fPho, if (tom.isNullOrEmpty()) 4000 else 1500)
+        val addr = get(fAddr, 5000)
+        var osm = pho.orEmpty()
+        if (tom.isNullOrEmpty() && osm.isEmpty() && open.isEmpty() && tiles.isEmpty() && addr == null) {
+            osm = try { nominatim(core, focus) } catch (e: Exception) { return if (tom == null && pho == null) null else emptyList() }
+        }
+        val ranked = rank(q, focus, area, listOf(open to SRC_OPEN, tom.orEmpty() to SRC_TOMTOM, tiles to SRC_TILES, osm to SRC_OSM))
         val out = ArrayList<Place>()
         addr?.let { out += it }
-        for (p in local.take(3) + net.orEmpty() + local.drop(3)) if (out.none { same(it, p) }) out += p
+        for (p in ranked) if (out.none { samePlace(it, p) }) out += p
         return out.take(10)
     }
 
@@ -564,10 +703,10 @@ object Places {
         if (warming || (!force && (NavEngine.active || LocationTracker.speedMps > 8f))) return
         if (!::appContext.isInitialized) return
         val s = streetsAt; val g = gazetteerAt
-        if (s != null && Geo.distance(s, p) < 4_000 && g != null && Geo.distance(g, p) < 20_000) return
+        if (s != null && Geo.distance(s, p) < 4_000 && g != null && Geo.distance(g, p) < 20_000 && OpenPlaces.has(p)) return
         warming = true
         warm.execute {
-            try { prepareGazetteer(p); prepareStreets(p) } catch (_: Exception) {} finally { warming = false }
+            try { prepareGazetteer(p); OpenPlaces.prepare(p); prepareStreets(p) } catch (_: Exception) {} finally { warming = false }
         }
     }
 
@@ -737,6 +876,11 @@ object Places {
         value == "charging_station" -> "🔌"
         value in setOf("restaurant", "fast_food", "food_court") -> "🍽"
         value == "cafe" -> "☕"
+        value in setOf("ice_cream", "bakery", "pastry", "confectionery", "chocolate") -> "🍰"
+        value == "dentist" -> "🦷"
+        value in setOf("bank", "atm") -> "🏦"
+        value == "place_of_worship" -> "⛪"
+        value in setOf("car_repair", "car", "tyres") -> "🔧"
         value in setOf("bar", "pub", "nightclub") -> "🍺"
         value == "parking" -> "🅿"
         value in setOf("hospital", "clinic", "doctors") -> "🏥"

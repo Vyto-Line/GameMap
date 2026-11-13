@@ -209,7 +209,7 @@ object NavEngine {
         changed.fire()
         MapState.requestFit(listOf(from, place.pos))
         io.execute {
-            val routes = try { Router.routes(from, place.pos, alternatives = true, heading = heading()).also { Tolls.annotate(it) } } catch (e: Exception) { null }
+            val routes = try { Router.routes(from, place.goal, alternatives = true, heading = heading()).also { Tolls.annotate(it) } } catch (e: Exception) { null }
             main.post {
                 if (seq != planSeq || !planning) return@post
                 if (routes.isNullOrEmpty()) {
@@ -302,7 +302,7 @@ object NavEngine {
         tripStart = System.currentTimeMillis(); tripMeters = 0.0; tripSaved = 0; tripBonus = 0; lastPos = null
         Explorer.tripFound = 0
         parkingReady = false
-        destination = place.pos
+        destination = place.goal // the entrance on the street, when known
         destinationName = place.name
         arrived = false
         error = null
