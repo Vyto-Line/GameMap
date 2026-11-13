@@ -1917,6 +1917,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun openSheet(kind: String) {
         if (kind != sheetKind) settingsPage = null
+        quickKey = ""
         sheetKind = kind
         sheetOverlay.visibility = View.VISIBLE
         refreshChrome()
@@ -2122,7 +2123,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     /** ☰ while driving: the things that used to be separate round buttons, plus Settings. */
+    private var quickKey = ""
+
     private fun renderQuick() {
+        // rebuilt only when something on it changes (not on every convoy update)
+        val key = "${Convoy.active}|${Convoy.members.size}|${NavEngine.route.size > 1}|${theme.name}|${MapState.dark}|${Traffic.showLayer}"
+        if (key == quickKey && sheetHost.childCount > 0) return
+        quickKey = key
         sheetHost.removeAllViews()
         sheetHost.background = bg(panel, radius = 24f, topOnly = true)
         sheetHost.addView(sheetHeader("While driving"))
@@ -2602,7 +2609,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             setTextColor(onAccent(accent)); background = bg(accent, radius = 22f)
         }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.3f))
         // on a route of my own: one tap to join the others' route instead
-        if (NavEngine.active && dest != null && !Convoy.onConvoyRoute) sheetHost.addView(pill("➤  Drive to ${dest.name} with the convoy") {
+        if (NavEngine.active && dest != null && !Convoy.onConvoyRoute) sheetHost.addView(pill("➤  Join the convoy's route") {
             closeSheet(); NavEngine.start(this, dest); MapState.recenter()
         }.apply {
             setTextColor(onAccent(accent)); background = bg(accent, radius = 22f); maxLines = 1; ellipsize = TextUtils.TruncateAt.END

@@ -101,8 +101,11 @@ object Convoy {
      * Everyone in the convoy (me too) gets a different colour: the drivers' ids in order, one
      * colour each. Every phone sees the same ids, so everyone sees the same colours.
      */
+    @Volatile private var colorIds: Pair<Int, List<String>> = 0 to emptyList()
     fun colorOf(id: String): Int {
-        val ids = (members.keys + myId).sorted()
+        val key = members.keys.hashCode() * 31 + members.size
+        val ids = colorIds.takeIf { it.first == key }?.second
+            ?: (members.keys + myId).sorted().also { colorIds = key to it }
         val i = ids.indexOf(id)
         return palette[if (i >= 0) i % palette.size else Math.floorMod(id.hashCode(), palette.size)]
     }
@@ -432,7 +435,7 @@ object Convoy {
                 }
             }
         }
-        if (id == myId) { main.post { changed.fire() }; return }
+        if (id == myId) { soon(); return }
         if (o.optString("t") == "bye") { members[id]?.state = "left"; members.remove(id); main.post { changed.fire() }; return }
         val m = members.getOrPut(id) { Member(id, o.optString("n", "Driver")) }
         // the same update comes over two brokers and ntfy, and late ones can overtake: newest wins
@@ -457,7 +460,19 @@ object Convoy {
         m.ready = st == "ready" && o.optBoolean("rd", false)
         m.readyAt = if (m.ready) o.optLong("ra", ts) else 0
         m.seen = o.optLong("ts", System.currentTimeMillis()).coerceAtMost(System.currentTimeMillis())
-        main.post { checkGo(); changed.fire() }
+        soon()
+    }
+
+    /**
+     * Updates come every second from everyone (twice: two brokers): the screens are told at
+     * most 4 times a second, not once per message. (The map's arrows glide on their own.)
+     */
+    @Volatile private var firePending = false
+    private val fireNow = Runnable { firePending = false; checkGo(); changed.fire() }
+    private fun soon() {
+        if (firePending) return
+        firePending = true
+        main.postDelayed(fireNow, 250)
     }
 
     /** A friend as a place to drive to (where they are now). */
