@@ -45,7 +45,7 @@ object Explorer {
             (0 until a.length()).map { i ->
                 val o = a.getJSONObject(i)
                 Trip(o.getString("p"), o.getLong("t"), o.getInt("s"), o.getDouble("m"), o.optInt("v"), o.optInt("x"), o.optInt("l"), o.optInt("b"))
-            }
+            }.sortedByDescending { it.arrivedAt }
         } catch (e: Exception) { emptyList() }
     }
 

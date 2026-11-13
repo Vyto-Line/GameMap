@@ -45,6 +45,12 @@ class Labels {
     private val text = Paint(Paint.ANTI_ALIAS_FLAG)
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND }
     private val placed = ArrayList<RectF>(64)
+    private val boxPool = ArrayList<RectF>(64)
+    private var boxUsed = 0
+    private fun box(l: Float, t: Float, r: Float, b: Float): RectF {
+        if (boxUsed == boxPool.size) boxPool += RectF()
+        return boxPool[boxUsed++].apply { set(l, t, r, b) }
+    }
     private val placedNames = ArrayList<Pair<String, FloatArray>>(64)
     private val pm = PathMeasure()
     private val bmpPaint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
@@ -100,7 +106,7 @@ class Labels {
         halo.color = st.labelHalo
         halo.strokeWidth = 3.5f * d
 
-        placed.clear(); placedNames.clear()
+        placed.clear(); placedNames.clear(); boxUsed = 0
         val a = Math.toRadians(-cam.bearing.toDouble())
         val ca = cos(a); val sa = sin(a)
         // world-pixel box of the screen, for quick rejection
@@ -142,7 +148,7 @@ class Labels {
         val x = screen[0]; val y = screen[1]
         text.textAlign = Paint.Align.CENTER; halo.textAlign = Paint.Align.CENTER
         val w = text.measureText(cd.name) / 2 + 4 * d
-        val box = RectF(x - w, y - text.textSize, x + w, y + text.textSize * 0.35f)
+        val box = box(x - w, y - text.textSize, x + w, y + text.textSize * 0.35f)
         if (!inside(box, area) || !free(box)) return false
         val img = image(cd.name)
         bmpPaint.alpha = alphaFor(cd)
@@ -182,7 +188,7 @@ class Labels {
         for ((nm, at) in placedNames) if (nm == cd.name && hypot(at[0] - mx, at[1] - my) < 260 * d) return false
         val hw = tw / 2; val h = text.textSize * 0.7f
         val ex = kotlin.math.abs(tx * hw) + kotlin.math.abs(ty * h); val ey = kotlin.math.abs(ty * hw) + kotlin.math.abs(tx * h)
-        val box = RectF(mx - ex, my - ey, mx + ex, my + ey)
+        val box = box(mx - ex, my - ey, mx + ex, my + ey)
         if (!inside(box, area) || !free(box)) return false
         placedNames += cd.name to floatArrayOf(mx, my)
         val img = image(cd.name)

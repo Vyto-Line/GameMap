@@ -63,7 +63,7 @@ class FeaturesPreviewTest {
         val log = StringBuilder()
         try {
             Http.post("https://ntfy.sh/$topic", "{\"state\":\"driving\",\"ts\":$now}", "text/plain", timeout = 8000)
-            val c = URL("https://ntfy.sh/$topic/json?poll=1").openConnection() as HttpURLConnection
+            val c = URL("https://ntfy.sh/$topic/json?poll=1&since=all").openConnection() as HttpURLConnection
             log.append("ntfy ${c.responseCode}: ${c.inputStream.bufferedReader().readText().take(200)}\n")
         } catch (e: Exception) { log.append("ntfy failed: $e\n") }
         File(out, "features.txt").writeText(log.toString())
