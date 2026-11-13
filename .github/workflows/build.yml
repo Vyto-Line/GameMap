@@ -39,8 +39,9 @@ jobs:
           REPORTS_URL: ${{ secrets.REPORTS_URL }}
         run: |
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          gradle assembleGithubDebug --no-daemon -PbuildNumber=${{ github.run_number }}
-          mkdir -p ../out && cp app/build/outputs/apk/github/debug/*.apk ../out/GameRoute.apk
+          # a release build (not debuggable): Android compiles and runs it faster
+          gradle assembleGithubRelease --no-daemon -PbuildNumber=${{ github.run_number }}
+          mkdir -p ../out && cp app/build/outputs/apk/github/release/*.apk ../out/GameRoute.apk
       - name: Build Play Store bundle
         working-directory: src
         env:

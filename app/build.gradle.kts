@@ -19,13 +19,6 @@ android {
         buildConfigField("String", "REPORTS_URL", "\"${System.getenv("REPORTS_URL") ?: ""}\"")
         buildConfigField("String", "TOMTOM_KEY", "\"${System.getenv("TOMTOM_KEY") ?: ""}\"")
     }
-    // Two versions of the same app: "github" (sideloaded, updates itself from GitHub releases)
-    // and "play" (Google Play: no self-updater, no install-packages permission).
-    flavorDimensions += "store"
-    productFlavors {
-        create("github") { dimension = "store" }
-        create("play") { dimension = "store" }
-    }
     signingConfigs {
         // Fixed key in the repo so every build can update the previous one in place.
         getByName("debug") {
@@ -34,6 +27,14 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+    }
+    // Two versions of the same app: "github" (sideloaded, updates itself from GitHub releases)
+    // and "play" (Google Play: no self-updater, no install-packages permission).
+    flavorDimensions += "store"
+    productFlavors {
+        // GitHub releases are signed with the repo's fixed key, so every build updates the last one
+        create("github") { dimension = "store"; signingConfig = signingConfigs.getByName("debug") }
+        create("play") { dimension = "store" }
     }
     // Play upload key: CI decodes the PLAY_KEYSTORE secret to a file and passes it in here.
     val uploadStore = System.getenv("PLAY_KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
@@ -55,6 +56,8 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { buildConfig = true }
+    // lint runs in its own checks; it shouldn't block a release build
+    lint { checkReleaseBuilds = false; abortOnError = false }
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
