@@ -174,28 +174,53 @@ class MapView(private val zoomKey: String) {
     fun zoomByFactor(factor: Float) {
         if (factor <= 0) return
         zoom = (zoom + log2(factor.toDouble())).coerceIn(MapState.MIN_ZOOM, MapState.MAX_ZOOM)
-        targetZoom = zoom
+        targetZoom = (zoom - autoTarget).coerceIn(MapState.MIN_ZOOM, MapState.MAX_ZOOM)
         saveZoom()
         MapState.changed.fire()
     }
 
     private fun saveZoom() = MapState.saveZoom(zoomKey, targetZoom)
 
+    /** While driving: zoomed out a little at speed, in a little just before a turn (on top of your own zoom). */
+    private var autoTarget = 0.0
+    /** When the map was last moved by hand; it comes back to the car 8 s later while navigating. */
+    @Volatile var touchedAt = 0L
+
+    private fun autoZoom(): Double {
+        if (!NavEngine.active || NavEngine.arrived || !following || overview || gesture) return 0.0
+        val kmh = LocationTracker.speedMps * 3.6
+        val fast = -((kmh - 35) / 65).coerceIn(0.0, 1.0) * 1.1          // 35 km/h: 0, 100 km/h: -1.1
+        val step = NavEngine.currentStep
+        val turning = step != null && step.direction != "straight" && step.type !in setOf("continue", "new name") &&
+            NavEngine.distanceToNext < maxOf(120.0, LocationTracker.speedMps * 9.0)
+        val v = if (turning) maxOf(fast, -0.2) + 0.45 else fast
+        return Math.round(v * 10) / 10.0 // steps of 0.1, so the zoom isn't always moving
+    }
+
     /** Advances the zoom animation. Returns true while animating. */
     fun tick(): Boolean {
         val now = SystemClock.uptimeMillis()
         val dt = (now - lastTick).coerceIn(0, 100)
         lastTick = now
-        if (abs(targetZoom - zoom) < 0.003) {
-            zoom = targetZoom
+        // panned away while navigating: back to the car after 8 s without touching
+        if (!following && !overview && NavEngine.active && !gesture && touchedAt > 0 && now - touchedAt > 8_000) {
+            touchedAt = 0
+            android.os.Handler(android.os.Looper.getMainLooper()).post { if (!following) recenter() } // the car draws on its own thread
+        }
+        autoTarget = autoZoom()
+        val goal = (targetZoom + autoTarget).coerceIn(MapState.MIN_ZOOM, MapState.MAX_ZOOM)
+        if (abs(goal - zoom) < 0.003) {
+            zoom = goal
             return false
         }
-        zoom += (targetZoom - zoom) * (1 - exp(-dt / 110.0))
+        // the automatic part moves gently (about a second); your own zooming stays quick
+        zoom += (goal - zoom) * (1 - exp(-dt / (if (abs(goal - zoom) < 1.2 && autoTarget != 0.0) 420.0 else 110.0)))
         return true
     }
 
     fun pan(center: LatLng, bearing: Float) {
         following = false
+        touchedAt = SystemClock.uptimeMillis()
         freeCenter = center
         freeBearing = bearing
         MapState.changed.fire()

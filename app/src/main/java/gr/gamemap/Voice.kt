@@ -83,6 +83,8 @@ object Voice {
             stepStartDist = dist
         }
         if (step.direction == "arrive") return // the arrival has its own line
+        // the road just changes its name (no turn): nothing worth saying
+        if ((step.type == "continue" || step.type == "new name") && step.direction in setOf("straight", "continue")) return
         val near = maxOf(speed * 7.0, 40.0)
         val prep = maxOf(speed * 22.0, 250.0).coerceAtMost(1500.0)
         when {
@@ -126,8 +128,45 @@ object Voice {
             if (t == null) create()
             return
         }
+        val line = spoken(text)
+        // the same line again within 20 s (e.g. right after a reroute): once is enough
+        val now = System.currentTimeMillis()
+        if (line == lastLine && now - lastLineAt < 20_000) return
+        lastLine = line; lastLineAt = now
         if (!requestFocus()) return
-        t.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), "gm" + System.nanoTime())
+        t.speak(line, TextToSpeech.QUEUE_FLUSH, Bundle(), "gm" + System.nanoTime())
+    }
+
+    private var lastLine = ""
+    private var lastLineAt = 0L
+
+    private val abbreviations = listOf(
+        "Λεωφ." to "Λεωφόρος", "Λ." to "Λεωφόρος", "Αγ." to "Αγίου", "Πλ." to "Πλατεία", "Οδ." to "Οδός",
+        "Εθν." to "Εθνικής", "Π." to "", "Κ." to "", "Ν." to "",
+    )
+
+    /** What the voice actually says: abbreviations spelled out, Greek names in Latin letters for an English voice. */
+    internal fun spoken(text: String): String {
+        var t = text
+        for ((a, b) in abbreviations) t = t.replace(Regex("(?<![\\p{L}])" + Regex.escape(a)), b)
+        t = t.replace(Regex("\\s{2,}"), " ")
+        if (lang != Phrases.GREEK && t.any { it in 'Α'..'ω' || it in 'ά'..'ώ' }) t = latin(t)
+        return t
+    }
+
+    /** Greek → Latin letters, the way the street signs spell them (Πατησίων → Patision). */
+    internal fun latin(s: String): String {
+        val n = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
+        val pairs = listOf("ου" to "ou", "ΟΥ" to "OU", "Ου" to "Ou", "αι" to "e", "Αι" to "E", "ει" to "i", "Ει" to "I", "οι" to "i", "Οι" to "I",
+            "αυ" to "av", "Αυ" to "Av", "ευ" to "ev", "Ευ" to "Ev", "γγ" to "ng", "γκ" to "g", "Γκ" to "G", "μπ" to "b", "Μπ" to "B", "ντ" to "d", "Ντ" to "D",
+            "θ" to "th", "Θ" to "Th", "χ" to "ch", "Χ" to "Ch", "ψ" to "ps", "Ψ" to "Ps", "ξ" to "x", "Ξ" to "X")
+        var t = n
+        for ((a, b) in pairs) t = t.replace(a, b)
+        val one = "αβγδεζηικλμνοπρσςτυφωΑΒΓΔΕΖΗΙΚΛΜΝΟΠΡΣΤΥΦΩ"
+        val to = arrayOf("a","v","g","d","e","z","i","i","k","l","m","n","o","p","r","s","s","t","i","f","o","A","V","G","D","E","Z","I","I","K","L","M","N","O","P","R","S","T","Y","F","O")
+        val sb = StringBuilder()
+        for (ch in t) { val k = one.indexOf(ch); sb.append(if (k >= 0) to[k] else ch.toString()) }
+        return sb.toString()
     }
 
     private fun create() {
