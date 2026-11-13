@@ -201,7 +201,7 @@ object NavEngine {
         val from = LocationTracker.position
         val seq = ++planSeq
         if (from == null) {
-            planLoading = true; planError = "Waiting for GPS…"; changed.fire()
+            planLoading = true; planError = gr.gamemap.L.t("Waiting for GPS…"); changed.fire()
             main.postDelayed({ if (planning && seq == planSeq) fetchOptions() }, 2000)
             return
         }
@@ -213,7 +213,7 @@ object NavEngine {
             main.post {
                 if (seq != planSeq || !planning) return@post
                 if (routes.isNullOrEmpty()) {
-                    planLoading = false; planError = "No route found"; changed.fire(); return@post
+                    planLoading = false; planError = gr.gamemap.L.t("No route found"); changed.fire(); return@post
                 }
                 options = preferAllowed(routes).take(3)
                 selected = 0
@@ -440,7 +440,7 @@ object NavEngine {
         val dest = destination ?: return
         val from = LocationTracker.position
         if (from == null) {
-            error = "Waiting for GPS…"
+            error = gr.gamemap.L.t("Waiting for GPS…")
             loading = true
             changed.fire()
             return
@@ -459,7 +459,7 @@ object NavEngine {
             main.post {
                 if (destination != dest) return@post
                 if (r == null) {
-                    loading = false; error = "No route found"; changed.fire()
+                    loading = false; error = gr.gamemap.L.t("No route found"); changed.fire()
                 } else { CrashLog.note("route from ${Router.lastSource}"); apply(r, announce = !reroute) }
             }
         }

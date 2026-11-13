@@ -22,6 +22,7 @@ class GameMapApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashLog.init(this)
+        L.init(this)
         MapState.init(this)
         TileCache.init(this)
         Places.init(this)

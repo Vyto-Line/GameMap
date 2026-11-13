@@ -22,7 +22,7 @@ class NavStep(
 ) {
     /** Index of the route point where this maneuver happens. */
     var routeIndex = 0
-    val text: String get() = Phrases.instruction(this, Phrases.ENGLISH)
+    val text: String get() = Phrases.instruction(this, if (L.greek) Phrases.GREEK else Phrases.ENGLISH)
 }
 
 /** A stretch of a route, in metres from its start. */

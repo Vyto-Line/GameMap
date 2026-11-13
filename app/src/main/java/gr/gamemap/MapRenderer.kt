@@ -200,7 +200,7 @@ class MapRenderer(private val car: Boolean = false) {
         if (VectorSource.busy.get() > 0) {
             animating = true
             text.textAlign = Paint.Align.CENTER; text.textSize = 13 * d
-            val msg = if (theme == Theme.BLOCKY) "⛏ Building the world…" else "Loading map…"
+            val msg = if (theme == Theme.BLOCKY) "⛏ Building the world…" else gr.gamemap.L.t("Loading map…")
             val tw = text.measureText(msg) / 2 + 12 * d
             val bx = RectF(area.exactCenterX() - tw, area.bottom - 92 * d, area.exactCenterX() + tw, area.bottom - 64 * d)
             panel(c, bx, d, theme, outline = false)
@@ -924,7 +924,7 @@ class MapRenderer(private val car: Boolean = false) {
         text.color = if (over) Color.rgb(255, 92, 92) else Ui.ink(t)
         c.drawText(big, box.centerX(), box.top + 33 * d, text)
         text.textSize = 11 * d
-        c.drawText(if (imp) "MPH" else "KM/H", box.centerX(), box.bottom - 9 * d, text)
+        c.drawText(if (imp) "MPH" else gr.gamemap.L.t("KM/H"), box.centerX(), box.bottom - 9 * d, text)
         if (limit != null) {
             val r = 21 * d
             val sx = box.right + 8 * d + r; val sy = box.bottom - r - 4 * d
@@ -1087,12 +1087,12 @@ class MapRenderer(private val car: Boolean = false) {
         if (NavEngine.active && !NavEngine.arrived) {
             // End, next to the arrival panel
             text.textSize = 18 * d
-            val w = text.measureText("End") + 44 * d
+            val w = text.measureText(gr.gamemap.L.t("End")) + 44 * d
             val left = if (etaRight > 0) etaRight + 10 * d else a.left + 160 * d
             val r = RectF(left, a.bottom - 14 * d - 66 * d, left + w, a.bottom - 14 * d)
             glassButton(c, r, d, t, Color.argb(225, 229, 72, 77))
             text.color = white
-            c.drawText("End", r.left + 22 * d, r.centerY() + 6.5f * d, text)
+            c.drawText(gr.gamemap.L.t("End"), r.left + 22 * d, r.centerY() + 6.5f * d, text)
             carHits += r to "end"
         } else if (!NavEngine.active && selectedPlace == null) {
             // "Where to?" and saved places, top left (a place's card takes the corner when open)
@@ -1100,13 +1100,13 @@ class MapRenderer(private val car: Boolean = false) {
             glassButton(c, r, d, t)
             icon(c, "search", r.left + 26 * d, r.centerY(), 20 * d, Ui.onPanel(t, t.route, 3.0))
             text.textSize = 18 * d; text.typeface = t.typeface; text.color = ink
-            c.drawText("Where to?", r.left + 50 * d, r.centerY() + 6.5f * d, text)
+            c.drawText(gr.gamemap.L.t("Where to?"), r.left + 50 * d, r.centerY() + 6.5f * d, text)
             carHits += r to "search"
             var cxp = r.left
             text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d
             for (k in listOf("home", "work")) {
                 val pl = Places.saved(k) ?: continue
-                val label = (if (k == "home") "Home" else "Work") + (Places.cachedEta(pl)?.let { " · ${(it.seconds + 30) / 60} min" } ?: "")
+                val label = (if (k == "home") gr.gamemap.L.t("Home") else gr.gamemap.L.t("Work")) + (Places.cachedEta(pl)?.let { " · ${(it.seconds + 30) / 60} min" } ?: "")
                 val w = text.measureText(label) + 52 * d
                 val cr = RectF(cxp, r.bottom + 10 * d, cxp + w, r.bottom + 10 * d + 44 * d)
                 glassButton(c, cr, d, t)
@@ -1145,9 +1145,9 @@ class MapRenderer(private val car: Boolean = false) {
         stats.forEachIndexed { i, (big, small) ->
             val x = box.left + 18 * d + i * col
             text.typeface = t.typeface; text.textSize = 22 * d; text.color = ink
-            c.drawText(big, x, box.top + 104 * d, text)
+            c.drawText(gr.gamemap.L.t(big), x, box.top + 104 * d, text)
             text.typeface = Typeface.DEFAULT; text.textSize = 13 * d; text.color = Ui.dim(t, 190)
-            c.drawText(small, x, box.top + 124 * d, text)
+            c.drawText(gr.gamemap.L.t(small), x, box.top + 124 * d, text)
         }
         // buttons
         val by = box.bottom - 18 * d - 56 * d
@@ -1158,9 +1158,9 @@ class MapRenderer(private val car: Boolean = false) {
         glassButton(c, done, d, t, withAlpha(t.route, 240))
         text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 18 * d; text.textAlign = Paint.Align.CENTER
         text.color = glassInk(t)
-        c.drawText("Parking", park.centerX(), park.centerY() + 6.5f * d, text)
+        c.drawText(gr.gamemap.L.t("Parking"), park.centerX(), park.centerY() + 6.5f * d, text)
         text.color = if (Ui.contrast(Color.WHITE, t.route) >= 3) Color.WHITE else Color.BLACK
-        c.drawText("Done", done.centerX(), done.centerY() + 6.5f * d, text)
+        c.drawText(gr.gamemap.L.t("Done"), done.centerX(), done.centerY() + 6.5f * d, text)
         text.textAlign = Paint.Align.LEFT
         text.typeface = t.typeface
         carHits += park to "parking"
@@ -1187,7 +1187,7 @@ class MapRenderer(private val car: Boolean = false) {
         var y = box.top + 50 * d
         if (list.isEmpty()) {
             text.typeface = t.typeface; text.textSize = 18 * d; text.color = Ui.dim(t, 200)
-            c.drawText(if (CarParking.loading) "Finding car parks…" else "No car parks found nearby", box.left + 18 * d, y + 40 * d, text)
+            c.drawText(if (CarParking.loading) gr.gamemap.L.t("Finding car parks…") else gr.gamemap.L.t("No car parks found nearby"), box.left + 18 * d, y + 40 * d, text)
             text.typeface = t.typeface
             return
         }
@@ -1292,7 +1292,7 @@ class MapRenderer(private val car: Boolean = false) {
             fill.color = if (row.stale) Color.GRAY else row.color
             c.drawCircle(r.left + 18 * d, y + 13 * d, 5 * d, fill)
             text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d; text.color = Ui.ink(t)
-            val name = if (row.me) "You" else row.name
+            val name = if (row.me) gr.gamemap.L.t("You") else row.name
             c.drawText(ellipsize(name, 90 * d), r.left + 30 * d, y + 18 * d, text)
             val nw = text.measureText(ellipsize(name, 90 * d))
             text.typeface = Typeface.DEFAULT; text.textSize = 13 * d; text.color = Ui.dim(t, 190)
@@ -1345,13 +1345,13 @@ class MapRenderer(private val car: Boolean = false) {
         glassButton(c, go, d, t, withAlpha(t.route, 240))
         text.textSize = 20 * d
         text.color = if (Ui.contrast(Color.WHITE, t.route) >= 3) Color.WHITE else Color.BLACK
-        c.drawText(if (navigating) "＋ Add stop" else "Go", go.centerX(), go.centerY() + 7 * d, text)
+        c.drawText(if (navigating) gr.gamemap.L.t("＋ Add stop") else gr.gamemap.L.t("Go"), go.centerX(), go.centerY() + 7 * d, text)
         carHits += go to if (navigating) "placestop" else "placego"
         if (navigating) {
             val alt = RectF(box.centerX() + 6 * d, gy0, box.right - 18 * d, gy1)
             glassButton(c, alt, d, t)
             text.color = glassInk(t); text.textSize = 18 * d
-            c.drawText("Go instead", alt.centerX(), alt.centerY() + 6 * d, text)
+            c.drawText(gr.gamemap.L.t("Go instead"), alt.centerX(), alt.centerY() + 6 * d, text)
             carHits += alt to "placego"
         }
         text.textAlign = Paint.Align.LEFT
@@ -1379,10 +1379,10 @@ class MapRenderer(private val car: Boolean = false) {
         panel(c, box, d, t, outline = false)
         text.typeface = tf; text.textSize = 26 * d
         text.color = Ui.onPanel(t, when { delay >= 10 -> Color.rgb(255, 110, 110); delay >= 3 -> Color.rgb(255, 184, 107); else -> Color.rgb(123, 227, 160) })
-        c.drawText(big, box.left + 14 * d, box.top + 30 * d, text)
+        c.drawText(gr.gamemap.L.t(big), box.left + 14 * d, box.top + 30 * d, text)
         text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d
         text.color = Ui.ink(t)
-        c.drawText(small, box.left + 14 * d, box.bottom - 13 * d, text)
+        c.drawText(gr.gamemap.L.t(small), box.left + 14 * d, box.bottom - 13 * d, text)
         text.typeface = t.typeface
     }
 
@@ -1395,7 +1395,7 @@ class MapRenderer(private val car: Boolean = false) {
         val (title, sub) = when {
             NavEngine.arrived -> Explorer.completeTitle(t).uppercase() to NavEngine.destinationName
             NavEngine.error != null -> (NavEngine.error ?: "") to NavEngine.destinationName
-            NavEngine.loading || step == null -> "Plotting route…" to NavEngine.destinationName
+            NavEngine.loading || step == null -> gr.gamemap.L.t("Plotting route…") to NavEngine.destinationName
             else -> {
                 val st = step!!
                 NavEngine.formatDistance(NavEngine.distanceToNext) to
@@ -1450,7 +1450,7 @@ class MapRenderer(private val car: Boolean = false) {
             val tab = RectF(box.left + 14 * d, box.bottom - 2 * d, box.left + 14 * d + w, box.bottom + 38 * d)
             panel(c, tab, d, t, outline = false)
             text.color = Ui.dim(t, 190)
-            c.drawText("Then", tab.left + 12 * d, tab.centerY() + 5.5f * d, text)
+            c.drawText(gr.gamemap.L.t("Then"), tab.left + 12 * d, tab.centerY() + 5.5f * d, text)
             drawTurnArrow(c, tab.left + 62 * d, tab.centerY(), 9 * d, then.direction, t)
             text.color = Ui.ink(t)
             c.drawText(label, tab.left + 76 * d, tab.centerY() + 5.5f * d, text)
@@ -1581,7 +1581,7 @@ class MapRenderer(private val car: Boolean = false) {
         text.textAlign = Paint.Align.LEFT
         text.typeface = Typeface.DEFAULT_BOLD
         text.textSize = 15 * d
-        val title = "Landmark discovered · +25 XP"
+        val title = gr.gamemap.L.t("Landmark discovered · +25 XP")
         val name = ellipsize(l.name, a.width() - 120 * d)
         val w = maxOf(text.measureText(title), text.measureText(name)) + 74 * d
         val h = 58 * d
@@ -1636,7 +1636,7 @@ class MapRenderer(private val car: Boolean = false) {
         if (!NavEngine.active) return
         val (dist, delay) = NavEngine.jamAhead ?: return
         val mins = (delay + 30) / 60
-        val label = (if (dist < 100) "Jam ahead" else "Jam in ${NavEngine.formatDistance(dist)}") + (if (mins >= 1) " · +$mins min" else "")
+        val label = gr.gamemap.L.t((if (dist < 100) "Jam ahead" else "Jam in ${NavEngine.formatDistance(dist)}") + (if (mins >= 1) " · +$mins min" else ""))
         text.textSize = 15 * d
         text.typeface = Typeface.DEFAULT_BOLD
         text.textAlign = Paint.Align.LEFT

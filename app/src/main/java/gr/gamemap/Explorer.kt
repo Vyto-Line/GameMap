@@ -92,14 +92,14 @@ object Explorer {
 
     /** What finishing a trip is called in each theme. */
     fun completeTitle(t: Theme): String = when (t) {
-        Theme.OPEN_WORLD -> "Mission complete"
-        Theme.NEON_NOIR -> "Job done"
-        Theme.NEON_RACER -> "Race finished"
-        Theme.BLOCKY -> "Journey complete"
-        Theme.PARCHMENT_QUEST -> "Quest complete"
-        Theme.LOOKOUT -> "Destination reached"
-        Theme.RETRO -> "Stage clear!"
-        Theme.TRAILBLAZER -> "Area explored!"
+        Theme.OPEN_WORLD -> gr.gamemap.L.t("Mission complete")
+        Theme.NEON_NOIR -> gr.gamemap.L.t("Job done")
+        Theme.NEON_RACER -> gr.gamemap.L.t("Race finished")
+        Theme.BLOCKY -> gr.gamemap.L.t("Journey complete")
+        Theme.PARCHMENT_QUEST -> gr.gamemap.L.t("Quest complete")
+        Theme.LOOKOUT -> gr.gamemap.L.t("Destination reached")
+        Theme.RETRO -> gr.gamemap.L.t("Stage clear!")
+        Theme.TRAILBLAZER -> gr.gamemap.L.t("Area explored!")
     }
 
     // ------------------------------------------------------------------ landmarks

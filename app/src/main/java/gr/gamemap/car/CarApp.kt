@@ -227,9 +227,9 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             askedFor = r
             val t = gr.gamemap.Alerts.typeOf(r.type)
             val alert = Alert.Builder(ASK_ALERT, CarText.create("${t.title} reported here"), 10_000L)
-                .setSubtitle(CarText.create("Is it still there?"))
-                .addAction(Action.Builder().setTitle("Still there").setOnClickListener { gr.gamemap.Alerts.vote(r, true); gr.gamemap.Alerts.clearAsk() }.build())
-                .addAction(Action.Builder().setTitle("Not there").setOnClickListener { gr.gamemap.Alerts.vote(r, false); gr.gamemap.Alerts.clearAsk() }.build())
+                .setSubtitle(CarText.create(gr.gamemap.L.t("Is it still there?")))
+                .addAction(Action.Builder().setTitle(gr.gamemap.L.t("Still there")).setOnClickListener { gr.gamemap.Alerts.vote(r, true); gr.gamemap.Alerts.clearAsk() }.build())
+                .addAction(Action.Builder().setTitle(gr.gamemap.L.t("Not there")).setOnClickListener { gr.gamemap.Alerts.vote(r, false); gr.gamemap.Alerts.clearAsk() }.build())
                 .build()
             try { carContext.getCarService(AppManager::class.java).showAlert(alert) } catch (_: Exception) {}
         }
@@ -278,7 +278,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 if (gr.gamemap.Updater.dueForCheck(carContext)) Executors.newSingleThreadExecutor().execute {
                     val r = try { gr.gamemap.Updater.check(carContext) } catch (e: Exception) { null }
                     if (r != null) main.post {
-                        CarToast.makeText(carContext, "GameRoute update ready: open the app on your phone", CarToast.LENGTH_LONG).show()
+                        CarToast.makeText(carContext, gr.gamemap.L.t("GameRoute update ready: open the app on your phone"), CarToast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -344,8 +344,8 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
         val alert = Alert.Builder(OFFER_ALERT, CarText.create("Faster route · saves ${(o.savingSeconds + 30) / 60} min"), NavEngine.OFFER_SECONDS * 1000L)
             .setSubtitle(CarText.create(via))
             .setIcon(icon(carContext, R.drawable.ic_bolt))
-            .addAction(Action.Builder().setTitle("Switch").setOnClickListener { NavEngine.acceptOffer() }.build())
-            .addAction(Action.Builder().setTitle("Keep").setOnClickListener { NavEngine.declineOffer() }.build())
+            .addAction(Action.Builder().setTitle(gr.gamemap.L.t("Switch")).setOnClickListener { NavEngine.acceptOffer() }.build())
+            .addAction(Action.Builder().setTitle(gr.gamemap.L.t("Keep")).setOnClickListener { NavEngine.declineOffer() }.build())
             .setCallback(object : AlertCallback {
                 override fun onCancel(reason: Int) {}
                 override fun onDismiss() {}
@@ -388,7 +388,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             "style" -> CarToast.makeText(carContext, MapState.nextCarTheme().title, CarToast.LENGTH_SHORT).show()
             "traffic" -> {
                 gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer
-                CarToast.makeText(carContext, if (gr.gamemap.Traffic.showLayer) "Traffic shown" else "Traffic hidden", CarToast.LENGTH_SHORT).show()
+                CarToast.makeText(carContext, if (gr.gamemap.Traffic.showLayer) gr.gamemap.L.t("Traffic shown") else gr.gamemap.L.t("Traffic hidden"), CarToast.LENGTH_SHORT).show()
             }
             "mute", "unmute" -> Voice.muted = !Voice.muted
             "report" -> screenManager.push(ReportScreen(carContext))
@@ -591,7 +591,7 @@ class RoutePreviewScreen(carContext: CarContext) : Screen(carContext) {
 
     override fun onGetTemplate(): Template {
         val b = RoutePreviewNavigationTemplate.Builder()
-            .setTitle(NavEngine.planPlace?.name ?: "Route")
+            .setTitle(NavEngine.planPlace?.name ?: gr.gamemap.L.t("Route"))
             .setHeaderAction(Action.BACK)
         val opts = NavEngine.options
         if (opts.isEmpty() || opts.any { !NavEngine.timeKnown(it) }) {
@@ -607,7 +607,7 @@ class RoutePreviewScreen(carContext: CarContext) : Screen(carContext) {
             line.setSpan(DistanceSpan.create(carDistance(o.distance)), 0, 1, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
             val row = Row.Builder().setTitle(title).addText(line)
             when {
-                o.trafficSeconds != null && i == fastest && opts.size > 1 -> row.addText("Fastest")
+                o.trafficSeconds != null && i == fastest && opts.size > 1 -> row.addText(gr.gamemap.L.t("Fastest"))
                 o.delaySeconds >= 60 -> row.addText("+${o.delaySeconds / 60} min traffic")
             }
             list.addItem(row.build())
@@ -619,7 +619,7 @@ class RoutePreviewScreen(carContext: CarContext) : Screen(carContext) {
             b.setMapActionStrip(ActionStrip.Builder().addAction(Action.PAN).build())
         }
         b.setNavigateAction(
-            Action.Builder().setTitle("Start").setOnClickListener {
+            Action.Builder().setTitle(gr.gamemap.L.t("Start")).setOnClickListener {
                 started = true
                 NavEngine.startPlanned()
                 screenManager.popToRoot()
@@ -646,7 +646,7 @@ private fun carStart(): List<Place> {
 class SearchScreen(carContext: CarContext) : Screen(carContext) {
     private var results: List<Place> = carStart()
     private var loading = false
-    private var message = "Type a destination"
+    private var message = gr.gamemap.L.t("Type a destination")
     private var seq = 0
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -671,7 +671,7 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
             }
         })
             .setHeaderAction(Action.BACK)
-            .setSearchHint("Where to?")
+            .setSearchHint(gr.gamemap.L.t("Where to?"))
             .setShowKeyboardByDefault(false)
         if (loading && results.isEmpty()) {
             b.setLoading(true)
@@ -705,7 +705,7 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
                 if (my != seq) return@post
                 loading = false
                 results = r ?: emptyList()
-                message = if (r == null) "Search failed: no internet?" else "Nothing found"
+                message = if (r == null) gr.gamemap.L.t("Search failed: no internet?") else gr.gamemap.L.t("Nothing found")
                 invalidate()
             }
         }
@@ -717,10 +717,10 @@ class ReportScreen(carContext: CarContext) : Screen(carContext) {
     override fun onGetTemplate(): Template {
         val list = ItemList.Builder()
         // a camera here, kept on the phone (works without the shared reports)
-        for ((k, title) in listOf("speed" to "📷  Speed camera here", "redlight" to "🚦  Red-light camera here")) {
-            list.addItem(Row.Builder().setTitle(title).addText("Saved on your phone: you'll be warned next time").setOnClickListener {
+        for ((k, title) in listOf("speed" to gr.gamemap.L.t("📷  Speed camera here"), "redlight" to gr.gamemap.L.t("🚦  Red-light camera here"))) {
+            list.addItem(Row.Builder().setTitle(title).addText(gr.gamemap.L.t("Saved on your phone: you'll be warned next time")).setOnClickListener {
                 val ok = gr.gamemap.Alerts.markCamera(k)
-                CarToast.makeText(carContext, if (ok) "Camera marked" else "Waiting for your location", CarToast.LENGTH_SHORT).show()
+                CarToast.makeText(carContext, if (ok) gr.gamemap.L.t("Camera marked") else gr.gamemap.L.t("Waiting for your location"), CarToast.LENGTH_SHORT).show()
                 screenManager.pop()
             }.build())
         }
@@ -732,7 +732,7 @@ class ReportScreen(carContext: CarContext) : Screen(carContext) {
                 screenManager.pop()
             }.build())
         }
-        return ListTemplate.Builder().setTitle("Report").setHeaderAction(Action.BACK).setSingleList(list.build()).build()
+        return ListTemplate.Builder().setTitle(gr.gamemap.L.t("Report")).setHeaderAction(Action.BACK).setSingleList(list.build()).build()
     }
 }
 
@@ -746,29 +746,29 @@ class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
             list.addItem(r.build())
         }
         if (NavEngine.lastTrip != null) {
-            row("Done", NavEngine.lastTrip?.place) { NavEngine.stop(); NavEngine.dismissTrip(); screenManager.pop() }
-            row("Parking nearby") {
+            row(gr.gamemap.L.t("Done"), NavEngine.lastTrip?.place) { NavEngine.stop(); NavEngine.dismissTrip(); screenManager.pop() }
+            row(gr.gamemap.L.t("Parking nearby")) {
                 NavEngine.stop(); NavEngine.dismissTrip(); screenManager.pop()
-                screenManager.push(NearbyScreen(carContext, "Parking nearby", listOf("parking")))
+                screenManager.push(NearbyScreen(carContext, gr.gamemap.L.t("Parking nearby"), listOf("parking")))
             }
         } else {
-            if (NavEngine.active) row("End navigation", NavEngine.destinationName) { NavEngine.stop(); screenManager.pop() }
-            else row("Search") { screenManager.pop(); screenManager.push(SearchScreen(carContext)) }
+            if (NavEngine.active) row(gr.gamemap.L.t("End navigation"), NavEngine.destinationName) { NavEngine.stop(); screenManager.pop() }
+            else row(gr.gamemap.L.t("Search")) { screenManager.pop(); screenManager.push(SearchScreen(carContext)) }
             // (the list holds 6 rows; Recenter is on the map itself)
             val cd = gr.gamemap.Convoy.destination
-            if (gr.gamemap.Convoy.active && !NavEngine.active && cd != null) row("Convoy: go", cd.name) {
+            if (gr.gamemap.Convoy.active && !NavEngine.active && cd != null) row(gr.gamemap.L.t("Convoy: go"), cd.name) {
                 screenManager.pop(); NavEngine.start(carContext, cd)
-            } else row("Fuel nearby", if (NavEngine.active) "Add a fuel stop" else "Prices and ratings") {
-                screenManager.pop(); screenManager.push(NearbyScreen(carContext, "Fuel nearby", listOf("fuel", "charging_station")))
+            } else row(gr.gamemap.L.t("Fuel nearby"), if (NavEngine.active) gr.gamemap.L.t("Add a fuel stop") else gr.gamemap.L.t("Prices and ratings")) {
+                screenManager.pop(); screenManager.push(NearbyScreen(carContext, gr.gamemap.L.t("Fuel nearby"), listOf("fuel", "charging_station")))
             }
         }
-        if (gr.gamemap.Convoy.active) row("Leave convoy", "${gr.gamemap.Convoy.members.size + 1} drivers") { gr.gamemap.Convoy.leave(); screenManager.pop() }
-        else row("Map style", (MapState.carTheme ?: MapState.theme).title) { MapState.nextCarTheme(); invalidate() }
+        if (gr.gamemap.Convoy.active) row(gr.gamemap.L.t("Leave convoy"), "${gr.gamemap.Convoy.members.size + 1} drivers") { gr.gamemap.Convoy.leave(); screenManager.pop() }
+        else row(gr.gamemap.L.t("Map style"), (MapState.carTheme ?: MapState.theme).title) { MapState.nextCarTheme(); invalidate() }
         val stop = NavEngine.stops.firstOrNull()
-        if (stop != null && NavEngine.active) row("Remove stop", stop.name) { NavEngine.removeStop(stop); screenManager.pop() }
-        else row("Traffic", if (gr.gamemap.Traffic.showLayer) "On" else "Off") { gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer; invalidate() }
-        row("Spoken directions", if (Voice.muted) "Off" else "On") { Voice.muted = !Voice.muted; invalidate() }
-        row("Report") { screenManager.pop(); screenManager.push(ReportScreen(carContext)) }
+        if (stop != null && NavEngine.active) row(gr.gamemap.L.t("Remove stop"), stop.name) { NavEngine.removeStop(stop); screenManager.pop() }
+        else row("Traffic", if (gr.gamemap.Traffic.showLayer) gr.gamemap.L.t("On") else gr.gamemap.L.t("Off")) { gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer; invalidate() }
+        row(gr.gamemap.L.t("Spoken directions"), if (Voice.muted) gr.gamemap.L.t("Off") else gr.gamemap.L.t("On")) { Voice.muted = !Voice.muted; invalidate() }
+        row(gr.gamemap.L.t("Report")) { screenManager.pop(); screenManager.push(ReportScreen(carContext)) }
         return ListTemplate.Builder().setTitle("GameRoute").setHeaderAction(Action.BACK).setSingleList(list.build()).build()
     }
 }
@@ -800,7 +800,7 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
         val b = ListTemplate.Builder().setTitle(title).setHeaderAction(Action.BACK)
         val r = results
         if (r == null && !failed) return b.setLoading(true).build()
-        val list = ItemList.Builder().setNoItemsMessage(if (failed) "Couldn't search: no location or internet" else "Nothing found nearby")
+        val list = ItemList.Builder().setNoItemsMessage(if (failed) gr.gamemap.L.t("Couldn't search: no location or internet") else gr.gamemap.L.t("Nothing found nearby"))
         val near = LocationTracker.position
         r.orEmpty().take(6).forEach { p ->
             val row = Row.Builder().setTitle(p.name).setOnClickListener {

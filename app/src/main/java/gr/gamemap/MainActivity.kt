@@ -304,6 +304,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         root.descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS
         setContentView(root)
         root.requestFocus()
+        root.viewTreeObserver.addOnPreDrawListener { L.translateTree(root); true }
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, wi ->
             val bars = wi.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
@@ -344,7 +345,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         .setTitle("End navigation?")
                         .setPositiveButton("End") { _, _ -> NavEngine.stop() }
                         .setNegativeButton("Keep going", null)
-                        .show()
+                        .showT()
                     else -> { isEnabled = false; onBackPressedDispatcher.onBackPressed() }
                 }
             }
@@ -377,7 +378,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 try { startActivity(Intent.createChooser(send, "Send the report with…")) } catch (_: Exception) {}
             }
             .setNegativeButton("Not now") { _, _ -> CrashLog.clear() }
-            .show()
+            .showT()
     }
 
     // ------------------------------------------------------------------ look helpers
@@ -530,7 +531,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun showNearby(title: String, types: List<String>) {
         val near = LocationTracker.position
-        if (near == null) { Toast.makeText(this, "Waiting for your location…", Toast.LENGTH_SHORT).show(); return }
+        if (near == null) { Toast.makeText(this, L.t("Waiting for your location…"), Toast.LENGTH_SHORT).show(); return }
         val seq = ++querySeq
         lastResults = emptyList()
         renderResults(emptyList(), "Searching nearby…", header = title, force = true)
@@ -570,7 +571,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             background = bg(Color.argb(40, Color.red(accent), Color.green(accent), Color.blue(accent)), radius = 16f)
             setOnClickListener {
                 if (todo.isNotEmpty() && near != null) MapState.phone.requestFit(todo.map { it.pos } + near)
-                else Toast.makeText(this@MainActivity, "Drive or walk around to find landmarks", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(this@MainActivity, L.t("Drive or walk around to find landmarks"), Toast.LENGTH_SHORT).show()
             }
         }
         card.addView(label("★", 20f, bold = true).apply {
@@ -682,7 +683,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         reportBtn = fab("⚠", "Report") { openSheet("report") }
         trafficBtn = fab("🚦", "Traffic on the map") {
             Traffic.showLayer = !Traffic.showLayer
-            Toast.makeText(this, if (Traffic.showLayer) "Traffic shown" else "Traffic hidden", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, L.t(if (Traffic.showLayer) "Traffic shown" else "Traffic hidden"), Toast.LENGTH_SHORT).show()
         }
         controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -726,7 +727,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             contentDescription = "Stop at ${st.name}. Tap to remove"
             setOnClickListener {
                 AlertDialog.Builder(this@MainActivity).setMessage("Remove the stop at ${st.name}?")
-                    .setPositiveButton("Remove") { _, _ -> NavEngine.removeStop(st) }.setNegativeButton("Keep", null).show()
+                    .setPositiveButton("Remove") { _, _ -> NavEngine.removeStop(st) }.setNegativeButton("Keep", null).showT()
             }
         }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = (6 * d).toInt() })
     }
@@ -781,7 +782,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         startActivity(android.content.Intent.createChooser(send, "Share live location"))
                         refreshChrome()
                     }
-                    "Stop sharing live" -> { LiveShare.stop(); refreshChrome(); Toast.makeText(this, "Live sharing stopped", Toast.LENGTH_SHORT).show() }
+                    "Stop sharing live" -> { LiveShare.stop(); refreshChrome(); Toast.makeText(this, L.t("Live sharing stopped"), Toast.LENGTH_SHORT).show() }
                     else -> shareEtaText()
                 }
             }.show()
@@ -981,17 +982,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val actions = mutableListOf<Triple<Int, String, () -> Unit>>(
             Triple(R.drawable.ic_act_star, if (savedNow) "Saved" else "Save") {
                 val on = Places.toggleSaved(pl)
-                Toast.makeText(this, if (on) "Saved: ${pl.name}" else "Removed from saved", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, L.t(if (on) "Saved: ${pl.name}" else "Removed from saved"), Toast.LENGTH_SHORT).show()
                 showPlace(pl, dropped)
             },
             Triple(R.drawable.ic_act_share, "Share") { sharePlace(pl) },
             Triple(R.drawable.ic_act_home, "Home") {
                 Places.save("home", pl); etaAskedAt = 0
-                Toast.makeText(this, "Home saved: ${pl.name}", Toast.LENGTH_SHORT).show(); closePlace()
+                Toast.makeText(this, L.t("Home saved: ${pl.name}"), Toast.LENGTH_SHORT).show(); closePlace()
             },
             Triple(R.drawable.ic_act_work, "Work") {
                 Places.save("work", pl); etaAskedAt = 0
-                Toast.makeText(this, "Work saved: ${pl.name}", Toast.LENGTH_SHORT).show(); closePlace()
+                Toast.makeText(this, L.t("Work saved: ${pl.name}"), Toast.LENGTH_SHORT).show(); closePlace()
             },
         )
         if (!NavEngine.active) actions += Triple<Int, String, () -> Unit>(R.drawable.ic_act_convoy, "Convoy") {
@@ -1020,6 +1021,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         addView(label(title, 12f, bold = true).apply { setTextColor(tint); setPadding(0, (4 * d).toInt(), 0, 0) })
     }
 
+    /** Shows a dialog with its texts (title, message, buttons, list) in the app's language. */
+    private fun AlertDialog.Builder.showT(): AlertDialog = show().also { dlg ->
+        dlg.window?.decorView?.let { dv -> L.translateTree(dv); dv.viewTreeObserver.addOnPreDrawListener { L.translateTree(dv); true } }
+    }
+
     private fun sharePlace(pl: Place) {
         val url = "https://www.google.com/maps/search/?api=1&query=${pl.pos.lat},${pl.pos.lon}"
         val send = Intent(Intent.ACTION_SEND).apply {
@@ -1034,7 +1040,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             // no key (or nothing from Google): its reviews are in Google Maps
             val url = info?.mapsUrl ?: Reviews.mapsLink(place)
             try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
-            catch (e: Exception) { Toast.makeText(this, "No app to open Google Maps", Toast.LENGTH_SHORT).show() }
+            catch (e: Exception) { Toast.makeText(this, L.t("No app to open Google Maps"), Toast.LENGTH_SHORT).show() }
             return
         }
         val p = (16 * d).toInt()
@@ -1053,7 +1059,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             .setNeutralButton("All on Google Maps") { _, _ ->
                 try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(info.mapsUrl ?: Reviews.mapsLink(place)))) } catch (_: Exception) {}
             }
-            .show()
+            .showT()
     }
 
     private fun renderPreview() {
@@ -1566,7 +1572,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         search.setText("")
         if (key != null) {
             Places.save(key, pl)
-            Toast.makeText(this, (if (key == "home") "Home" else "Work") + " saved: ${pl.name}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, L.t((if (key == "home") "Home" else "Work") + " saved: ${pl.name}"), Toast.LENGTH_SHORT).show()
             etaAskedAt = 0
             refreshChrome()
         } else {
@@ -1678,7 +1684,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         AlertDialog.Builder(this).setTitle("Android Auto style")
             .setSingleChoiceItems(names, cur) { dlg, i ->
                 MapState.setCarTheme(if (i == 0) null else Theme.entries[i - 1]); dlg.dismiss()
-            }.show()
+            }.showT()
     }
 
     private fun settingRow(title: String, value: String?, onClick: () -> Unit) = LinearLayout(this).apply {
@@ -1748,7 +1754,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     addView(label(glyph, 24f)); addView(label("  $title", 15f, bold = true).apply { setTextColor(ink) })
                     setOnClickListener {
                         val ok = Alerts.markCamera(k)
-                        Toast.makeText(this@MainActivity, if (ok) "$title marked: you'll be warned here" else "Waiting for your location", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, L.t(if (ok) "$title marked: you'll be warned here" else "Waiting for your location"), Toast.LENGTH_SHORT).show()
                         if (ok) closeSheet()
                     }
                 }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (k == "speed") marginEnd = (10 * d).toInt() })
@@ -1780,7 +1786,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 background = bg(Color.argb(28, Color.red(ink), Color.green(ink), Color.blue(ink)), dim(60), 1f, 16f)
                 setOnClickListener {
                     Alerts.report(rt.key) { ok ->
-                        Toast.makeText(this@MainActivity, if (ok) "Thanks! ${rt.title} reported" else "Couldn't send the report: check internet", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, L.t(if (ok) "Thanks! ${rt.title} reported" else "Couldn't send the report: check internet"), Toast.LENGTH_SHORT).show()
                     }
                     closeSheet()
                 }
@@ -1880,7 +1886,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         .setMessage(if (n == 0) "None yet. While driving, tap ⚠ › Speed camera or Red-light camera to mark one where you are."
                             else "$n camera${if (n == 1) "" else "s"} saved on this phone. GameRoute warns you before each one.")
                         .apply { if (n > 0) setNeutralButton("Delete all") { _, _ -> Alerts.clearMyCameras(); showSettings() } }
-                        .setPositiveButton("OK", null).show()
+                        .setPositiveButton("OK", null).showT()
                 },
             )
             "sharing" -> listOf(
@@ -1891,6 +1897,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 settingRow("Trip history", "${Explorer.history().size} trips") { openSheet("trips") },
                 settingRow("Explorer profile", "Level ${Explorer.level} · ${Explorer.xp} XP") { showProfile() },
                 if (Updater.ENABLED) settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) } else null,
+                settingRow("Language", L.label) { chooseLanguage() },
                 settingRow("Privacy policy", null) {
                     try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://vyto-line.github.io/GameRoute/privacy/"))) } catch (_: Exception) {}
                 },
@@ -1946,7 +1953,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             .setPositiveButton("Save") { _, _ -> Reviews.key = input.text.toString(); showSettings() }
             .setNeutralButton("Remove") { _, _ -> Reviews.key = ""; showSettings() }
             .setNegativeButton("Cancel", null)
-            .show()
+            .showT()
+    }
+
+    private fun chooseLanguage() {
+        val opts = arrayOf("Auto (phone's language)", "English", "Ελληνικά")
+        val cur = when (L.mode) { "en" -> 1; "el" -> 2; else -> 0 }
+        AlertDialog.Builder(this).setTitle("Language")
+            .setSingleChoiceItems(opts, cur) { dlg, k ->
+                dlg.dismiss()
+                L.setMode(when (k) { 1 -> "en"; 2 -> "el"; else -> "auto" })
+                recreate()
+            }.showT()
     }
 
     private fun chooseVoice() {
@@ -1961,7 +1979,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
                 dlg.dismiss()
                 if (k < 2) Voice.say(if (k == 1) "Οι οδηγίες θα ακούγονται στα ελληνικά" else "Directions will be spoken in English")
-            }.show()
+            }.showT()
     }
 
     private fun chooseAutoSwitch() {
@@ -1969,7 +1987,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         AlertDialog.Builder(this).setTitle("When a faster route is found")
             .setSingleChoiceItems(opts, if (NavEngine.autoSwitch) 0 else 1) { dlg, k ->
                 NavEngine.autoSwitch = k == 0; dlg.dismiss(); refreshChrome()
-            }.show()
+            }.showT()
     }
 
     private fun chooseLightMode() {
@@ -1978,7 +1996,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             .setTitle("Light / dark mode")
             .setSingleChoiceItems(modes.map { it.label }.toTypedArray(), MapState.lightMode.ordinal) { dlg, m ->
                 MapState.setLightMode(modes[m]); dlg.dismiss()
-            }.show()
+            }.showT()
     }
 
     // ------------------------------------------------------------------ convoy
@@ -2007,7 +2025,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         AlertDialog.Builder(this).setTitle("Your name in convoys").setMessage("Shown next to your arrow on the others' maps.")
             .setView(input)
             .setPositiveButton("Save") { _, _ -> Convoy.myName = input.text.toString().ifBlank { "Driver" }; convoyKey = ""; refreshChrome(); then?.invoke() }
-            .setNegativeButton("Cancel", null).show()
+            .setNegativeButton("Cancel", null).showT()
     }
 
     private fun withConvoyName(then: () -> Unit) {
@@ -2016,7 +2034,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         AlertDialog.Builder(this).setTitle("Your name in convoys").setMessage("Shown next to your arrow on the others' maps.")
             .setView(input)
             .setPositiveButton("OK") { _, _ -> Convoy.myName = input.text.toString().ifBlank { "Driver" }; then() }
-            .setNegativeButton("Cancel", null).show()
+            .setNegativeButton("Cancel", null).showT()
     }
 
     private fun startConvoyFromPreview() {
@@ -2041,7 +2059,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private fun joinConvoy(link: String) {
         withConvoyName {
             if (Convoy.join(link)) openSheet("convoy")
-            else Toast.makeText(this, "That isn't a convoy code or link", Toast.LENGTH_SHORT).show()
+            else Toast.makeText(this, L.t("That isn't a convoy code or link"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2093,7 +2111,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(pill("Copy") {
                 val cm = getSystemService(android.content.ClipboardManager::class.java)
                 cm?.setPrimaryClip(android.content.ClipData.newPlainText("Convoy code", Convoy.pretty()))
-                Toast.makeText(this@MainActivity, "Code copied", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, L.t("Code copied"), Toast.LENGTH_SHORT).show()
             }.apply { textSize = 14f; setTextColor(readable(accent)) })
         }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p / 2; bottomMargin = p / 2 })
         if (dest == null) sheetHost.addView(label("Connecting to the group…", 15f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, p) })
@@ -2130,7 +2148,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
         buttons.addView(pill("Leave") {
             AlertDialog.Builder(this).setMessage("Leave the convoy? The others will stop seeing you.")
-                .setPositiveButton("Leave") { _, _ -> Convoy.leave(); closeSheet() }.setNegativeButton("Stay", null).show()
+                .setPositiveButton("Leave") { _, _ -> Convoy.leave(); closeSheet() }.setNegativeButton("Stay", null).showT()
         }.apply { setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 22f) },
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
         if (!NavEngine.active && dest != null) buttons.addView(pill("Start") { closeSheet(); NavEngine.start(this, dest) }.apply {
@@ -2195,7 +2213,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
                 addView(pill("Delete") {
                     AlertDialog.Builder(this@MainActivity).setMessage("Delete the offline map of ${a.name}?")
-                        .setPositiveButton("Delete") { _, _ -> Offline.delete(a) }.setNegativeButton("Cancel", null).show()
+                        .setPositiveButton("Delete") { _, _ -> Offline.delete(a) }.setNegativeButton("Cancel", null).showT()
                 }.apply { textSize = 14f; setTextColor(readable(Color.rgb(220, 60, 60))) })
             }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = p / 2 })
         }
@@ -2247,7 +2265,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (list.isNotEmpty()) body.addView(pill("Clear history") {
             AlertDialog.Builder(this).setMessage("Delete all ${list.size} trips from the history? Your XP stays.")
                 .setPositiveButton("Delete") { _, _ -> Explorer.clearHistory(); tripsKey = ""; refreshChrome() }
-                .setNegativeButton("Cancel", null).show()
+                .setNegativeButton("Cancel", null).showT()
         }.apply { setTextColor(dim()) })
         sheetHost.addView(ScrollView(this).apply { addView(body) },
             LinearLayout.LayoutParams(MATCH_PARENT, minOf((resources.displayMetrics.heightPixels * 0.62f).toInt(), (560 * d).toInt())))
@@ -2262,24 +2280,24 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 "Every trip earns XP (more for longer drives and for taking faster routes). " +
                 "Pass close to museums, monuments, viewpoints and other landmarks to discover them: " +
                 "+25 XP each. In the Trailblazer style they show on the map as blue ? markers.")
-            .setPositiveButton("OK", null).show()
+            .setPositiveButton("OK", null).showT()
     }
 
     private fun showAbout() {
         AlertDialog.Builder(this)
             .setTitle("GameRoute build ${Updater.currentVersion(this)}")
             .setMessage("Map data and speed cameras © OpenStreetMap contributors\nVector tiles: OpenFreeMap\nTraffic, incidents, speed limits: TomTom\nRouting: OSRM (TomTom as backup)\nSearch: Photon (komoot), Nominatim\nVoice: your phone's text-to-speech")
-            .setPositiveButton("OK", null).show()
+            .setPositiveButton("OK", null).showT()
     }
 
     private fun checkForUpdates(manual: Boolean) {
-        if (manual) Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show()
+        if (manual) Toast.makeText(this, L.t("Checking for updates…"), Toast.LENGTH_SHORT).show()
         io.execute {
             val r = try { Updater.check(this) } catch (e: Exception) { null }
             runOnUiThread {
                 if (isFinishing) return@runOnUiThread
                 if (r == null) {
-                    if (manual) Toast.makeText(this, "You have the latest version (build ${Updater.currentVersion(this)})", Toast.LENGTH_SHORT).show()
+                    if (manual) Toast.makeText(this, L.t("You have the latest version (build ${Updater.currentVersion(this)})"), Toast.LENGTH_SHORT).show()
                     return@runOnUiThread
                 }
                 AlertDialog.Builder(this)
@@ -2287,18 +2305,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     .setMessage("${r.tag} is ready (you have build ${Updater.currentVersion(this)}). Download and install it?")
                     .setPositiveButton("Update") { _, _ -> downloadAndInstall(r) }
                     .setNegativeButton("Later", null)
-                    .show()
+                    .showT()
             }
         }
     }
 
     private fun downloadAndInstall(r: Updater.Release) {
-        Toast.makeText(this, "Downloading update…", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, L.t("Downloading update…"), Toast.LENGTH_LONG).show()
         io.execute {
             val ok = try { Updater.download(this, r) {}; true } catch (e: Exception) { false }
             runOnUiThread {
                 if (!ok) {
-                    Toast.makeText(this, "Download failed: check internet", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, L.t("Download failed: check internet"), Toast.LENGTH_LONG).show()
                     return@runOnUiThread
                 }
                 val viaUnknownAuto = Updater.hasUnknownAuto(this)
@@ -2315,7 +2333,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     )
                     .setPositiveButton("Continue") { _, _ ->
                         try { Updater.install(this) } catch (e: Exception) {
-                            Toast.makeText(this, "Couldn't open the installer: ${e.message}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this, L.t("Couldn't open the installer: ${e.message}"), Toast.LENGTH_LONG).show()
                         }
                     }
                     .setNegativeButton("Cancel", null)
