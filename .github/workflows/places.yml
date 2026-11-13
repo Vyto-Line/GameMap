@@ -1,10 +1,12 @@
 name: Places data
 on:
+  schedule:
+    - cron: "41 4 2 * *"   # monthly (Overture releases monthly)
   workflow_dispatch:
     inputs:
       mode:
         description: "probe or build"
-        default: "probe"
+        default: "build"
 permissions:
   contents: write
 jobs:
@@ -16,7 +18,20 @@ jobs:
       - run: "pip install --only-binary=:all: duckdb"
       - name: Probe
         if: inputs.mode == 'probe'
-        run: python3 tools/places_probe.py 2>&1 | tee probe.txt
-      - uses: actions/upload-artifact@v4
-        if: inputs.mode == 'probe'
-        with: { name: probe, path: probe.txt }
+        run: python3 tools/places_probe.py
+      - name: Previous data
+        if: inputs.mode != 'probe'
+        run: |
+          mkdir -p out
+          git fetch -q origin data && git --work-tree=out checkout origin/data -- . || true
+      - name: Places from Overture Maps
+        if: inputs.mode != 'probe'
+        run: python3 tools/places.py
+      - name: Publish to data branch
+        if: inputs.mode != 'probe'
+        run: |
+          cd out
+          git init -q && git checkout -q -b data
+          git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm "Data $(date -u +%F)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+          du -sh places
