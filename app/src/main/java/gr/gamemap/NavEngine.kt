@@ -308,6 +308,7 @@ object NavEngine {
         current = null; nextStep = -1
         MapState.recenter()
         Voice.reset()
+        Convoy.startedDriving()
         changed.fire()
         try {
             if (LocationTracker.hasPermission(appContext))
@@ -491,6 +492,7 @@ object NavEngine {
                 offer = null
                 finishTrip()
                 LiveShare.stop("arrived")
+                Convoy.arrived()
                 Voice.say(Phrases.instruction(r.steps.lastOrNull() ?: NavStep("arrive", "arrive", "", 0, dest, null), Voice.lang))
                 // the arrival card stays a minute (Parking / Done), then the trip closes by itself
                 main.postDelayed(closeArrival, 60_000)

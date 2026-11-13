@@ -198,6 +198,7 @@ object LocationTracker : LocationListener {
 
         NavEngine.onLocation(location)
         Places.warmUp(p)
+        Convoy.tick()
         Explorer.onLocation(LatLng(location.latitude, location.longitude), speed)
         Alerts.onLocation(p, speed, headingTarget)
         changed.fire()

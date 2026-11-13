@@ -88,6 +88,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var previewBack: TextView
     private lateinit var trafficBtn: TextView
     private lateinit var laterBtn: TextView
+    private lateinit var convoyNewBtn: TextView
+    private lateinit var convoyBtn: TextView
     private lateinit var startBtn: TextView
     private lateinit var offerCard: LinearLayout
     private lateinit var offerTitle: TextView
@@ -174,6 +176,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         map.onPlaceTap = { if (!NavEngine.planning) showPlace(it, dropped = false) }
         map.onMapTap = { if (placeShown != null) closePlace() }
         map.onLongPress = { p -> if (!NavEngine.planning) dropPin(p) }
+        map.onConvoyTap = { openSheet("convoy") }
 
         val root = FrameLayout(this).apply {
             addView(map, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -217,6 +220,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         placeCard.viewTreeObserver.addOnGlobalLayoutListener { updateMapInsets() }
         homeSheet.viewTreeObserver.addOnGlobalLayoutListener { updateMapInsets() }
 
+        handleLink(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -603,6 +607,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         etaTraffic = TextView(this).apply { textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setPadding((10 * d).toInt(), 0, 0, 0) }
         etaSmall = TextView(this).apply { textSize = 15f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         shareBtn = pill("Share") { shareEta() }
+        convoyBtn = pill("● Convoy") { openSheet("convoy") }.apply { visibility = View.GONE }
         endBtn = pill("End") { NavEngine.stop() }
         navCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -620,6 +625,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 addView(etaSmall)
                 addView(stopsRow)
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(convoyBtn, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = (8 * d).toInt() })
             addView(shareBtn, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = (8 * d).toInt() })
             addView(endBtn)
         }
@@ -665,6 +671,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         previewBack = pill("←") { NavEngine.cancelPlan(); search.requestFocus(); showSuggestions() }
         previewList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         laterBtn = pill("Leave later") { pickDeparture() }
+        convoyNewBtn = pill("👥") { startConvoyFromPreview() }
         startBtn = pill("Start") { NavEngine.startPlanned() }
         preview = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -685,6 +692,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 addView(laterBtn, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = (10 * d).toInt() })
+                addView(convoyNewBtn, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = (10 * d).toInt() })
                 addView(startBtn, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
             }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (12 * d).toInt() })
         }
@@ -951,6 +959,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         preview.background = bg(panel, radius = 22f, topOnly = true)
         laterBtn.text = if (depart != null) "Leave now" else "Leave later"
         laterBtn.setTextColor(readable(accent))
+        convoyNewBtn.setTextColor(ink); convoyNewBtn.background = bg(Color.TRANSPARENT, dim(120), 1.5f, 14f)
+        convoyNewBtn.contentDescription = "Drive there as a convoy"
         laterBtn.background = bg(Color.TRANSPARENT, accent, 1.5f, 14f)
         startBtn.isEnabled = opts.isNotEmpty()
         startBtn.alpha = if (opts.isNotEmpty()) 1f else 0.5f
@@ -1023,6 +1033,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             setTextColor(ink); typeface = t.typeface; gravity = Gravity.CENTER; setPadding(0, (14 * d).toInt(), 0, 0)
         })
         tripCard.addView(label("Arrived ${NavEngine.clock(trip.arrivedAt)}", 14f).apply { setTextColor(dim()); gravity = Gravity.CENTER })
+        Convoy.myPlace()?.let { (place, of) ->
+            val nth = when (place) { 1 -> "1st 👑"; 2 -> "2nd"; 3 -> "3rd"; else -> "${place}th" }
+            tripCard.addView(label("Convoy: $nth of $of", 15f, bold = true).apply { setTextColor(readable(accent)); gravity = Gravity.CENTER; setPadding(0, (6 * d).toInt(), 0, 0) })
+        }
         tripCard.addView(View(this).apply { setBackgroundColor(dim(50)) }, LinearLayout.LayoutParams(MATCH_PARENT, 1).apply {
             topMargin = (14 * d).toInt(); bottomMargin = (10 * d).toInt()
         })
@@ -1185,6 +1199,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             "report" -> renderReport()
             "trips" -> renderTrips()
             "offline" -> renderOffline()
+            "convoy" -> renderConvoy()
         }
         val trip = NavEngine.lastTrip
         tripOverlay.visibility = if (trip != null) View.VISIBLE else View.GONE
@@ -1210,6 +1225,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     etaSmall.text = "${NavEngine.formatDuration(NavEngine.remainingSeconds)} · ${NavEngine.formatDistance(NavEngine.remainingDistance)} · ${NavEngine.destinationName}"
                     renderStops()
                     shareBtn.text = if (LiveShare.active) "● Live" else "Share"
+                    convoyBtn.visibility = if (Convoy.active) View.VISIBLE else View.GONE
+                    shareBtn.visibility = if (Convoy.active) View.GONE else View.VISIBLE
+                    if (Convoy.active) {
+                        convoyBtn.text = "● Convoy ${Convoy.members.size + 1}"
+                        convoyBtn.setTextColor(readable(accent)); convoyBtn.background = bg(Color.TRANSPARENT, accent, 1.5f, 22f)
+                    }
                 }
             }
         }
@@ -1661,6 +1682,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         ) + group("App",
             settingRow("Explorer profile", "Level ${Explorer.level} · ${Explorer.xp} XP") { showProfile() },
             settingRow("Trip history", "${Explorer.history().size} trips") { openSheet("trips") },
+            settingRow("Convoy", if (Convoy.active) "On · ${Convoy.members.size + 1} drivers" else "Drive together") { openSheet("convoy") },
             settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) },
             settingRow("About & map credits", null) { showAbout() },
         )).forEach { body.addView(it) }
@@ -1721,6 +1743,124 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             .setSingleChoiceItems(modes.map { it.label }.toTypedArray(), MapState.lightMode.ordinal) { dlg, m ->
                 MapState.setLightMode(modes[m]); dlg.dismiss()
             }.show()
+    }
+
+    // ------------------------------------------------------------------ convoy
+
+    /** Asks for the name the group sees, once. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleLink(intent)
+    }
+
+    /** gamemap://convoy/<code> (from the convoy web page) joins the group. */
+    private fun handleLink(i: Intent?) {
+        val u = i?.data ?: return
+        if (u.scheme == "gamemap" && u.host == "convoy") {
+            val code = u.lastPathSegment ?: u.fragment ?: return
+            main.post { joinConvoy(code) }
+        }
+    }
+
+    private fun withConvoyName(then: () -> Unit) {
+        if (Convoy.myName.isNotBlank()) { then(); return }
+        val input = EditText(this).apply { hint = "Your name"; setSingleLine() }
+        AlertDialog.Builder(this).setTitle("Your name in convoys").setMessage("Shown next to your arrow on the others' maps.")
+            .setView(input)
+            .setPositiveButton("OK") { _, _ -> Convoy.myName = input.text.toString().ifBlank { "Driver" }; then() }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun startConvoyFromPreview() {
+        val dest = NavEngine.planPlace ?: return
+        withConvoyName {
+            Convoy.create(dest)
+            inviteToConvoy()
+            openSheet("convoy")
+        }
+    }
+
+    private fun inviteToConvoy() {
+        val link = Convoy.link() ?: return
+        val dest = Convoy.destination?.name ?: "our destination"
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, "Join my convoy to $dest in GameMap: $link")
+        }
+        startActivity(Intent.createChooser(send, "Invite to the convoy"))
+    }
+
+    private fun joinConvoy(link: String) {
+        withConvoyName {
+            if (Convoy.join(link)) openSheet("convoy")
+            else Toast.makeText(this, "That isn't a convoy link", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private var convoyKey = ""
+
+    private fun renderConvoy() {
+        val rows = Convoy.rows(accent)
+        val key = "${Convoy.code}|${Convoy.destination?.name}|${rows.joinToString { "${it.name}${it.kmh}${it.state}${it.eta / 60000}${(it.progress * 50).toInt()}" }}|${NavEngine.active}|${theme.name}|${MapState.dark}"
+        if (key == convoyKey && sheetHost.childCount > 0) return
+        convoyKey = key
+        sheetHost.removeAllViews()
+        sheetHost.background = bg(panel, radius = 22f, topOnly = true)
+        val p = (12 * d).toInt()
+        if (!Convoy.active) {
+            sheetHost.addView(sheetHeader("Convoy"))
+            sheetHost.addView(label("Drive somewhere together: everyone sees the others on the map with their speed and arrival time. " +
+                "Start one from a route (the 👥 button), or paste an invite link here.", 14f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, p) })
+            val input = EditText(this).apply { hint = "Invite link or code"; setSingleLine(); setTextColor(ink); setHintTextColor(dim(140)) }
+            sheetHost.addView(input)
+            sheetHost.addView(pill("Join") { joinConvoy(input.text.toString()) }.apply {
+                setTextColor(onAccent(accent)); background = bg(accent, radius = 14f)
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p })
+            return
+        }
+        val dest = Convoy.destination
+        sheetHost.addView(sheetHeader("Convoy" + (dest?.let { " · ${it.name}" } ?: "")))
+        if (dest == null) sheetHost.addView(label("Connecting to the group…", 15f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, p) })
+        // progress line + one row per person
+        sheetHost.addView(object : View(this) {
+            override fun onDraw(c: Canvas) {
+                val pnt = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                val y = height / 2f; val x0 = 10 * d; val x1 = width - 34 * d
+                pnt.color = dim(70); c.drawRoundRect(x0, y - 1.5f * d, x1, y + 1.5f * d, 2 * d, 2 * d, pnt)
+                pnt.textSize = 14 * d; c.drawText("🏁", x1 + 6 * d, y + 5 * d, pnt)
+                for (r in rows.sortedBy { if (it.me) 1 else 0 }) {
+                    pnt.color = if (r.stale) Color.GRAY else r.color
+                    c.drawCircle(x0 + ((x1 - x0) * r.progress).toFloat(), y, 8 * d, pnt)
+                }
+            }
+        }, LinearLayout.LayoutParams(MATCH_PARENT, (30 * d).toInt()))
+        for (r in rows) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, p / 2, 0, p / 2) }
+            row.addView(View(this).apply { background = bg(if (r.stale) Color.GRAY else r.color, radius = 6f) }, LinearLayout.LayoutParams((11 * d).toInt(), (11 * d).toInt()).apply { marginEnd = p })
+            row.addView(label("${if (r.me) "You" else r.name}  ", 16f, bold = true).apply { setTextColor(ink) })
+            row.addView(label(Convoy.relative(r), 13f).apply { setTextColor(dim()); maxLines = 1; ellipsize = TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            row.addView(label(if (r.state == "arrived") "✓" else "${r.kmh} km/h", 14f, bold = true).apply {
+                setTextColor(if (r.kmh == 0 && r.state == "driving") readable(Color.rgb(230, 60, 60)) else ink); setPadding(p, 0, p, 0)
+            })
+            row.addView(label(if (r.eta > 0) NavEngine.clock(r.eta) else "–", 15f, bold = true).apply { setTextColor(readable(Color.rgb(47, 180, 100))) })
+            sheetHost.addView(row)
+        }
+        if (Convoy.members.isEmpty()) sheetHost.addView(label("Nobody else yet: send the invite link.", 14f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, 0) })
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0) }
+        buttons.addView(pill("🔗 Invite") { inviteToConvoy() }.apply { setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 22f) },
+            LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
+        buttons.addView(pill("Leave") {
+            AlertDialog.Builder(this).setMessage("Leave the convoy? The others will stop seeing you.")
+                .setPositiveButton("Leave") { _, _ -> Convoy.leave(); closeSheet() }.setNegativeButton("Stay", null).show()
+        }.apply { setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 22f) },
+            LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
+        if (!NavEngine.active && dest != null) buttons.addView(pill("Start") { closeSheet(); NavEngine.start(this, dest) }.apply {
+            setTextColor(onAccent(accent)); background = bg(accent, radius = 22f)
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.3f))
+        sheetHost.addView(buttons)
+        sheetHost.addView(label("Positions update about every 15 s while driving, through the free ntfy.sh relay. Only people with the link can see them.", 12f).apply {
+            setTextColor(dim()); setPadding(0, p, 0, 0)
+        })
     }
 
     private var offlineKey = ""
@@ -1952,6 +2092,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         Voice.changed += stateListener
         Explorer.changed += stateListener
         Alerts.changed += stateListener
+        Convoy.changed += stateListener
         refreshChrome()
     }
 
@@ -1961,6 +2102,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         Voice.changed -= stateListener
         Explorer.changed -= stateListener
         Alerts.changed -= stateListener
+        Convoy.changed -= stateListener
         main.removeCallbacks(ticker)
         // in the background and not navigating: let the GPS rest
         LocationTracker.release(this, "phone")
@@ -2025,6 +2167,7 @@ class GameMapView(ctx: Context) : View(ctx) {
     /** A tap on a place icon / on empty map; a long press somewhere. */
     var onPlaceTap: ((Place) -> Unit)? = null
     var onMapTap: (() -> Unit)? = null
+    var onConvoyTap: (() -> Unit)? = null
     var onLongPress: ((LatLng) -> Unit)? = null
     /** The place whose card is open (ring / pin on the map). */
     var selected: Place?
@@ -2063,6 +2206,7 @@ class GameMapView(ctx: Context) : View(ctx) {
         LocationTracker.changed += redraw
         NavEngine.changed += redraw
         MapState.changed += redraw
+        Convoy.changed += redraw
     }
 
     override fun onDetachedFromWindow() {
@@ -2070,6 +2214,7 @@ class GameMapView(ctx: Context) : View(ctx) {
         LocationTracker.changed -= redraw
         NavEngine.changed -= redraw
         MapState.changed -= redraw
+        Convoy.changed -= redraw
         super.onDetachedFromWindow()
     }
 
@@ -2123,6 +2268,7 @@ class GameMapView(ctx: Context) : View(ctx) {
                 when {
                     // Tap on the compass: back to driving direction / north.
                     tap && renderer.compassBounds.contains(e.x, e.y) -> MapState.clearRotation()
+                    tap && renderer.convoyStrip.contains(e.x, e.y) -> onConvoyTap?.invoke()
                     tap -> renderer.placeAt(e.x, e.y)?.let { onPlaceTap?.invoke(it.place()) } ?: onMapTap?.invoke()
                 }
             }

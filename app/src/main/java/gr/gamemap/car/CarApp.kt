@@ -269,6 +269,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
                 MapState.changed += surface.redraw
                 MapState.changed += onMapState
                 NavEngine.changed += surface.redraw
+                gr.gamemap.Convoy.changed += surface.redraw
                 NavEngine.changed += onNav
                 Voice.changed += onNav
                 gr.gamemap.Alerts.changed += onAlerts
@@ -283,6 +284,7 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
 
             override fun onDestroy(owner: LifecycleOwner) {
                 surface.release()
+                gr.gamemap.Convoy.changed -= surface.redraw
                 TileCache.loaded -= surface.redraw
                 LocationTracker.changed -= surface.redraw
                 MapState.changed -= surface.redraw
@@ -752,11 +754,15 @@ class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
             if (NavEngine.active) row("End navigation", NavEngine.destinationName) { NavEngine.stop(); screenManager.pop() }
             else row("Search") { screenManager.pop(); screenManager.push(SearchScreen(carContext)) }
             // (the list holds 6 rows; Recenter is on the map itself)
-            row("Fuel nearby", if (NavEngine.active) "Add a fuel stop" else "Prices and ratings") {
+            val cd = gr.gamemap.Convoy.destination
+            if (gr.gamemap.Convoy.active && !NavEngine.active && cd != null) row("Convoy: go", cd.name) {
+                screenManager.pop(); NavEngine.start(carContext, cd)
+            } else row("Fuel nearby", if (NavEngine.active) "Add a fuel stop" else "Prices and ratings") {
                 screenManager.pop(); screenManager.push(NearbyScreen(carContext, "Fuel nearby", listOf("fuel", "charging_station")))
             }
         }
-        row("Map style", (MapState.carTheme ?: MapState.theme).title) { MapState.nextCarTheme(); invalidate() }
+        if (gr.gamemap.Convoy.active) row("Leave convoy", "${gr.gamemap.Convoy.members.size + 1} drivers") { gr.gamemap.Convoy.leave(); screenManager.pop() }
+        else row("Map style", (MapState.carTheme ?: MapState.theme).title) { MapState.nextCarTheme(); invalidate() }
         val stop = NavEngine.stops.firstOrNull()
         if (stop != null && NavEngine.active) row("Remove stop", stop.name) { NavEngine.removeStop(stop); screenManager.pop() }
         else row("Traffic", if (gr.gamemap.Traffic.showLayer) "On" else "Off") { gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer; invalidate() }

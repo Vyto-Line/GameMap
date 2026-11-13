@@ -188,6 +188,7 @@ class MapRenderer(private val car: Boolean = false) {
             val (sx, sy) = toScreen(pin.pos, camera!!)
             drawDroppedPin(c, sx, sy, d)
         }
+        if (Convoy.active) drawConvoyMembers(c, camera!!, area, d, bearing)
         prof("places", tp0); tp0 = System.nanoTime()
         if (theme == Theme.TRAILBLAZER && zoom >= 13.5) drawLandmarks(c, camera!!, center, area, d)
         if (zoom >= 13.0) drawRoadAlerts(c, camera!!, center, area, d)
@@ -236,6 +237,10 @@ class MapRenderer(private val car: Boolean = false) {
             // in the car: smaller, in the very top-left corner
             if (car) drawBanner(c, Rect(area.left, 0, area.right, area.bottom), d * 0.8f, theme, pad = 8 * d)
             else drawBanner(c, area, d, theme)
+        }
+        convoyStrip.setEmpty()
+        if (hud && Convoy.active && NavEngine.active && !NavEngine.arrived && !NavEngine.planning) {
+            if (car) drawCarConvoy(c, area, d, theme) else drawConvoyStrip(c, area, d, theme)
         }
         if (carTrip) drawCarTrip(c, area, d, theme)
         else if (car && carButtons && selectedPlace != null && !NavEngine.planning) drawCarPlace(c, area, d, theme)
@@ -1186,6 +1191,103 @@ class MapRenderer(private val car: Boolean = false) {
             y += rowH
         }
         text.typeface = t.typeface
+    }
+
+    // ------------------------------------------------------------------ convoy
+
+    /** Where the phone's convoy strip is (taps open the list). */
+    val convoyStrip = RectF()
+
+    /** The others in the convoy: an arrow in their colour, name and speed. */
+    private fun drawConvoyMembers(c: Canvas, cam: Camera, a: Rect, d: Float, bearing: Float) {
+        for (m in Convoy.members.values) {
+            val p = m.pos ?: continue
+            if (m.state == "left") continue
+            val (x, y) = toScreen(p, cam)
+            if (x < -40 * d || y < -40 * d || x > a.right + 40 * d || y > a.bottom + 40 * d) continue
+            c.save(); c.translate(x, y); c.rotate(m.heading - bearing)
+            val s = 12 * d
+            path.reset()
+            path.moveTo(0f, -s * 1.2f); path.lineTo(s * 0.85f, s * 0.85f); path.lineTo(0f, s * 0.4f); path.lineTo(-s * 0.85f, s * 0.85f); path.close()
+            fill.color = if (m.stale) Color.GRAY else m.color; c.drawPath(path, fill)
+            stroke.color = Color.WHITE; stroke.strokeWidth = 2.2f * d; c.drawPath(path, stroke)
+            c.restore()
+            // name tag
+            val label = "${m.name}  ${if (m.state == "arrived") "✓" else m.kmh.toString()}"
+            text.textAlign = Paint.Align.LEFT; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 12.5f * d
+            val w = text.measureText(label) + 14 * d
+            val r = RectF(x + 12 * d, y - 26 * d, x + 12 * d + w, y - 6 * d)
+            fill.color = if (m.stale) Color.GRAY else m.color; c.drawRoundRect(r, 10 * d, 10 * d, fill)
+            text.color = Color.rgb(17, 20, 24)
+            c.drawText(label, r.left + 7 * d, r.centerY() + 4.5f * d, text)
+        }
+    }
+
+    /** Phone: a slim strip under the turn card: everyone on a line to the flag, with speeds. */
+    private fun drawConvoyStrip(c: Canvas, a: Rect, d: Float, t: Theme) {
+        val rows = Convoy.rows(t.route)
+        val r = RectF(a.left + 12 * d, bannerBottom + 8 * d, a.right - 12 * d, bannerBottom + 8 * d + 54 * d)
+        panel(c, r, d, t, outline = true)
+        val x0 = r.left + 18 * d; val x1 = r.right - 52 * d; val ly = r.top + 18 * d
+        fill.color = withAlpha(Ui.ink(t), 60); c.drawRoundRect(x0, ly - 1.5f * d, x1, ly + 1.5f * d, 2 * d, 2 * d, fill)
+        text.textAlign = Paint.Align.CENTER; text.typeface = Typeface.DEFAULT; text.textSize = 13 * d
+        c.drawText("🏁", x1 + 14 * d, ly + 5 * d, text)
+        for (row in rows.sortedBy { if (it.me) 1 else 0 }) { // me on top
+            val x = x0 + ((x1 - x0) * row.progress).toFloat()
+            fill.color = if (row.stale) Color.GRAY else row.color
+            c.drawCircle(x, ly, 11 * d, fill)
+            stroke.color = Ui.panel(t); stroke.strokeWidth = 2 * d; c.drawCircle(x, ly, 11 * d, stroke)
+            text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 11 * d; text.color = Color.rgb(17, 20, 24)
+            c.drawText(if (row.me) "★" else row.name.take(1).uppercase(), x, ly + 4 * d, text)
+            text.textSize = 10 * d
+            text.color = if (row.kmh == 0 && row.state == "driving") Color.rgb(255, 120, 120) else Ui.dim(t, 220)
+            c.drawText(if (row.state == "arrived") "✓" else "${row.kmh}", x, ly + 25 * d, text)
+        }
+        text.textSize = 15 * d; text.color = Ui.onPanel(t, t.route, 3.0)
+        c.drawText("▾", r.right - 16 * d, ly + 5 * d, text)
+        text.textAlign = Paint.Align.LEFT; text.typeface = t.typeface
+        convoyStrip.set(r)
+        bannerBottom = r.bottom
+    }
+
+    /** Car: the convoy box under the turn box (name · how far ahead, speed, arrival). */
+    private fun drawCarConvoy(c: Canvas, a: Rect, d: Float, t: Theme) {
+        val rows = Convoy.rows(t.route).take(5)
+        val w = minOf(352 * d, a.width() - 28f * d)
+        val rowH = 26 * d
+        val r = RectF(a.left + 12 * d, bannerBottom + 8 * d, a.left + 12 * d + w, bannerBottom + 8 * d + 46 * d + rows.size * rowH)
+        panel(c, r, d, t, outline = true)
+        text.textAlign = Paint.Align.LEFT; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 11 * d
+        text.color = Ui.onPanel(t, t.route, 3.0)
+        c.drawText("CONVOY · ${Convoy.destination?.name?.uppercase()?.take(24) ?: ""}", r.left + 12 * d, r.top + 17 * d, text)
+        // progress line
+        val x0 = r.left + 14 * d; val x1 = r.right - 30 * d; val ly = r.top + 31 * d
+        fill.color = withAlpha(Ui.ink(t), 60); c.drawRoundRect(x0, ly - 1.5f * d, x1, ly + 1.5f * d, 2 * d, 2 * d, fill)
+        text.textSize = 12 * d; text.typeface = Typeface.DEFAULT; c.drawText("🏁", x1 + 6 * d, ly + 5 * d, text)
+        for (row in rows.sortedBy { if (it.me) 1 else 0 }) {
+            fill.color = if (row.stale) Color.GRAY else row.color
+            c.drawCircle(x0 + ((x1 - x0) * row.progress).toFloat(), ly, 6.5f * d, fill)
+        }
+        var y = r.top + 46 * d
+        for (row in rows) {
+            fill.color = if (row.stale) Color.GRAY else row.color
+            c.drawCircle(r.left + 18 * d, y + 13 * d, 5 * d, fill)
+            text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d; text.color = Ui.ink(t)
+            val name = if (row.me) "You" else row.name
+            c.drawText(ellipsize(name, 90 * d), r.left + 30 * d, y + 18 * d, text)
+            val nw = text.measureText(ellipsize(name, 90 * d))
+            text.typeface = Typeface.DEFAULT; text.textSize = 13 * d; text.color = Ui.dim(t, 190)
+            c.drawText(ellipsize(" · " + Convoy.relative(row), w - nw - 160 * d), r.left + 30 * d + nw, y + 18 * d, text)
+            text.textAlign = Paint.Align.RIGHT; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 15 * d
+            text.color = if (row.kmh == 0 && row.state == "driving") Color.rgb(255, 120, 120) else Ui.ink(t)
+            c.drawText(if (row.state == "arrived") "✓" else "${row.kmh}", r.right - 72 * d, y + 18 * d, text)
+            text.color = Ui.onPanel(t, Color.rgb(47, 210, 122), 3.0)
+            c.drawText(if (row.eta > 0) NavEngine.clock(row.eta) else "–", r.right - 12 * d, y + 18 * d, text)
+            text.textAlign = Paint.Align.LEFT
+            y += rowH
+        }
+        text.typeface = t.typeface
+        bannerBottom = r.bottom
     }
 
     /** Car: the card of a tapped place (top-left, under the turn box when navigating), with Go. */

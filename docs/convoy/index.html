@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GameMap · convoy</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#141824; background:#f3f1ec; }
+  #map { position:fixed; inset:0; }
+  .card { position:fixed; left:12px; right:12px; bottom:12px; max-width:520px; margin:0 auto; background:#fff; border-radius:20px;
+          box-shadow:0 8px 30px rgba(0,0,0,.18); padding:16px 18px; z-index:1000; }
+  .k { font-size:12px; font-weight:700; letter-spacing:.08em; color:#5B2BD6; }
+  h1 { margin:4px 0 10px; font-size:24px; }
+  .row { display:flex; align-items:center; gap:10px; padding:6px 0; font-size:15px; }
+  .dot { width:11px; height:11px; border-radius:6px; flex:none; }
+  .n { font-weight:700; } .sub { color:#5c6370; flex:1; } .s { font-weight:700; width:70px; text-align:right; } .e { font-weight:700; color:#1e9e5a; width:52px; text-align:right; }
+  .btn { display:block; text-align:center; margin-top:12px; padding:14px; border-radius:24px; background:#5B2BD6; color:#fff; font-weight:700; text-decoration:none; }
+  .note { color:#5c6370; font-size:12px; margin-top:8px; text-align:center; }
+  .note a { color:#5B2BD6; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="card">
+  <div class="k">GAMEMAP CONVOY</div>
+  <h1 id="title">Joining…</h1>
+  <div id="rows"></div>
+  <a class="btn" id="join" href="#">Join in GameMap</a>
+  <div class="note">No GameMap yet? <a href="https://github.com/Vyto-Line/GameMap/releases/latest">Get it here</a>, then open this link again.</div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// Members post to a private ntfy.sh topic named by the code in the link; this page follows it.
+const code = (location.hash || "").slice(1).replace(/[^a-z0-9]/gi, "").toLowerCase();
+document.getElementById("join").href = "gamemap://convoy/" + code;
+const map = L.map("map", { zoomControl: false }).setView([37.98, 23.73], 11);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+const palette = ["#2FD27A", "#FFA94D", "#4DABF7", "#FF6B9A", "#FFD43B", "#22D3EE", "#9775FA"];
+const people = {}, marks = {}; let dest = null, destMark = null, fitted = false;
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function clock(ms) { return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+function render() {
+  document.getElementById("title").textContent = dest ? "To " + dest.n : "Convoy";
+  const list = Object.values(people).filter(p => p.st !== "bye").sort((a, b) => (a.left ?? 1e9) - (b.left ?? 1e9));
+  document.getElementById("rows").innerHTML = list.map(p => {
+    const stale = Date.now() - p.ts > 120000;
+    const sub = p.st === "arrived" ? "arrived" : stale ? "no signal" : p.st === "ready" ? "not started" : (p.left >= 0 ? (p.left / 1000).toFixed(1) + " km to go" : "");
+    return '<div class="row"><span class="dot" style="background:' + (stale ? "#aaa" : p.c) + '"></span><span class="n">' + esc(p.n) + '</span><span class="sub">' + sub +
+      '</span><span class="s">' + (p.st === "arrived" ? "✓" : (p.s || 0) + " km/h") + '</span><span class="e">' + (p.eta ? clock(p.eta) : "–") + '</span></div>';
+  }).join("") || '<div class="row sub">Waiting for the drivers…</div>';
+  list.forEach(p => {
+    if (p.lat == null) return;
+    if (!marks[p.id]) marks[p.id] = L.circleMarker([p.lat, p.lon], { radius: 9, color: "#fff", weight: 3, fillColor: p.c, fillOpacity: 1 }).addTo(map).bindTooltip(esc(p.n), { permanent: true, direction: "right" });
+    marks[p.id].setLatLng([p.lat, p.lon]);
+  });
+  if (dest && !destMark) destMark = L.circleMarker([dest.lat, dest.lon], { radius: 8, color: "#fff", weight: 3, fillColor: "#5B2BD6", fillOpacity: 1 }).addTo(map);
+  const pts = list.filter(p => p.lat != null).map(p => [p.lat, p.lon]).concat(dest ? [[dest.lat, dest.lon]] : []);
+  if (!fitted && pts.length) { map.fitBounds(pts, { padding: [60, 60], maxZoom: 15 }); fitted = true; }
+}
+function take(m) {
+  let d; try { d = JSON.parse(m.message); } catch (e) { return; }
+  if (!d.id) return;
+  if (d.dlat && !dest) dest = { n: d.dn || "Destination", lat: d.dlat, lon: d.dlon };
+  if (d.t === "bye") { if (people[d.id]) people[d.id].st = "bye"; if (marks[d.id]) { map.removeLayer(marks[d.id]); delete marks[d.id]; } render(); return; }
+  const p = people[d.id] || (people[d.id] = { id: d.id, c: palette[Object.keys(people).length % palette.length] });
+  Object.assign(p, { n: d.n || "Driver", lat: d.lat, lon: d.lon, s: d.s, eta: d.eta, left: d.left, st: d.st, ts: d.ts });
+  render();
+}
+if (code.length >= 8) {
+  fetch("https://ntfy.sh/gmc" + code + "/json?poll=1&since=12h").then(r => r.text()).then(t => {
+    t.split("\n").filter(Boolean).forEach(l => { try { const m = JSON.parse(l); if (m.event === "message") take(m); } catch (e) {} });
+    render();
+  });
+  const es = new EventSource("https://ntfy.sh/gmc" + code + "/sse");
+  es.onmessage = e => { try { const m = JSON.parse(e.data); if (m.event === "message") take(m); } catch (x) {} };
+  setInterval(render, 20000);
+} else document.getElementById("title").textContent = "This link is missing its code";
+</script>
+</body>
+</html>

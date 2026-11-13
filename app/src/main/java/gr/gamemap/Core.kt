@@ -25,6 +25,7 @@ class GameMapApp : Application() {
         TileCache.init(this)
         Places.init(this)
         Offline.init(this)
+        Convoy.init(this)
         Fuel.init(this)
         Reviews.init(this)
         NavEngine.init(this)

@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["docs/live/**"]
+    paths: ["docs/live/**", "docs/convoy/**"]
 permissions:
   contents: read
   pages: write
