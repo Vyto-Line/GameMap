@@ -48,7 +48,9 @@ const code = (location.hash || "").slice(1).replace(/[^a-z0-9]/gi, "").toLowerCa
 document.getElementById("join").href = "gamemap://convoy/" + code;
 const map = L.map("map", { zoomControl: false }).setView([37.98, 23.73], 11);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
-const palette = ["#2FD27A", "#FFA94D", "#4DABF7", "#FF6B9A", "#FFD43B", "#22D3EE", "#9775FA"];
+const palette = ["#2FD27A", "#FF922B", "#4DABF7", "#FF6B9A", "#FFD43B", "#22D3EE", "#9775FA", "#FA5252", "#94D82D", "#C8A078"];
+// the same colours as in the app: the drivers' ids in order, one colour each
+function colorOf(id) { const ids = Object.keys(people).sort(); return palette[ids.indexOf(id) % palette.length]; }
 const people = {}, marks = {}; let dest = null, destMark = null, fitted = false;
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function clock(ms) { return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
@@ -64,7 +66,7 @@ function render() {
   list.forEach(p => {
     if (p.lat == null) return;
     if (!marks[p.id]) marks[p.id] = L.circleMarker([p.lat, p.lon], { radius: 9, color: "#fff", weight: 3, fillColor: p.c, fillOpacity: 1 }).addTo(map).bindTooltip(esc(p.n), { permanent: true, direction: "right" });
-    marks[p.id].setLatLng([p.lat, p.lon]);
+    marks[p.id].setLatLng([p.lat, p.lon]).setStyle({ fillColor: p.c });
   });
   if (dest && !destMark) destMark = L.circleMarker([dest.lat, dest.lon], { radius: 8, color: "#fff", weight: 3, fillColor: "#5B2BD6", fillOpacity: 1 }).addTo(map);
   const pts = list.filter(p => p.lat != null).map(p => [p.lat, p.lon]).concat(dest ? [[dest.lat, dest.lon]] : []);
@@ -85,7 +87,8 @@ async function take(m) {
   if (people[d.id] && people[d.id].ts >= d.ts) return; // the same update arrives by several routes
   if (d.dlat && !dest) dest = { n: d.dn || "Destination", lat: d.dlat, lon: d.dlon };
   if (d.t === "bye") { if (people[d.id]) people[d.id].st = "bye"; if (marks[d.id]) { map.removeLayer(marks[d.id]); delete marks[d.id]; } render(); return; }
-  const p = people[d.id] || (people[d.id] = { id: d.id, c: palette[Object.keys(people).length % palette.length] });
+  const p = people[d.id] || (people[d.id] = { id: d.id });
+  for (const k in people) people[k].c = colorOf(k);
   Object.assign(p, { n: d.n || "Driver", lat: d.lat, lon: d.lon, s: d.s, eta: d.eta, left: d.left, st: d.st, ts: d.ts });
   render();
 }

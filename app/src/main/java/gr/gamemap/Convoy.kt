@@ -23,7 +23,6 @@ object Convoy {
     class Member(
         val id: String,
         var name: String,
-        val color: Int,
         var pos: LatLng? = null,
         var heading: Float = 0f,
         var kmh: Int = 0,
@@ -87,16 +86,27 @@ object Convoy {
         }
 
         val moving: Boolean get() = state != "arrived" && kmh >= 3 && !stale
+        /** Their colour: different for everyone in the convoy (see [colorOf]). */
+        val color: Int get() = colorOf(id)
     }
 
     const val PAGE = "https://vyto-line.github.io/GameRoute/convoy/"
     private val palette = intArrayOf(
-        Color.rgb(47, 210, 122), Color.rgb(255, 169, 77), Color.rgb(77, 171, 247),
+        Color.rgb(47, 210, 122), Color.rgb(255, 146, 43), Color.rgb(77, 171, 247),
         Color.rgb(255, 107, 154), Color.rgb(255, 212, 59), Color.rgb(34, 211, 238), Color.rgb(151, 117, 250),
+        Color.rgb(250, 82, 82), Color.rgb(148, 216, 45), Color.rgb(200, 160, 120),
     )
 
-    /** A driver's colour comes from their id, so everyone in the convoy sees the same colours. */
-    fun colorOf(id: String): Int = palette[Math.floorMod(id.hashCode(), palette.size)]
+    /**
+     * Everyone in the convoy (me too) gets a different colour: the drivers' ids in order, one
+     * colour each. Every phone sees the same ids, so everyone sees the same colours.
+     */
+    fun colorOf(id: String): Int {
+        val ids = (members.keys + myId).sorted()
+        val i = ids.indexOf(id)
+        return palette[if (i >= 0) i % palette.size else Math.floorMod(id.hashCode(), palette.size)]
+    }
+    val myColor: Int get() = colorOf(myId)
 
     private lateinit var appContext: Context
     private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
@@ -131,7 +141,7 @@ object Convoy {
             val d = prefs().getString("convoyDest", null)?.let { s ->
                 try { val o = JSONObject(s); Place(o.getString("n"), o.optString("a"), LatLng(o.getDouble("lat"), o.getDouble("lon"))) } catch (e: Exception) { null }
             }
-            code = c; destination = d
+            code = c; destination = d; destAt = prefs().getLong("convoyDestAt", 0)
             listen(c)
         }
     }
@@ -150,8 +160,8 @@ object Convoy {
     /** True while someone in the convoy is moving (their arrow glides, so keep drawing). */
     val anyMoving: Boolean get() = members.values.any { it.moving }
 
-    /** Starts a new convoy to [dest]; returns the invite link. */
-    fun create(dest: Place): String {
+    /** Starts a new convoy (to [dest], or the destination comes later); returns the invite link. */
+    fun create(dest: Place?): String {
         leave(quiet = true)
         val c = randomCode(6)
         setCode(c, dest)
@@ -170,8 +180,28 @@ object Convoy {
         return true
     }
 
+    /** When the destination was chosen: a newer choice (anyone's) wins on every phone. */
+    @Volatile private var destAt = 0L
+
+    /** Sets or changes where the convoy goes; everyone gets it with the next update. */
+    fun setDestination(dest: Place) {
+        if (code == null) return
+        destination = dest; destAt = System.currentTimeMillis()
+        saveDest()
+        publish(hello(if (NavEngine.arrived) "arrived" else if (NavEngine.active) "driving" else "ready"))
+        changed.fire()
+    }
+
+    private fun saveDest() {
+        val d = destination
+        val e = prefs().edit().putLong("convoyDestAt", destAt)
+        if (d != null) e.putString("convoyDest", JSONObject().put("n", d.name).put("a", d.address).put("lat", d.pos.lat).put("lon", d.pos.lon).toString())
+        else e.remove("convoyDest")
+        e.apply()
+    }
+
     private fun setCode(c: String, dest: Place?) {
-        code = c; destination = dest; members.clear()
+        code = c; destination = dest; members.clear(); destAt = if (dest != null) System.currentTimeMillis() else 0
         val e = prefs().edit().putString("convoyCode", c)
         if (dest != null) e.putString("convoyDest", JSONObject().put("n", dest.name).put("a", dest.address).put("lat", dest.pos.lat).put("lon", dest.pos.lon).toString())
         else e.remove("convoyDest")
@@ -202,7 +232,7 @@ object Convoy {
     private fun hello(state: String): JSONObject {
         val o = JSONObject().put("t", "pos").put("id", myId).put("n", myName.ifBlank { "Driver" })
             .put("st", state).put("ts", System.currentTimeMillis())
-        destination?.let { o.put("dn", it.name).put("da", it.address).put("dlat", it.pos.lat).put("dlon", it.pos.lon) }
+        destination?.let { o.put("dn", it.name).put("da", it.address).put("dlat", it.pos.lat).put("dlon", it.pos.lon).put("dt", destAt) }
         LocationTracker.position?.let { o.put("lat", it.lat).put("lon", it.lon).put("h", LocationTracker.heading.toDouble()) }
         o.put("s", Math.round(LocationTracker.speedMps * 3.6f))
         if (meReady && state == "ready") o.put("rd", true).put("ra", meReadyAt)
@@ -306,14 +336,16 @@ object Convoy {
     private fun take(o: JSONObject) {
         val id = o.optString("id"); if (id.isBlank()) return
         // the destination travels with every message (so whoever joins late gets it too)
-        if (destination == null && o.has("dlat")) {
+        // (and when someone changes it, the newest choice wins)
+        val dt = o.optLong("dt", 0)
+        if (o.has("dlat") && (destination == null || dt > destAt)) {
             destination = Place(o.optString("dn", "Destination"), o.optString("da"), LatLng(o.getDouble("dlat"), o.getDouble("dlon")))
-            prefs().edit().putString("convoyDest", JSONObject().put("n", destination!!.name).put("a", destination!!.address)
-                .put("lat", destination!!.pos.lat).put("lon", destination!!.pos.lon).toString()).apply()
+            destAt = dt
+            saveDest()
         }
         if (id == myId) { main.post { changed.fire() }; return }
         if (o.optString("t") == "bye") { members[id]?.state = "left"; members.remove(id); main.post { changed.fire() }; return }
-        val m = members.getOrPut(id) { Member(id, o.optString("n", "Driver"), colorOf(id)) }
+        val m = members.getOrPut(id) { Member(id, o.optString("n", "Driver")) }
         // the same update comes over two brokers and ntfy, and late ones can overtake: newest wins
         val ts = o.optLong("ts", 0)
         if (ts != 0L && ts <= m.lastTs) return
@@ -337,6 +369,16 @@ object Convoy {
         m.readyAt = if (m.ready) o.optLong("ra", ts) else 0
         m.seen = o.optLong("ts", System.currentTimeMillis()).coerceAtMost(System.currentTimeMillis())
         main.post { checkGo(); changed.fire() }
+    }
+
+    /** A friend as a place to drive to (where they are now). */
+    fun placeOf(m: Member): Place {
+        val at = m.shown ?: m.pos ?: LatLng(0.0, 0.0)
+        val info = listOfNotNull(
+            if (m.state == "arrived") "arrived" else if (m.stale) "no signal" else "${m.kmh} km/h",
+            destination?.let { if (m.state == "driving" && m.eta > 0) "arrives ${NavEngine.clock(m.eta)}" else null },
+        ).joinToString(" · ")
+        return Place(m.name, "In your convoy · $info", at, "👥")
     }
 
     // ------------------------------------------------------------- the race start
@@ -408,7 +450,7 @@ object Convoy {
     internal fun debugStart(dest: Place) { code = "k7p2qx"; destination = dest; members.clear(); routeTotal = -1.0 }
 
     internal fun debugMember(name: String, pos: LatLng, kmh: Int, eta: Long, left: Double, total: Double, state: String) {
-        val m = Member("t-$name", name, colorOf("t-$name"), pos, 0f, kmh, eta, left, total, state, 0, System.currentTimeMillis())
+        val m = Member("t-$name", name, pos, 0f, kmh, eta, left, total, state, 0, System.currentTimeMillis())
         m.fixAt = System.currentTimeMillis()
         members[m.id] = m
         changed.fire()
@@ -424,12 +466,12 @@ object Convoy {
 
     fun rows(myColor: Int): List<Row> {
         val now = System.currentTimeMillis()
-        rowsCache?.let { (at, r) -> if (now - at < 500 && r.firstOrNull { it.me }?.color == myColor) return r }
+        rowsCache?.let { (at, r) -> if (now - at < 500) return r }
         return computeRows(myColor).also { rowsCache = now to it }
     }
 
     private fun computeRows(myColor: Int): List<Row> {
-        val me = Row("You", myColor, true, Math.round(LocationTracker.speedMps * 3.6f),
+        val me = Row("You", colorOf(myId), true, Math.round(LocationTracker.speedMps * 3.6f),
             if (NavEngine.active) System.currentTimeMillis() + (NavEngine.remainingSeconds * 1000).toLong() else 0,
             if (NavEngine.arrived) 1.0 else if (NavEngine.active && routeTotal > 0) (1 - NavEngine.remainingDistance / routeTotal).coerceIn(0.0, 1.0) else 0.0,
             if (NavEngine.active) NavEngine.remainingDistance else -1.0,

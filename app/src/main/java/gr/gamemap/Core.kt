@@ -205,8 +205,9 @@ class MapView(private val zoomKey: String) {
         val now = SystemClock.uptimeMillis()
         val dt = (now - lastTick).coerceIn(0, 100)
         lastTick = now
-        // panned away while navigating: back to the car after 8 s without touching
-        if (!following && !overview && NavEngine.active && !gesture && touchedAt > 0 && now - touchedAt > 8_000) {
+        // panned away while navigating: back to the car after 8 s without touching (not in a
+        // convoy: there you look around for the others, and the recenter button stays until pressed)
+        if (!following && !overview && NavEngine.active && !Convoy.active && !gesture && touchedAt > 0 && now - touchedAt > 8_000) {
             touchedAt = 0
             android.os.Handler(android.os.Looper.getMainLooper()).post { if (!following) recenter() } // the car draws on its own thread
         }

@@ -200,6 +200,7 @@ class MapRenderer(private val car: Boolean = false) {
             val (sx, sy) = toScreen(pin.pos, camera!!)
             drawDroppedPin(c, sx, sy, d)
         }
+        if (!Convoy.active) friendHits = emptyList()
         if (Convoy.active) {
             drawConvoyMembers(c, camera!!, area, d, bearing)
             if (Convoy.anyMoving) animating = true // friends glide between their updates
@@ -1345,6 +1346,7 @@ class MapRenderer(private val car: Boolean = false) {
     /** The others in the convoy: an arrow in their colour, name and speed. */
     private fun drawConvoyMembers(c: Canvas, cam: Camera, a: Rect, d: Float, bearing: Float) {
         val now = System.currentTimeMillis()
+        val hits = ArrayList<Pair<RectF, Convoy.Member>>()
         for (m in Convoy.members.values) {
             if (m.state == "left") continue
             val p = m.display(now) ?: continue
@@ -1369,8 +1371,17 @@ class MapRenderer(private val car: Boolean = false) {
             fill.color = if (m.stale) Color.GRAY else m.color; c.drawRoundRect(r, 10 * d, 10 * d, fill)
             text.color = Color.rgb(17, 20, 24)
             c.drawText(label, r.left + 7 * d, r.centerY() + 4.5f * d, text)
+            // taps: the arrow (generously) and the name tag
+            hits += RectF(x - 24 * d, y - 24 * d, x + 24 * d, y + 24 * d) to m
+            hits += RectF(r).apply { inset(-6 * d, -6 * d) } to m
         }
+        friendHits = hits
     }
+
+    @Volatile private var friendHits: List<Pair<RectF, Convoy.Member>> = emptyList()
+
+    /** The convoy friend under a screen point (their arrow or name tag), if any. */
+    fun friendAt(x: Float, y: Float): Convoy.Member? = friendHits.lastOrNull { it.first.contains(x, y) }?.second
 
     /** Phone: a slim strip under the turn card: everyone on a line to the flag, with speeds. */
     private fun drawConvoyStrip(c: Canvas, a: Rect, d: Float, t: Theme) {
