@@ -111,6 +111,16 @@ object VectorRenderer {
             c.drawPath(pathOf(f), line)
         }
 
+        // ---- country borders (on top of land and sea, under the roads)
+        for (f in layer("boundary")) {
+            if (f.type != 2 || f["admin_level"] != "2" || f["maritime"] == "1") continue
+            line.color = s.major; line.alpha = if (z < 8) 200 else 150
+            line.strokeWidth = px(if (z < 6) 1.3f else 1.8f)
+            line.pathEffect = if (aa) android.graphics.DashPathEffect(if (f["disputed"] == "1") floatArrayOf(px(3f), px(4f)) else floatArrayOf(px(9f), px(4f)), 0f) else null
+            c.drawPath(pathOf(f), line)
+        }
+        line.pathEffect = null; line.alpha = 255
+
         // ---- buildings
         if (z >= 14) {
             val buildings = layer("building")

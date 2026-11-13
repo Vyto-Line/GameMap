@@ -399,6 +399,13 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             "zoomin" -> MapState.car.zoomBy(1.0)
             "zoomout" -> MapState.car.zoomBy(-1.0)
             "recenter" -> MapState.car.recenter()
+            else -> if (id.startsWith("friend:")) {
+                // a friend in the convoy box: the map goes to them (me: back to my car)
+                val fid = id.removePrefix("friend:")
+                val m = gr.gamemap.Convoy.members[fid]
+                val at = m?.shown ?: m?.pos
+                if (fid == gr.gamemap.Convoy.myId || at == null) MapState.car.recenter() else MapState.car.pan(at, 0f)
+            }
             "overview" -> NavEngine.route.takeIf { it.size > 1 }?.let { r -> MapState.car.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last()) }
             "end" -> NavEngine.stop()
             "menu" -> screenManager.push(CarMenuScreen(carContext))

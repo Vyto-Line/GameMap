@@ -224,6 +224,7 @@ class Labels {
                 }
                 if (f.layer == "place" && f.type == 1) {
                     val (rank, size, minZ, maxZ) = when (f["class"]) {
+                        "country" -> Quad(-1, 16f, 2, 7)
                         "city" -> Quad(0, 17f, 4, 15)
                         "town" -> Quad(1, 15f, 9, 16)
                         "village" -> Quad(2, 13.5f, 12, 17)
@@ -235,7 +236,12 @@ class Labels {
                     val pt = f.parts.firstOrNull() ?: continue
                     if (pt[0] < 0 || pt[1] < 0 || pt[0] > f.extent || pt[1] > f.extent) continue // buffer copy
                     val w = world(pt)
-                    val upper = if (rank <= 1) name.uppercase() else name
+                    // zoomed out (countries, capitals): in the app's language, not the local script
+                    val shown = if (f["class"] == "country" || z < 9) {
+                        if (gr.gamemap.L.greek) f["name:el"] ?: f["name"] ?: name
+                        else f["name:en"] ?: f["name_en"] ?: f["name:latin"] ?: name
+                    } else name
+                    val upper = if (rank <= 1) shown.uppercase() else shown
                     out += Cand(upper, w, rank, true, size, w[0], w[1], w[0], w[1])
                 } else if (f.layer == "transportation_name" && f.type == 2 && z >= 15) {
                     val rank = when (f["class"]) {

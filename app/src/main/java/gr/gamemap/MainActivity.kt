@@ -341,7 +341,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         map.onMapTap = { if (placeShown != null) closePlace() }
         map.onLongPress = { p -> if (!NavEngine.planning) dropPin(p) }
         map.onConvoyTap = { openSheet("convoy") }
-        map.onFriendTap = { m -> if (!NavEngine.planning) showPlace(Convoy.placeOf(m), dropped = false) }
+        map.onFriendTap = { m -> if (!NavEngine.planning) showFriend(m.id) }
 
         val root = FrameLayout(this).apply {
             addView(map, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
@@ -2429,6 +2429,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private var convoyKey = ""
 
+    /** Takes the map to a friend in the convoy (me: back to my car) and shows their card. */
+    private fun showFriend(id: String) {
+        closeSheet()
+        if (id == Convoy.myId) { MapState.phone.recenter(); return }
+        val m = Convoy.members[id] ?: return
+        val at = m.shown ?: m.pos ?: run { Toast.makeText(this, L.t("No position from them yet"), Toast.LENGTH_SHORT).show(); return }
+        MapState.phone.pan(at, 0f)
+        if (MapState.phone.targetZoom < 15.0) MapState.phone.zoomBy(15.5 - MapState.phone.targetZoom)
+        showPlace(Convoy.placeOf(m), dropped = false)
+    }
+
     private fun confirmLeaveConvoy() {
         AlertDialog.Builder(this).setMessage("Leave the convoy? The others will stop seeing you.")
             .setPositiveButton("Leave") { _, _ -> Convoy.leave(); if (sheetKind == "convoy" || sheetKind == "quick") closeSheet() }
@@ -2554,6 +2565,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 setTextColor(if (r.kmh == 0 && r.state == "driving") readable(Color.rgb(230, 60, 60)) else ink); setPadding(p, 0, p, 0)
             })
             row.addView(label(if (r.eta > 0) NavEngine.clock(r.eta) else "–", 15f, bold = true).apply { setTextColor(readable(Color.rgb(47, 180, 100))) })
+            row.isClickable = true
+            row.setOnClickListener { showFriend(r.id) }
             sheetHost.addView(row)
         }
         if (Convoy.members.isEmpty()) sheetHost.addView(label("Nobody else yet: send the code or the invite link.", 14f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, 0) })

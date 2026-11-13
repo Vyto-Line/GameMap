@@ -1444,6 +1444,7 @@ class MapRenderer(private val car: Boolean = false) {
             text.color = Ui.onPanel(t, Color.rgb(47, 210, 122), 3.0)
             c.drawText(if (row.eta > 0) NavEngine.clock(row.eta) else "–", r.right - 12 * d, y + 18 * d, text)
             text.textAlign = Paint.Align.LEFT
+            carHits += RectF(r.left, y, r.right, y + rowH) to "friend:${row.id}"
             y += rowH
         }
         text.typeface = t.typeface

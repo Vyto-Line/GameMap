@@ -460,7 +460,8 @@ object Convoy {
 
     /** Me plus the others, furthest along first. */
     data class Row(val name: String, val color: Int, val me: Boolean, val kmh: Int, val eta: Long, val progress: Double,
-                   val left: Double, val state: String, val stale: Boolean, val arrivedAt: Long, val ready: Boolean = false)
+                   val left: Double, val state: String, val stale: Boolean, val arrivedAt: Long, val ready: Boolean = false,
+                   val id: String = "")
 
     @Volatile private var rowsCache: Pair<Long, List<Row>>? = null
 
@@ -476,8 +477,8 @@ object Convoy {
             if (NavEngine.arrived) 1.0 else if (NavEngine.active && routeTotal > 0) (1 - NavEngine.remainingDistance / routeTotal).coerceIn(0.0, 1.0) else 0.0,
             if (NavEngine.active) NavEngine.remainingDistance else -1.0,
             if (NavEngine.arrived) "arrived" else if (NavEngine.active) "driving" else "ready", false,
-            NavEngine.lastTrip?.arrivedAt ?: 0, meReady)
-        val others = members.values.map { Row(it.name, it.color, false, it.kmh, it.eta, it.progress, it.left, it.state, it.stale, it.arrivedAt, it.ready) }
+            NavEngine.lastTrip?.arrivedAt ?: 0, meReady, myId)
+        val others = members.values.map { Row(it.name, it.color, false, it.kmh, it.eta, it.progress, it.left, it.state, it.stale, it.arrivedAt, it.ready, it.id) }
         return (others + me).sortedWith(compareByDescending<Row> { it.progress }.thenBy { it.eta })
     }
 

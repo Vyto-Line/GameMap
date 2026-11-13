@@ -439,7 +439,7 @@ object MapState {
         changed.fire()
     }
 
-    const val MIN_ZOOM = 3.0
+    const val MIN_ZOOM = 1.5 // the whole of Europe and beyond: countries and their names
     const val MAX_ZOOM = 19.0
 }
 

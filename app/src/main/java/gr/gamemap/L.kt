@@ -299,6 +299,7 @@ object L {
         "Leave the convoy? The others will stop seeing you." to "Αποχώρηση από το κομβόι; Οι άλλοι δεν θα σας βλέπουν πια.",
         "Stay" to "Παραμονή", "Nobody else yet: send the code or the invite link." to "Κανείς άλλος ακόμα: στείλτε τον κωδικό ή τον σύνδεσμο.",
         "Connecting to the group…" to "Σύνδεση με την ομάδα…", "That isn't a convoy code or link" to "Αυτό δεν είναι κωδικός ή σύνδεσμος κομβόι",
+        "No position from them yet" to "Δεν έχει στείλει θέση ακόμα",
         "＋  Create a convoy" to "＋  Νέο κομβόι", "You can choose where to go now or later, together." to "Τον προορισμό τον διαλέγετε τώρα ή αργότερα, μαζί.",
         "Drive together: everyone sees the others on the map with their speed and arrival time." to
             "Οδηγήστε μαζί: ο καθένας βλέπει τους άλλους στον χάρτη, με την ταχύτητα και την ώρα άφιξής τους.",
