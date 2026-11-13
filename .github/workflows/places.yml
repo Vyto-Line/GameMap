@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - run: pip install --only-binary=:all: duckdb
+      - run: "pip install --only-binary=:all: duckdb"
       - name: Probe
         if: inputs.mode == 'probe'
         run: python3 tools/places_probe.py 2>&1 | tee probe.txt
