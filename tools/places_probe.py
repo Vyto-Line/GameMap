@@ -5,7 +5,7 @@ con.execute("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial; SET s3_
 cat = json.load(urllib.request.urlopen("https://stac.overturemaps.org/catalog.json"))
 rel = sorted([l["href"] for l in cat["links"] if l.get("rel") == "child"])
 print("releases:", rel[-3:])
-latest = rel[-1].strip("./").split("/")[0]
+latest = rel[-1].rstrip("/").split("/")[-2]
 print("latest:", latest)
 src = f"s3://overturemaps-us-west-2/release/{latest}/theme=places/type=place/*"
 print(con.execute(f"DESCRIBE SELECT * FROM read_parquet('{src}') LIMIT 1").fetchall())
