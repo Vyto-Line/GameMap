@@ -8,7 +8,7 @@
 
 Live traffic · lane guidance · spoken directions · speed & red-light cameras · places on the map · fuel prices · collectible landmarks · 8 game-inspired map styles
 
-[![Latest release](https://img.shields.io/github/v/release/Vyto-Line/Gameroute?label=download&style=for-the-badge&color=7c4dff)](../../releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Vyto-Line/GameRoute?label=download&style=for-the-badge&color=7c4dff)](../../releases/latest)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84?style=for-the-badge&logo=android&logoColor=white)
 ![Android Auto](https://img.shields.io/badge/Android%20Auto-supported-4285f4?style=for-the-badge&logo=androidauto&logoColor=white)
 

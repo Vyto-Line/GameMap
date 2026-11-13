@@ -9,7 +9,7 @@ import java.security.SecureRandom
  * It stops by itself when you arrive or end the trip (posting a last "arrived"/"ended").
  */
 object LiveShare {
-    const val PAGE = "https://vyto-line.github.io/Gameroute/live/"
+    const val PAGE = "https://vyto-line.github.io/GameRoute/live/"
     @Volatile var topic: String? = null
         private set
     val active get() = topic != null

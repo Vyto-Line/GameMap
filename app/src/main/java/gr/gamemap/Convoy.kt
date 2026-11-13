@@ -74,7 +74,7 @@ object Convoy {
         val moving: Boolean get() = state == "driving" && kmh >= 3 && !stale
     }
 
-    const val PAGE = "https://vyto-line.github.io/Gameroute/convoy/"
+    const val PAGE = "https://vyto-line.github.io/GameRoute/convoy/"
     private val palette = intArrayOf(
         Color.rgb(47, 210, 122), Color.rgb(255, 169, 77), Color.rgb(77, 171, 247),
         Color.rgb(255, 107, 154), Color.rgb(255, 212, 59), Color.rgb(34, 211, 238), Color.rgb(151, 117, 250),

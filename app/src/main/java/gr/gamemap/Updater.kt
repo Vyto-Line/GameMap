@@ -22,7 +22,7 @@ import java.net.URL
  * update keeps the "installed from Google Play" mark that Android Auto requires.
  */
 object Updater {
-    private const val REPO = "Vyto-Line/Gameroute"
+    private const val REPO = "Vyto-Line/GameRoute"
     const val UNKNOWN_AUTO = "com.mag.unknownauto"
 
     class Release(val versionCode: Long, val tag: String, val apkUrl: String)
