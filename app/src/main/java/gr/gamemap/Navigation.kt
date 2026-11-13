@@ -180,7 +180,7 @@ object LocationTracker : LocationListener {
         last = location
         speed = if (location.hasSpeed()) location.speed else 0f
         var p = LatLng(location.latitude, location.longitude)
-        val snapped = if (speed > 1f) NavEngine.snap(p) else null
+        val snapped = if (speed > 1f) NavEngine.snap(p, if (location.hasBearing() && speed > 3f) location.bearing else null) else null
         if (snapped != null) {
             p = snapped.first
             headingTarget = snapped.second

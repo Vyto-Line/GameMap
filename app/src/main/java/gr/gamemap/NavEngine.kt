@@ -420,7 +420,7 @@ object NavEngine {
     }
 
     /** If p is within 30 m of the route, the closest point on it and the road's direction there. */
-    fun snap(p: LatLng): Pair<LatLng, Float>? {
+    fun snap(p: LatLng, bearing: Float? = null): Pair<LatLng, Float>? {
         val route = route
         if (!active || route.size < 2) return null
         var best: Pair<LatLng, Double>? = null
@@ -432,7 +432,24 @@ object NavEngine {
         }
         val b = best ?: return null
         if (b.second > 20) return null
-        return b.first to Geo.bearing(route[seg], route[seg + 1])
+        val segBearing = Geo.bearing(route[seg], route[seg + 1])
+        // turned onto another street: show the car where it really is, not stuck on the route
+        if (bearing != null && kotlin.math.abs(Geo.angleDiff(bearing, segBearing)) > 45 && !nearRouteTurn(seg, bearing)) return null
+        return b.first to segBearing
+    }
+
+    /** True if the route itself heads that way within ~40 m of segment [seg] (a turn we're taking). */
+    private fun nearRouteTurn(seg: Int, bearing: Float): Boolean {
+        val r = current ?: return false
+        val route = r.points
+        val from = r.cum[seg] - 15; val to = r.cum[seg] + 40
+        var i = seg
+        while (i > 0 && r.cum[i] > from) i--
+        while (i < route.size - 1 && r.cum[i] <= to) {
+            if (kotlin.math.abs(Geo.angleDiff(bearing, Geo.bearing(route[i], route[i + 1]))) <= 40) return true
+            i++
+        }
+        return false
     }
 
     private fun fetchRoute(reroute: Boolean = false) {
@@ -532,14 +549,21 @@ object NavEngine {
         r.steps.getOrNull(nextStep)?.let { distanceToNext = (r.cum[it.routeIndex] - along).coerceAtLeast(0.0) }
         currentStep?.let { Voice.progress(nextStep, it, distanceToNext, LocationTracker.speedMps, followingStep) }
 
-        // Off the route: 2 fixes in a row more than ~35 m away (or one fix far away),
-        // or driving the wrong way along it. Then ask for a new route straight away.
+        // Off the route, any of:
+        //  - more than ~30 m away (two fixes in a row, or one fix far away);
+        //  - a block early: 12+ m away and heading along a different street than the route
+        //    (its nearby part, including the turn just ahead), seen on two fixes in a row;
+        //  - driving the wrong way along it.
+        // Then ask for a new route straight away.
         val accuracy = if (l.hasAccuracy()) l.accuracy.toDouble() else 20.0
-        val far = bestD > maxOf(35.0, accuracy * 1.2)
-        val wrongWay = l.hasBearing() && l.speed > 4f && bestD < 30 &&
-            kotlin.math.abs(Geo.angleDiff(l.bearing, Geo.bearing(route[best], route[best + 1]))) > 120
-        offRouteCount = if (far || wrongWay) offRouteCount + (if (bestD > 120) 2 else 1) else 0
-        if (offRouteCount >= 2 && !loading && System.currentTimeMillis() - lastRouteAt > 6_000) {
+        val far = bestD > maxOf(30.0, accuracy * 1.2)
+        val moving = l.hasBearing() && l.speed > 3.5f
+        val segBearing = Geo.bearing(route[best], route[best + 1])
+        val turnedOff = moving && bestD > maxOf(12.0, accuracy * 0.8) &&
+            kotlin.math.abs(Geo.angleDiff(l.bearing, segBearing)) > 50 && !nearRouteTurn(best, l.bearing)
+        val wrongWay = moving && bestD < 30 && kotlin.math.abs(Geo.angleDiff(l.bearing, segBearing)) > 120
+        offRouteCount = if (far || turnedOff || wrongWay) offRouteCount + (if (bestD > 100) 2 else 1) else 0
+        if (offRouteCount >= 2 && !loading && System.currentTimeMillis() - lastRouteAt > 4_000) {
             offRouteCount = 0
             offer = null
             fetchRoute(reroute = true)
