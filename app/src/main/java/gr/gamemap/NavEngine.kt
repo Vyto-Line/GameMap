@@ -146,7 +146,11 @@ object NavEngine {
         }
     }
     private var lastRouteAt = 0L
+    /** Routes (first route, reroutes, previews): never wait behind anything else. */
     private val io = Executors.newSingleThreadExecutor()
+    /** The slow background work (traffic re-timing, faster-route search): its own line. */
+    private val bg = Executors.newSingleThreadExecutor(Bg.factory("nav-bg"))
+    @Volatile private var routeSeq = 0
     private val timing = Bg.pool("timing", 3)
     private val main = Handler(Looper.getMainLooper())
     private lateinit var appContext: Context
@@ -383,6 +387,7 @@ object NavEngine {
         destination = null
         current = null; nextStep = -1
         loading = false; arrived = false; error = null; offer = null
+        main.removeCallbacks(routeWatchdog); routeSeq++
         Voice.stop()
         if (::appContext.isInitialized) {
             appContext.stopService(Intent(appContext, NavService::class.java))
@@ -473,19 +478,32 @@ object NavEngine {
         lastRouteAt = System.currentTimeMillis()
         if (reroute) Voice.say(Phrases.rerouting(Voice.lang))
         changed.fire()
+        val seq = ++routeSeq
+        // never stuck on "Rerouting…": if no answer in 15 s, ask again from where the car is now
+        main.removeCallbacks(routeWatchdog); main.postDelayed(routeWatchdog, 15_000)
         io.execute {
+            if (seq != routeSeq) return@execute // a newer request is waiting: that one counts
+            // from where the car is now (the request may have waited a moment)
+            val here = LocationTracker.position ?: from
             val h = heading()
             val r = try {
-                val list = preferAllowed(Router.routes(from, dest, alternatives = reroute || wantsAlternatives, heading = h, reroute = reroute, via = stops.map { it.pos }).also { Tolls.annotate(it) })
+                val list = preferAllowed(Router.routes(here, dest, alternatives = reroute || wantsAlternatives, heading = h, reroute = reroute, via = stops.map { it.pos }).also { Tolls.annotate(it) })
                 if (reroute) pickForward(list, h, current) else list.firstOrNull()
             } catch (e: Exception) { null }
             main.post {
-                if (destination != dest) return@post
+                if (destination != dest || seq != routeSeq) return@post
+                main.removeCallbacks(routeWatchdog)
                 if (r == null) {
                     loading = false; error = gr.gamemap.L.t("No route found"); changed.fire()
+                    CrashLog.note("route failed; trying again")
+                    main.postDelayed({ if (active && !arrived && error != null && !loading) fetchRoute(reroute = true) }, 5_000)
                 } else { CrashLog.note("route from ${Router.lastSource}"); apply(r, announce = !reroute) }
             }
         }
+    }
+
+    private val routeWatchdog = Runnable {
+        if (active && loading && !arrived) { CrashLog.note("route request slow: again"); loading = false; fetchRoute(reroute = current != null) }
     }
 
     private fun apply(r: RouteOption, announce: Boolean) {
@@ -517,6 +535,7 @@ object NavEngine {
     private var lastRealFixAt = 0L
     private var alongAtFix = 0.0
     private var speedAtFix = 0f
+    private var onRouteAtFix = true
 
     /**
      * Tunnel mode: once a second while navigating. With no usable GPS fix for 2.5 s while you
@@ -528,7 +547,7 @@ object NavEngine {
             if (!active) { estimating = false; return }
             main.postDelayed(this, 1000)
             val r = current ?: return
-            if (arrived || loading || lastRealFixAt == 0L) return
+            if (arrived || loading || lastRealFixAt == 0L || !onRouteAtFix) return
             val age = System.currentTimeMillis() - lastRealFixAt
             if (age < 2500 || speedAtFix < 4f || age > 120_000) {
                 if (estimating && age > 120_000) { estimating = false; changed.fire() }
@@ -561,11 +580,17 @@ object NavEngine {
             val d = Geo.distanceToSegment(pos, route[i], route[i + 1])
             if (d < bestD) { bestD = d; best = i }
         }
-        nearest = best
-        along = r.cum[best] + Geo.distance(route[best], pos).coerceAtMost(r.cum[best + 1] - r.cum[best])
+        // how far along: where the car falls on that piece of road (well off the road: the
+        // progress stays where it was, so a far-away road can't count as having got there)
+        val onRoad = bestD < 60
+        if (onRoad || along == 0.0) {
+            nearest = best
+            val (proj, _) = Geo.project(pos, route[best], route[best + 1])
+            along = r.cum[best] + Geo.distance(route[best], proj).coerceAtMost(r.cum[best + 1] - r.cum[best])
+        }
         if (real) {
             if (estimating) { estimating = false; CrashLog.note("tunnel mode off") }
-            lastRealFixAt = System.currentTimeMillis(); alongAtFix = along
+            lastRealFixAt = System.currentTimeMillis(); alongAtFix = along; onRouteAtFix = onRoad
             speedAtFix = if (l.hasSpeed()) l.speed else speedAtFix
         }
         remainingDistance = (r.length - along).coerceAtLeast(0.0)
@@ -580,7 +605,8 @@ object NavEngine {
         }
 
         val dest = destination!!
-        if (Geo.distance(pos, dest) < 30 || remainingDistance < 20) {
+        // arrived: really there (a real fix, at the destination or at the route's end while on it)
+        if (real && (Geo.distance(pos, dest) < 30 || (remainingDistance < 20 && bestD < 35))) {
             if (!arrived) {
                 arrived = true
                 offer = null
@@ -605,7 +631,7 @@ object NavEngine {
         nextStep = r.steps.indexOfFirst { it.routeIndex > best || it.direction == "arrive" }
             .let { if (it < 0) r.steps.size - 1 else it }
         r.steps.getOrNull(nextStep)?.let { distanceToNext = (r.cum[it.routeIndex] - along).coerceAtLeast(0.0) }
-        currentStep?.let { Voice.progress(nextStep, it, distanceToNext, LocationTracker.speedMps, followingStep) }
+        if (onRoad) currentStep?.let { Voice.progress(nextStep, it, distanceToNext, LocationTracker.speedMps, followingStep) }
 
         // Off the route, any of:
         //  - more than ~30 m away (two fixes in a row, or one fix far away);
@@ -643,7 +669,7 @@ object NavEngine {
         val declinedNow = declined.toList()
         val nearEnd = remainingDistance < 1500
         val hasOffer = offer != null
-        io.execute {
+        bg.execute {
             val res = try { TomTomTime.evaluate(r, from, start = pos) } catch (e: Exception) { null }
             main.post {
                 if (current !== r || res == null) return@post
