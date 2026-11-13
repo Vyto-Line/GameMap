@@ -4,7 +4,7 @@
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <group android:scaleX="0.74" android:scaleY="0.74" android:pivotX="54" android:pivotY="54">
+    <group android:scaleX="0.66" android:scaleY="0.66" android:pivotX="54" android:pivotY="54">
         <!-- shadow and map tile -->
         <path android:fillColor="#59000000" android:pathData="M24,84a30,8 0,1 0,60 0a30,8 0,1 0,-60 0z" />
         <path android:fillColor="#FF2C1C6E" android:strokeColor="#FF7B5CFF" android:strokeWidth="2"
@@ -12,13 +12,14 @@
         <path android:strokeColor="#FFB9A6FF" android:strokeWidth="2" android:strokeLineCap="round"
             android:pathData="M30,80L33,79.1M36.5,78L39.5,77.1M43,76L46,75.1M62,75.1L65,76M68.5,77.1L71.5,78M75,79.1L78,80" />
         <!-- the marker -->
-        <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineJoin="round"
-            android:pathData="M54,16L74,38L54,74L34,38Z">
+        <path android:pathData="M54,16L74,38L54,74L34,38Z">
             <aapt:attr name="android:fillColor">
                 <gradient android:type="linear" android:startX="54" android:startY="16" android:endX="54" android:endY="74"
                     android:startColor="#FFFFE38A" android:endColor="#FFF59F00" />
             </aapt:attr>
         </path>
+        <path android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineJoin="round"
+            android:pathData="M54,16L74,38L54,74L34,38Z" />
         <path android:strokeColor="#FF5B2BD6" android:strokeWidth="7" android:strokeLineCap="round"
             android:pathData="M54,26V48" />
         <path android:fillColor="#FF5B2BD6" android:pathData="M50,58a4,4 0,1 0,8 0a4,4 0,1 0,-8 0z" />
