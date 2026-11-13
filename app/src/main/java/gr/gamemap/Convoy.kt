@@ -278,7 +278,7 @@ object Convoy {
 
     // ------------------------------------------------------------- tests
 
-    internal fun debugStart(dest: Place) { code = "testconvoy01"; destination = dest; members.clear(); routeTotal = -1.0 }
+    internal fun debugStart(dest: Place) { code = "k7p2qx"; destination = dest; members.clear(); routeTotal = -1.0 }
 
     internal fun debugMember(name: String, pos: LatLng, kmh: Int, eta: Long, left: Double, total: Double, state: String) {
         val m = Member("t-$name", name, palette[members.size % palette.size], pos, 0f, kmh, eta, left, total, state, 0, System.currentTimeMillis())
