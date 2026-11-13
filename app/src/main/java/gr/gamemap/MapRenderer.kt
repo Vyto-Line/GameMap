@@ -1298,8 +1298,11 @@ class MapRenderer(private val car: Boolean = false) {
         val maxW = box.right - tx - 12 * d
         text.textAlign = Paint.Align.LEFT
         text.color = Ui.ink(t)
+        // the title shrinks to fit the card (long words like "MISSION COMPLETE" in wide fonts)
         text.textSize = 30 * d
-        c.drawText(title, tx, box.top + 36 * d, text)
+        val tw = text.measureText(title)
+        if (tw > maxW) text.textSize = (30 * d * maxW / tw).coerceAtLeast(18 * d)
+        c.drawText(ellipsize(title, maxW), tx, box.top + 36 * d, text)
         text.textSize = 18 * d
         text.typeface = if (t.serif) Typeface.create(Typeface.SERIF, Typeface.BOLD) else Typeface.DEFAULT_BOLD
         c.drawText(ellipsize(sub, maxW), tx, box.top + 62 * d, text)

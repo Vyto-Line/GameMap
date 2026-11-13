@@ -595,7 +595,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun buildNavCard() {
         stopsRow = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
-        etaBig = TextView(this).apply { textSize = 28f; typeface = Typeface.DEFAULT_BOLD }
+        etaBig = TextView(this).apply {
+            textSize = 28f; typeface = Typeface.DEFAULT_BOLD; maxLines = 1
+            // long words ("Mission complete" in a wide font) shrink to one line instead of wrapping
+            setAutoSizeTextTypeUniformWithConfiguration(16, 28, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
+        }
         etaTraffic = TextView(this).apply { textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setPadding((10 * d).toInt(), 0, 0, 0) }
         etaSmall = TextView(this).apply { textSize = 15f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         shareBtn = pill("Share") { shareEta() }
