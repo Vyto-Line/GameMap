@@ -2601,6 +2601,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (!NavEngine.active && dest != null && !race) buttons.addView(pill("Start") { closeSheet(); NavEngine.start(this, dest); MapState.recenter() }.apply {
             setTextColor(onAccent(accent)); background = bg(accent, radius = 22f)
         }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.3f))
+        // on a route of my own: one tap to join the others' route instead
+        if (NavEngine.active && dest != null && !Convoy.onConvoyRoute) sheetHost.addView(pill("➤  Drive to ${dest.name} with the convoy") {
+            closeSheet(); NavEngine.start(this, dest); MapState.recenter()
+        }.apply {
+            setTextColor(onAccent(accent)); background = bg(accent, radius = 22f); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p })
         if (race) {
             // the race start: everyone presses Ready, then 3-2-1 and all go together
             val waiting = lobby.filter { !it.ready }.map { it.name }

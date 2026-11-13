@@ -258,7 +258,8 @@ class MapRenderer(private val car: Boolean = false) {
             else drawBanner(c, area, d, theme)
         }
         convoyStrip.setEmpty()
-        if (hud && Convoy.active && NavEngine.active && !NavEngine.arrived && !NavEngine.planning) {
+        // the convoy strip/box only on the convoy's own route (a route of my own looks like any other)
+        if (hud && Convoy.active && Convoy.onConvoyRoute && !NavEngine.arrived && !NavEngine.planning) {
             if (car) drawCarConvoy(c, area, d, theme) else drawConvoyStrip(c, area, d, theme)
         }
         if (carTrip) drawCarTrip(c, area, d, theme)

@@ -129,7 +129,7 @@ object Convoy {
         get() = prefs().getString("convoyName", "").orEmpty()
         set(v) {
             prefs().edit().putString("convoyName", v.trim().take(16)).apply()
-            if (code != null) publish(hello(if (NavEngine.arrived) "arrived" else if (NavEngine.active) "driving" else "ready"))
+            if (code != null) publish(hello(myState()))
             changed.fire()
         }
 
@@ -154,6 +154,24 @@ object Convoy {
     }
 
     fun link(): String? = code?.let { PAGE + "#" + it }
+
+    /**
+     * I'm driving to the convoy's destination. A route somewhere else is my own: the convoy
+     * still sees where I am, but the convoy screens (strip, standings) stay out of the way.
+     */
+    val onConvoyRoute: Boolean get() {
+        val d = destination ?: return false
+        val mine = NavEngine.destination ?: return false
+        return NavEngine.active && Geo.distance(d.pos, mine) < 250
+    }
+
+    /** What I tell the others: at the start (ready), on the convoy's route, arrived, or on my own route. */
+    private fun myState(): String = when {
+        !NavEngine.active -> "ready"
+        !onConvoyRoute -> "own"
+        NavEngine.arrived -> "arrived"
+        else -> "driving"
+    }
 
     /** The code as people read it out: "K7P 2QX". */
     fun pretty(): String? = code?.uppercase()?.let { if (it.length == 6) it.take(3) + " " + it.drop(3) else it }
@@ -247,7 +265,7 @@ object Convoy {
         destination = dest; destAt = System.currentTimeMillis()
         proposal = null; cancelNotification() // my own choice is the newest
         saveDest()
-        publish(hello(if (NavEngine.arrived) "arrived" else if (NavEngine.active) "driving" else "ready"))
+        publish(hello(myState()))
         changed.fire()
     }
 
@@ -297,7 +315,7 @@ object Convoy {
         LocationTracker.position?.let { o.put("lat", it.lat).put("lon", it.lon).put("h", LocationTracker.heading.toDouble()) }
         o.put("s", Math.round(LocationTracker.speedMps * 3.6f))
         if (meReady && state == "ready") o.put("rd", true).put("ra", meReadyAt)
-        if (NavEngine.active) {
+        if (onConvoyRoute) { // (a route of my own: only where I am and my speed)
             val left = NavEngine.remainingDistance
             if (routeTotal < left) routeTotal = left
             o.put("left", left).put("tot", routeTotal)
@@ -320,12 +338,12 @@ object Convoy {
         val gap = when { moving -> 1_000; driving -> 5_000; else -> 20_000 }
         if (meReady && goAt == 0L) main.post { checkGo() } // someone at the start may have dropped out
         if (now - sentAt < gap) return
-        publish(hello(if (NavEngine.arrived) "arrived" else if (driving) "driving" else "ready"))
+        publish(hello(myState()))
     }
 
     /** Called when this driver arrives: tell the group right away. */
     fun arrived() {
-        if (code == null) return
+        if (code == null || !onConvoyRoute) return // arriving somewhere of my own isn't the convoy's finish
         publish(hello("arrived").put("at", System.currentTimeMillis()))
     }
 
@@ -543,11 +561,12 @@ object Convoy {
     }
 
     private fun computeRows(myColor: Int): List<Row> {
+        val mine = onConvoyRoute
         val me = Row("You", colorOf(myId), true, Math.round(LocationTracker.speedMps * 3.6f),
-            if (NavEngine.active) System.currentTimeMillis() + (NavEngine.remainingSeconds * 1000).toLong() else 0,
-            if (NavEngine.arrived) 1.0 else if (NavEngine.active && routeTotal > 0) (1 - NavEngine.remainingDistance / routeTotal).coerceIn(0.0, 1.0) else 0.0,
-            if (NavEngine.active) NavEngine.remainingDistance else -1.0,
-            if (NavEngine.arrived) "arrived" else if (NavEngine.active) "driving" else "ready", false,
+            if (mine) System.currentTimeMillis() + (NavEngine.remainingSeconds * 1000).toLong() else 0,
+            if (mine && NavEngine.arrived) 1.0 else if (mine && routeTotal > 0) (1 - NavEngine.remainingDistance / routeTotal).coerceIn(0.0, 1.0) else 0.0,
+            if (mine) NavEngine.remainingDistance else -1.0,
+            myState(), false,
             NavEngine.lastTrip?.arrivedAt ?: 0, meReady, myId)
         val others = members.values.map { Row(it.name, it.color, false, it.kmh, it.eta, it.progress, it.left, it.state, it.stale, it.arrivedAt, it.ready, it.id) }
         return (others + me).sortedWith(compareByDescending<Row> { it.progress }.thenBy { it.eta })
@@ -558,8 +577,9 @@ object Convoy {
         if (r.state == "arrived") return "arrived"
         if (r.stale) return "no signal"
         if (r.state == "ready") return if (r.ready) "ready ✓" else "not ready yet"
+        if (r.state == "own") return if (r.me) "on your own route" else "on their own route"
         if (r.me) return "you"
-        val mine = if (NavEngine.active) NavEngine.remainingDistance else return NavEngine.formatDistance(r.left.coerceAtLeast(0.0)) + " to go"
+        val mine = if (onConvoyRoute) NavEngine.remainingDistance else return NavEngine.formatDistance(r.left.coerceAtLeast(0.0)) + " to go"
         val d = mine - r.left
         if (r.kmh == 0) return "stopped"
         return if (d >= 0) "${NavEngine.formatDistance(d)} ahead" else "${NavEngine.formatDistance(-d)} behind"
