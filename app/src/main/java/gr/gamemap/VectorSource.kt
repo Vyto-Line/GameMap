@@ -22,6 +22,9 @@ object VectorSource {
     val busy = AtomicInteger(0)
 
     private lateinit var dir: File
+    /** Downloaded areas (Offline maps): kept until deleted, never cleared by the system. */
+    lateinit var offlineDir: File
+        private set
     private lateinit var appContext: Context
     /** Parsed tiles, as many as a sixth of the app's memory allows. */
     private val parsed = object : LruCache<String, VectorTile>((Runtime.getRuntime().maxMemory() / 6).toInt()) {
@@ -61,6 +64,7 @@ object VectorSource {
     fun init(ctx: Context) {
         appContext = ctx.applicationContext
         dir = File(ctx.cacheDir, "vector")
+        offlineDir = File(ctx.filesDir, "offline")
         // caches from older versions
         for (old in listOf("tiles", "tiles-v2", "blocky", "blocky-v2")) File(ctx.cacheDir, old).deleteRecursively()
     }
@@ -125,7 +129,41 @@ object VectorSource {
         }
     }
 
+    /** Downloads one tile into the offline store (used by Offline maps). True if it's there now. */
+    fun saveOffline(z: Int, x: Int, y: Int): Boolean {
+        val f = File(offlineDir, "$z/$x/$y.pbf")
+        if (f.exists() && System.currentTimeMillis() - f.lastModified() < 30L * 86_400_000) return true
+        val bytes = fetchBytes(z, x, y) ?: return f.exists()
+        f.parentFile?.mkdirs(); f.writeBytes(bytes)
+        return true
+    }
+
+    private fun fetchBytes(z: Int, x: Int, y: Int): ByteArray? {
+        val t = template() ?: return null
+        val url = t.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y")
+        val c = URL(url).openConnection() as HttpURLConnection
+        c.connectTimeout = 8000; c.readTimeout = 20000
+        c.setRequestProperty("User-Agent", "GameMap/1.0 (Android; personal use)")
+        return try {
+            if (c.responseCode != 200) null else {
+                var bytes = c.inputStream.use { it.readBytes() }
+                if (bytes.size > 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()) {
+                    bytes = GZIPInputStream(bytes.inputStream()).use { it.readBytes() }
+                }
+                bytes
+            }
+        } catch (e: Exception) { null } finally { c.disconnect() }
+    }
+
     private fun load(z: Int, x: Int, y: Int): ByteArray? {
+        // a downloaded area first: no network needed (refreshed in the background when old)
+        if (::offlineDir.isInitialized) {
+            val off = File(offlineDir, "$z/$x/$y.pbf")
+            if (off.exists()) {
+                if (System.currentTimeMillis() - off.lastModified() > 30L * 86_400_000) prefetcher.execute { try { saveOffline(z, x, y) } catch (_: Exception) {} }
+                return off.readBytes()
+            }
+        }
         val file = File(dir, "$z/$x/$y.pbf")
         if (file.exists() && System.currentTimeMillis() - file.lastModified() < 30L * 86_400_000) {
             return file.readBytes()

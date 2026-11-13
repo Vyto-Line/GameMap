@@ -622,6 +622,28 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun shareEta() {
+        val opts = if (LiveShare.active) arrayOf("Send the live link again", "Stop sharing live", "Send arrival time only")
+            else arrayOf("Share live location (link)", "Send arrival time only")
+        AlertDialog.Builder(this).setTitle("Share your trip")
+            .setItems(opts) { _, i ->
+                when (opts[i]) {
+                    "Share live location (link)", "Send the live link again" -> {
+                        val link = LiveShare.start()
+                        val mins = (NavEngine.remainingSeconds / 60).toInt().coerceAtLeast(1)
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, "On my way to ${NavEngine.destinationName}, arriving around ${NavEngine.arrivalClock()} (about $mins min). Follow me live: $link")
+                        }
+                        startActivity(android.content.Intent.createChooser(send, "Share live location"))
+                        refreshChrome()
+                    }
+                    "Stop sharing live" -> { LiveShare.stop(); refreshChrome(); Toast.makeText(this, "Live sharing stopped", Toast.LENGTH_SHORT).show() }
+                    else -> shareEtaText()
+                }
+            }.show()
+    }
+
+    private fun shareEtaText() {
         val mins = (NavEngine.remainingSeconds / 60).toInt().coerceAtLeast(1)
         val msg = "On my way to ${NavEngine.destinationName}: arriving around ${NavEngine.arrivalClock()} (about $mins min)."
         val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
@@ -1158,6 +1180,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             "settings" -> renderSettings()
             "report" -> renderReport()
             "trips" -> renderTrips()
+            "offline" -> renderOffline()
         }
         val trip = NavEngine.lastTrip
         tripOverlay.visibility = if (trip != null) View.VISIBLE else View.GONE
@@ -1182,6 +1205,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     etaTraffic.setTextColor(readable(Color.rgb(255, 140, 90)))
                     etaSmall.text = "${NavEngine.formatDuration(NavEngine.remainingSeconds)} · ${NavEngine.formatDistance(NavEngine.remainingDistance)} · ${NavEngine.destinationName}"
                     renderStops()
+                    shareBtn.text = if (LiveShare.active) "● Live" else "Share"
                 }
             }
         }
@@ -1592,6 +1616,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     internal fun showSettings() = openSheet("settings")
     internal fun openReportForTest() = openSheet("report")
+    internal fun openSheetForTest(kind: String) = openSheet(kind)
 
     private fun renderSettings() {
         sheetHost.removeAllViews()
@@ -1624,6 +1649,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             settingRow("Light / dark", MapState.lightMode.label) { chooseLightMode() },
             settingRow("Units", if (MapState.imperial) "Miles" else "Kilometres") { MapState.setImperial(!MapState.imperial) },
             settingRow("Android Auto style", MapState.carTheme?.title ?: "Same as phone") { chooseCarStyle() },
+            settingRow("Offline maps", Offline.areas().let { a -> if (a.isEmpty()) "None yet" else "${a.size} area${if (a.size == 1) "" else "s"} · ${Offline.size(a.sumOf { it.bytes })}" }) { openSheet("offline") },
             switchRow("Places on the map (fuel, parking, food…)", MapState.showPlaces) { MapState.showPlaces = it },
             switchRow("Car: dark map when headlights are on", MapState.followHeadlights) { MapState.followHeadlights = it },
         ) + group("Places",
@@ -1691,6 +1717,65 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             .setSingleChoiceItems(modes.map { it.label }.toTypedArray(), MapState.lightMode.ordinal) { dlg, m ->
                 MapState.setLightMode(modes[m]); dlg.dismiss()
             }.show()
+    }
+
+    private var offlineKey = ""
+    private val offlineListener: () -> Unit = { runOnUiThread { if (sheetKind == "offline") { offlineKey = ""; renderOffline() } } }
+
+    /** Offline maps: download the map around here, list and delete downloads. */
+    private fun renderOffline() {
+        val areas = Offline.areas()
+        val key = "${areas.size}|${Offline.downloading}|${Offline.done.get() / 10}|${theme.name}|${MapState.dark}"
+        if (key == offlineKey && sheetHost.childCount > 0) return
+        offlineKey = key
+        Offline.changed -= offlineListener; Offline.changed += offlineListener
+        sheetHost.removeAllViews()
+        sheetHost.background = bg(panel, radius = 22f, topOnly = true)
+        sheetHost.addView(sheetHeader("Offline maps"))
+        val p = (12 * d).toInt()
+        sheetHost.addView(label("The map, street names and places of an area, kept on your phone: it shows without signal and uses no data. " +
+            "Routes and search still need the internet.", 14f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, p) })
+        val dl = Offline.downloading
+        if (dl != null) {
+            sheetHost.addView(label("Downloading $dl… ${Offline.done.get()} / ${Offline.total}", 15f, bold = true).apply { setTextColor(readable(accent)) })
+            sheetHost.addView(android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = Offline.total.coerceAtLeast(1); progress = Offline.done.get()
+                progressTintList = android.content.res.ColorStateList.valueOf(accent)
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p / 2; bottomMargin = p / 2 })
+            sheetHost.addView(pill("Stop") { Offline.cancelled = true }.apply { setTextColor(ink) })
+        } else {
+            val center = map.center() ?: LocationTracker.position
+            if (center != null) for ((km, title) in listOf(5 to "City centre", 15 to "Wider area")) {
+                val n = Offline.tileCount(center, km)
+                sheetHost.addView(pill("⬇  $title · ${km} km around the map's centre · about ${Offline.size(n * 110_000L)}") {
+                    io.execute {
+                        val name = try { Places.addressAt(center).let { a -> a.address.split(", ").firstOrNull()?.takeIf { it.isNotBlank() } ?: a.name } } catch (e: Exception) { null }
+                            ?: "Area ${"%.2f".format(center.lat)}, ${"%.2f".format(center.lon)}"
+                        Offline.download("$name ($km km)", center, km)
+                    }
+                }.apply {
+                    textSize = 14f; setTextColor(onAccent(accent)); background = bg(accent, radius = 14f)
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = p / 2 })
+            }
+        }
+        if (areas.isNotEmpty()) sheetHost.addView(label("ON THIS PHONE", 12f, bold = true).apply { setTextColor(dim()); letterSpacing = 0.06f; setPadding(0, p, 0, p / 3) })
+        val date = java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+        for (a in areas) {
+            sheetHost.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(p, p / 2, p / 2, p / 2); background = bg(dim(22), radius = 14f)
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(label(a.name, 16f, bold = true).apply { setTextColor(ink) })
+                    addView(label("${Offline.size(a.bytes)} · downloaded ${date.format(java.util.Date(a.at))} · updates itself", 13f).apply { setTextColor(dim()) })
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(pill("Delete") {
+                    AlertDialog.Builder(this@MainActivity).setMessage("Delete the offline map of ${a.name}?")
+                        .setPositiveButton("Delete") { _, _ -> Offline.delete(a) }.setNegativeButton("Cancel", null).show()
+                }.apply { textSize = 14f; setTextColor(readable(Color.rgb(220, 60, 60))) })
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = p / 2 })
+        }
     }
 
     private var tripsKey = ""
@@ -1930,6 +2015,9 @@ class GameMapView(ctx: Context) : View(ctx) {
     var insetBottom = 0
     /** Called when a finger first touches the map (closes search). */
     var onTouchStart: (() -> Unit)? = null
+    /** Where the middle of the map is right now. */
+    fun center(): LatLng? = renderer.camera?.let { renderer.toMap(it.cx, it.cy, it) }
+
     /** A tap on a place icon / on empty map; a long press somewhere. */
     var onPlaceTap: ((Place) -> Unit)? = null
     var onMapTap: (() -> Unit)? = null

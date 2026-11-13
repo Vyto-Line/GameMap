@@ -329,6 +329,8 @@ object NavEngine {
         fetchRoute()
     }
 
+    internal fun debugStop(p: Place) { stops += p; changed.fire() }
+
     fun removeStop(p: Place) {
         if (stops.remove(p)) fetchRoute()
     }
@@ -344,6 +346,7 @@ object NavEngine {
     }
 
     fun stop() {
+        LiveShare.stop(if (arrived) "arrived" else "stopped")
         stops.clear()
         destination = null
         current = null; nextStep = -1
@@ -474,6 +477,7 @@ object NavEngine {
         remainingSeconds = remainingDistance * secondsPerMeter * trafficRatio
         maybeRefreshTraffic(pos)
         checkStops(pos)
+        LiveShare.tick()
         // last ~1.5 km: have the car parks at the destination ready for the arrival card
         if (remainingDistance < 1500 && !parkingReady) {
             parkingReady = true
@@ -486,6 +490,7 @@ object NavEngine {
                 arrived = true
                 offer = null
                 finishTrip()
+                LiveShare.stop("arrived")
                 Voice.say(Phrases.instruction(r.steps.lastOrNull() ?: NavStep("arrive", "arrive", "", 0, dest, null), Voice.lang))
                 // the arrival card stays a minute (Parking / Done), then the trip closes by itself
                 main.postDelayed(closeArrival, 60_000)
