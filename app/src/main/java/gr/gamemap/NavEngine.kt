@@ -121,6 +121,7 @@ object NavEngine {
             destinationName, System.currentTimeMillis(), secs, tripMeters, tripSaved,
             xp + Explorer.tripFound * 25, Explorer.tripFound, levelBefore,
         )
+        lastTrip?.let { Explorer.record(it) }
     }
 
     // ------------------------------------------------------------- faster route offers
@@ -292,6 +293,7 @@ object NavEngine {
     }
 
     private fun begin(place: Place) {
+        stops.clear()
         Places.addRecent(place)
         lastTrip = null
         tripStart = System.currentTimeMillis(); tripMeters = 0.0; tripSaved = 0; tripBonus = 0; lastPos = null
@@ -314,7 +316,35 @@ object NavEngine {
         }
     }
 
+    // ============================================================= stops on the way
+
+    /** Places to pass on the way to the destination, in order. */
+    val stops = java.util.concurrent.CopyOnWriteArrayList<Place>()
+
+    /** Adds a stop (fuel, coffee…) without ending the trip; the route is recalculated through it. */
+    fun addStop(p: Place) {
+        if (!active || stops.any { Geo.distance(it.pos, p.pos) < 30 }) return
+        stops += p
+        Voice.say(if (Voice.lang == Phrases.GREEK) "Προστέθηκε στάση: ${p.name}" else "Stop added: ${p.name}")
+        fetchRoute()
+    }
+
+    fun removeStop(p: Place) {
+        if (stops.remove(p)) fetchRoute()
+    }
+
+    /** Reached the next stop: it's done, the route carries on to the destination. */
+    private fun checkStops(pos: LatLng) {
+        val s = stops.firstOrNull() ?: return
+        if (Geo.distance(pos, s.pos) < 40) {
+            stops.remove(s)
+            Voice.say(if (Voice.lang == Phrases.GREEK) "Φτάσατε στη στάση: ${s.name}" else "Stop reached: ${s.name}")
+            changed.fire()
+        }
+    }
+
     fun stop() {
+        stops.clear()
         destination = null
         current = null; nextStep = -1
         loading = false; arrived = false; error = null; offer = null
@@ -393,7 +423,7 @@ object NavEngine {
         io.execute {
             val h = heading()
             val r = try {
-                val list = preferAllowed(Osrm.routes(from, dest, alternatives = reroute || wantsAlternatives, heading = h, reroute = reroute))
+                val list = preferAllowed(Osrm.routes(from, dest, alternatives = reroute || wantsAlternatives, heading = h, reroute = reroute, via = stops.map { it.pos }))
                 if (reroute) pickForward(list, h, current) else list.firstOrNull()
             } catch (e: Exception) { null }
             main.post {
@@ -443,6 +473,7 @@ object NavEngine {
         remainingDistance = (r.length - along).coerceAtLeast(0.0)
         remainingSeconds = remainingDistance * secondsPerMeter * trafficRatio
         maybeRefreshTraffic(pos)
+        checkStops(pos)
         // last ~1.5 km: have the car parks at the destination ready for the arrival card
         if (remainingDistance < 1500 && !parkingReady) {
             parkingReady = true
@@ -509,7 +540,7 @@ object NavEngine {
                 changed.fire()
             }
             if (res == null || hasOffer || nearEnd) return@execute
-            val alts = try { Osrm.routes(pos, dest, alternatives = true, heading = heading()) } catch (e: Exception) { null }
+            val alts = try { Osrm.routes(pos, dest, alternatives = true, heading = heading(), via = stops.map { it.pos }) } catch (e: Exception) { null }
                 ?: return@execute
             val now = System.currentTimeMillis()
             var bestAlt: RouteOption? = null

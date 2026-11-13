@@ -99,13 +99,16 @@ class RouteOption(
 
 /** The public OSRM router: geometry, maneuvers and lanes. */
 object Osrm {
-    fun routes(from: LatLng, to: LatLng, alternatives: Boolean, heading: Float? = null, reroute: Boolean = false): List<RouteOption> {
+    /** Routes from [from] to [to], through the [via] stops in order. */
+    fun routes(from: LatLng, to: LatLng, alternatives: Boolean, heading: Float? = null, reroute: Boolean = false, via: List<LatLng> = emptyList()): List<RouteOption> {
+        val pts = listOf(from) + via + listOf(to)
         var url = "https://router.project-osrm.org/route/v1/driving/" +
-            "${from.lon},${from.lat};${to.lon},${to.lat}" +
+            pts.joinToString(";") { "${it.lon},${it.lat}" } +
             "?overview=full&geometries=geojson&steps=true"
-        if (alternatives) url += "&alternatives=3"
+        // (OSRM offers alternatives only for a plain A to B trip)
+        if (alternatives && via.isEmpty()) url += "&alternatives=3"
         // on a reroute: keep going the way the car faces, never a U-turn back to the old route
-        if (heading != null) url += "&bearings=${heading.toInt().coerceIn(0, 359)},${if (reroute) 45 else 60};"
+        if (heading != null) url += "&bearings=${heading.toInt().coerceIn(0, 359)},${if (reroute) 45 else 60}" + ";".repeat(pts.size - 1)
         if (reroute) url += "&continue_straight=true"
         return parseAll(Http.get(url))
     }
@@ -135,8 +138,11 @@ object Osrm {
                 val st = s.getJSONObject(i)
                 val m = st.getJSONObject("maneuver")
                 val loc = m.getJSONArray("location")
-                val type = m.optString("type")
+                var type = m.optString("type")
                 val mod = m.optString("modifier", "straight")
+                val lastLeg = l == legs.length() - 1
+                if (type == "depart" && l > 0) continue // carrying on after a stop
+                if (type == "arrive" && !lastLeg) type = "waypoint" // a stop on the way
                 st.optJSONArray("intersections")?.let { ins ->
                     for (k in 0 until ins.length()) ins.getJSONObject(k).optJSONArray("classes")?.let { cl ->
                         for (q in 0 until cl.length()) when (cl.optString(q)) {
@@ -155,7 +161,7 @@ object Osrm {
                 }
                 out += NavStep(
                     type = type,
-                    direction = if (type == "arrive") "arrive" else mod,
+                    direction = if (type == "arrive") "arrive" else if (type == "waypoint") "straight" else mod,
                     road = st.optString("name"),
                     exit = m.optInt("exit", 0),
                     pos = LatLng(loc.getDouble(1), loc.getDouble(0)),
@@ -277,6 +283,7 @@ object Phrases {
         val onto = if (name.isBlank()) "" else if (g) " στην $name" else " onto $name"
         val base = when (s.type) {
             "arrive" -> if (g) "Φτάσατε στον προορισμό σας" else "You have arrived"
+            "waypoint" -> if (g) "Φτάνετε στη στάση σας" else "You're reaching your stop"
             "depart" -> if (g) "Ξεκινήστε$onto" else "Head out$onto"
             "roundabout", "rotary" ->
                 if (s.exit in 1..8) {

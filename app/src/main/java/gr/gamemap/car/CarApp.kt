@@ -401,6 +401,10 @@ class MapScreen(carContext: CarContext) : Screen(carContext) {
             "parking" -> openParking()
             "parkclose" -> gr.gamemap.CarParking.list = null
             "placeclose" -> surface.selectedPlace = null
+            "placestop" -> surface.selectedPlace?.let { pl ->
+                surface.selectedPlace = null
+                NavEngine.addStop(pl)
+            }
             "placego" -> surface.selectedPlace?.let { pl ->
                 surface.selectedPlace = null
                 NavEngine.start(carContext, pl)
@@ -630,8 +634,14 @@ fun carDistance(m: Double): Distance = when {
 }
 
 /** Destination search on the car screen: recents first, live suggestions while typing. */
+/** Before typing in the car: saved places first, then recent ones. */
+private fun carStart(): List<Place> {
+    val fav = Places.savedPlaces()
+    return (fav + Places.recents().filter { r -> fav.none { gr.gamemap.Geo.distance(it.pos, r.pos) < 25 } }).take(8)
+}
+
 class SearchScreen(carContext: CarContext) : Screen(carContext) {
-    private var results: List<Place> = Places.recents()
+    private var results: List<Place> = carStart()
     private var loading = false
     private var message = "Type a destination"
     private var seq = 0
@@ -646,7 +656,7 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
                 main.removeCallbacksAndMessages(null)
                 if (searchText.trim().length < 2) {
                     seq++
-                    results = Places.recents(); loading = false; invalidate()
+                    results = carStart(); loading = false; invalidate()
                 } else {
                     main.postDelayed({ search(searchText, full = false) }, 500)
                 }
@@ -703,9 +713,15 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
 class ReportScreen(carContext: CarContext) : Screen(carContext) {
     override fun onGetTemplate(): Template {
         val list = ItemList.Builder()
-        if (!gr.gamemap.Alerts.reportsReady) {
-            list.setNoItemsMessage("Driver reports aren't set up yet: open GameMap on your phone › Settings › Driver reports")
-        } else for (t in gr.gamemap.Alerts.reportTypes) {
+        // a camera here, kept on the phone (works without the shared reports)
+        for ((k, title) in listOf("speed" to "📷  Speed camera here", "redlight" to "🚦  Red-light camera here")) {
+            list.addItem(Row.Builder().setTitle(title).addText("Saved on your phone: you'll be warned next time").setOnClickListener {
+                val ok = gr.gamemap.Alerts.markCamera(k)
+                CarToast.makeText(carContext, if (ok) "Camera marked" else "Waiting for your location", CarToast.LENGTH_SHORT).show()
+                screenManager.pop()
+            }.build())
+        }
+        if (gr.gamemap.Alerts.reportsReady) for (t in gr.gamemap.Alerts.reportTypes.take(4)) {
             list.addItem(Row.Builder().setTitle("${t.glyph}  ${t.title}").setOnClickListener {
                 gr.gamemap.Alerts.report(t.key) { ok ->
                     CarToast.makeText(carContext, if (ok) "Thanks! ${t.title} reported" else "Couldn't send the report", CarToast.LENGTH_SHORT).show()
@@ -736,12 +752,14 @@ class CarMenuScreen(carContext: CarContext) : Screen(carContext) {
             if (NavEngine.active) row("End navigation", NavEngine.destinationName) { NavEngine.stop(); screenManager.pop() }
             else row("Search") { screenManager.pop(); screenManager.push(SearchScreen(carContext)) }
             // (the list holds 6 rows; Recenter is on the map itself)
-            row("Fuel nearby", "Prices and ratings") {
+            row("Fuel nearby", if (NavEngine.active) "Add a fuel stop" else "Prices and ratings") {
                 screenManager.pop(); screenManager.push(NearbyScreen(carContext, "Fuel nearby", listOf("fuel", "charging_station")))
             }
         }
         row("Map style", (MapState.carTheme ?: MapState.theme).title) { MapState.nextCarTheme(); invalidate() }
-        row("Traffic", if (gr.gamemap.Traffic.showLayer) "On" else "Off") { gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer; invalidate() }
+        val stop = NavEngine.stops.firstOrNull()
+        if (stop != null && NavEngine.active) row("Remove stop", stop.name) { NavEngine.removeStop(stop); screenManager.pop() }
+        else row("Traffic", if (gr.gamemap.Traffic.showLayer) "On" else "Off") { gr.gamemap.Traffic.showLayer = !gr.gamemap.Traffic.showLayer; invalidate() }
         row("Spoken directions", if (Voice.muted) "Off" else "On") { Voice.muted = !Voice.muted; invalidate() }
         row("Report") { screenManager.pop(); screenManager.push(ReportScreen(carContext)) }
         return ListTemplate.Builder().setTitle("GameMap").setHeaderAction(Action.BACK).setSingleList(list.build()).build()
@@ -780,7 +798,8 @@ class NearbyScreen(carContext: CarContext, private val title: String, private va
         r.orEmpty().take(6).forEach { p ->
             val row = Row.Builder().setTitle(p.name).setOnClickListener {
                 screenManager.pop()
-                NavEngine.plan(carContext, p)
+                // while navigating, a fuel station or café becomes a stop on the way
+                if (NavEngine.active && !NavEngine.arrived) NavEngine.addStop(p) else NavEngine.plan(carContext, p)
             }
             val line = listOfNotNull(
                 near?.let { NavEngine.formatDistance(gr.gamemap.Geo.distance(it, p.pos)) },

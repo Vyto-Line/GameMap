@@ -26,7 +26,18 @@ class Labels {
         val place: Boolean,
         val textSize: Float,
         val minX: Double, val minY: Double, val maxX: Double, val maxY: Double,
-    )
+    ) {
+        /** Same label from frame to frame (and across tile reloads). */
+        val id = "$name@${(pts[0] / 48).toInt()},${(pts[1] / 48).toInt()}"
+    }
+
+    // Steady labels while driving: names shown last frame keep their spot first, new ones
+    // fade in, and a street name only flips to read upright with some margin.
+    private var shownAt = HashMap<String, Long>()
+    private var nowShown = HashMap<String, Long>()
+    private val flipped = HashMap<String, Boolean>()
+    private val order = ArrayList<Cand>(256)
+    private var frameNow = 0L
 
     private var cacheKey = ""
     private var cands: List<Cand> = emptyList()
@@ -95,8 +106,13 @@ class Labels {
         // world-pixel box of the screen, for quick rejection
         val vMinX = cam.px - reach; val vMaxX = cam.px + reach; val vMinY = cam.py - reach; val vMaxY = cam.py + reach
         var count = 0
+        frameNow = android.os.SystemClock.uptimeMillis()
+        order.clear()
+        for (cd in cands) if (shownAt.containsKey(cd.id)) order += cd
+        for (cd in cands) if (!shownAt.containsKey(cd.id)) order += cd
+        nowShown.clear()
 
-        for (cd in cands) {
+        for (cd in order) {
             if (count >= 32) break
             if (cd.maxX < vMinX || cd.minX > vMaxX || cd.maxY < vMinY || cd.minY > vMaxY) continue
             val n = minOf(cd.pts.size, screen.size)
@@ -108,12 +124,18 @@ class Labels {
                 i += 2
             }
             text.textSize = cd.textSize * d; halo.textSize = text.textSize
-            if (cd.place) {
-                if (placePoint(c, cd, area, d)) count++
-            } else {
-                if (placeStreet(c, cd, n, area, d)) count++
-            }
+            val ok = if (cd.place) placePoint(c, cd, area, d) else placeStreet(c, cd, n, area, d)
+            if (ok) { count++; nowShown[cd.id] = shownAt[cd.id] ?: frameNow }
         }
+        val t = shownAt; shownAt = nowShown; nowShown = t
+        if (flipped.size > 600) flipped.clear()
+        bmpPaint.alpha = 255
+    }
+
+    /** New names fade in over a quarter second instead of popping. */
+    private fun alphaFor(cd: Cand): Int {
+        val since = frameNow - (shownAt[cd.id] ?: frameNow)
+        return if (shownAt.containsKey(cd.id)) (80 + since * 175 / 250).toInt().coerceAtMost(255) else 80
     }
 
     private fun placePoint(c: Canvas, cd: Cand, area: Rect, d: Float): Boolean {
@@ -123,6 +145,7 @@ class Labels {
         val box = RectF(x - w, y - text.textSize, x + w, y + text.textSize * 0.35f)
         if (!inside(box, area) || !free(box)) return false
         val img = image(cd.name)
+        bmpPaint.alpha = alphaFor(cd)
         c.drawBitmap(img, x - img.width / 2f, y - img.height / 2f - text.textSize * 0.3f, bmpPaint)
         return true
     }
@@ -149,8 +172,12 @@ class Labels {
             }
             walked += seg; i += 2
         }
-        // read left to right
-        if (tx < 0) { tx = -tx; ty = -ty }
+        // read left to right; once turned, only turn back when clearly needed (no flip-flopping
+        // on near-vertical streets while the map rotates)
+        val was = flipped[cd.id] ?: false
+        val flip = if (was) tx < 0.25f else tx < -0.25f
+        flipped[cd.id] = flip
+        if (flip) { tx = -tx; ty = -ty }
         // same street already named close by?
         for ((nm, at) in placedNames) if (nm == cd.name && hypot(at[0] - mx, at[1] - my) < 260 * d) return false
         val hw = tw / 2; val h = text.textSize * 0.7f
@@ -159,6 +186,7 @@ class Labels {
         if (!inside(box, area) || !free(box)) return false
         placedNames += cd.name to floatArrayOf(mx, my)
         val img = image(cd.name)
+        bmpPaint.alpha = alphaFor(cd)
         c.save()
         c.translate(mx, my)
         c.rotate(Math.toDegrees(kotlin.math.atan2(ty.toDouble(), tx.toDouble())).toFloat())

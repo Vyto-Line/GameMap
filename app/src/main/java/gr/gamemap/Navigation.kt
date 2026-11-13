@@ -896,6 +896,33 @@ object Places {
         }
     }
 
+    // ---- saved places (favourites) ----
+
+    fun savedPlaces(): List<Place> {
+        if (!::appContext.isInitialized) return emptyList()
+        val raw = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE).getString("favourites", "[]")
+        return try {
+            val a = JSONArray(raw)
+            (0 until a.length()).map {
+                val o = a.getJSONObject(it)
+                Place(o.getString("n"), o.optString("a"), LatLng(o.getDouble("lat"), o.getDouble("lon")), "★")
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    fun isSaved(p: Place) = savedPlaces().any { Geo.distance(it.pos, p.pos) < 25 }
+
+    /** Saves or un-saves a place; returns true when it is saved now. */
+    fun toggleSaved(p: Place): Boolean {
+        val now = savedPlaces()
+        val saved = now.any { Geo.distance(it.pos, p.pos) < 25 }
+        val list = if (saved) now.filterNot { Geo.distance(it.pos, p.pos) < 25 } else (listOf(p) + now).take(50)
+        val a = JSONArray()
+        list.forEach { a.put(JSONObject().put("n", it.name).put("a", it.address).put("lat", it.pos.lat).put("lon", it.pos.lon)) }
+        appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE).edit().putString("favourites", a.toString()).apply()
+        return !saved
+    }
+
     fun addRecent(p: Place) {
         val list = (listOf(p) + recents().filterNot { Geo.distance(it.pos, p.pos) < 30 }).take(8)
         val a = JSONArray()

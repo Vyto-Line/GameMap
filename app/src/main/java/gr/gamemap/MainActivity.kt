@@ -475,7 +475,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun renderHomeSheet() {
-        val rec = Places.recents().take(6)
+        val fav = Places.savedPlaces()
+        val rec = (fav + Places.recents().filter { r -> fav.none { Geo.distance(it.pos, r.pos) < 25 } }).take(8)
+        homeTitle.text = if (fav.isEmpty()) "Recent" else "Saved & recent"
         homeSheet.background = bg(panel, radius = 22f, topOnly = true)
         homeTitle.setTextColor(ink); homeTitle.typeface = theme.typeface
         homeCards.removeAllViews()
@@ -488,7 +490,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 background = bg(Color.argb(28, Color.red(ink), Color.green(ink), Color.blue(ink)), dim(60), 1f, 14f)
                 setOnClickListener { NavEngine.plan(this@MainActivity, pl) }
             }
-            card.addView(label(pl.name, 15f, bold = true).apply { setTextColor(ink); maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
+            card.addView(label((if (pl.icon == "★") "★ " else "") + pl.name, 15f, bold = true).apply { setTextColor(ink); maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
             val dist = near?.let { NavEngine.formatDistance(Geo.distance(it, pl.pos)) }
             card.addView(label(listOfNotNull(pl.address.split(",").firstOrNull()?.takeIf { it.isNotBlank() }, dist).joinToString(" · "), 13f).apply {
                 setTextColor(dim()); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
@@ -570,7 +572,29 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     // ------------------------------------------------------------------ driving card
 
+    private lateinit var stopsRow: LinearLayout
+    private var stopsKey = ""
+
+    /** "Via EKO ✕" under the arrival time while there are stops on the way. */
+    private fun renderStops() {
+        val key = NavEngine.stops.joinToString { it.name } + theme.name
+        if (key == stopsKey) return
+        stopsKey = key
+        stopsRow.removeAllViews()
+        stopsRow.visibility = if (NavEngine.stops.isEmpty()) View.GONE else View.VISIBLE
+        for (st in NavEngine.stops) stopsRow.addView(TextView(this).apply {
+            text = "↳ via ${st.name}  ✕"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(readable(accent)); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, (4 * d).toInt(), 0, (2 * d).toInt())
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity).setMessage("Remove the stop at ${st.name}?")
+                    .setPositiveButton("Remove") { _, _ -> NavEngine.removeStop(st) }.setNegativeButton("Keep", null).show()
+            }
+        })
+    }
+
     private fun buildNavCard() {
+        stopsRow = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         etaBig = TextView(this).apply { textSize = 28f; typeface = Typeface.DEFAULT_BOLD }
         etaTraffic = TextView(this).apply { textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setPadding((10 * d).toInt(), 0, 0, 0) }
         etaSmall = TextView(this).apply { textSize = 15f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
@@ -590,6 +614,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     addView(etaBig); addView(etaTraffic)
                 })
                 addView(etaSmall)
+                addView(stopsRow)
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
             addView(shareBtn, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = (8 * d).toInt() })
             addView(endBtn)
@@ -761,11 +786,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (pl.extra.isNotBlank()) placeCard.addView(label(pl.extra, 14f).apply { setTextColor(readable(accent)); setPadding(0, p / 3, 0, 0) })
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p + p / 2, 0, 0) }
-        row.addView(pill("➤  Go") {
-            closePlace(); NavEngine.start(this, pl)
+        val navigating = NavEngine.active && !NavEngine.arrived
+        row.addView(pill(if (navigating) "＋  Add stop" else "➤  Go") {
+            closePlace()
+            if (navigating) NavEngine.addStop(pl) else NavEngine.start(this, pl)
         }.apply { setTextColor(if (Ui.contrast(Color.WHITE, accent) >= 3) Color.WHITE else Color.BLACK); background = bg(accent, radius = 26f) },
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f).apply { marginEnd = p })
-        row.addView(pill("Routes") { closePlace(); NavEngine.plan(this, pl) }.apply {
+        row.addView(pill(if (navigating) "Go instead" else "Routes") {
+            closePlace(); if (navigating) NavEngine.start(this, pl) else NavEngine.plan(this, pl)
+        }.apply {
             setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 26f)
         }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
         row.addView(pill("Share") { sharePlace(pl) }.apply {
@@ -774,7 +803,14 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         placeCard.addView(row)
         run {
             val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0) }
-            for ((k, title) in listOf("home" to "Set as Home", "work" to "Set as Work")) {
+            val savedNow = Places.isSaved(pl)
+            more.addView(pill(if (savedNow) "★ Saved" else "☆ Save") {
+                val on = Places.toggleSaved(pl)
+                Toast.makeText(this, if (on) "Saved: ${pl.name}" else "Removed from saved", Toast.LENGTH_SHORT).show()
+                showPlace(pl, dropped)
+            }.apply { textSize = 14f; setTextColor(if (savedNow) readable(accent) else ink); background = bg(dim(30), radius = 22f) },
+                LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
+            for ((k, title) in listOf("home" to "Home", "work" to "Work")) {
                 more.addView(pill(title) {
                     Places.save(k, pl); etaAskedAt = 0
                     Toast.makeText(this, "${if (k == "home") "Home" else "Work"} saved: ${pl.name}", Toast.LENGTH_SHORT).show()
@@ -782,10 +818,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }.apply { textSize = 14f; setTextColor(ink); background = bg(dim(30), radius = 22f) },
                     LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (k == "home") marginEnd = p })
             }
-            if (!pl.icon.contains("📍") && !dropped) more.addView(pill("Reviews") { showReviews(pl) }.apply {
-                textSize = 14f; setTextColor(ink); background = bg(dim(30), radius = 22f)
-            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginStart = p })
             placeCard.addView(more)
+            if (!dropped) placeCard.addView(pill("Reviews ›") { showReviews(pl) }.apply {
+                textSize = 14f; setTextColor(readable(accent)); gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            })
         }
         placeCard.visibility = View.VISIBLE
         homeSheet.visibility = View.GONE
@@ -1072,7 +1108,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         searchCard.visibility = if (nav || planning) View.GONE else View.VISIBLE
         val chipsWas = chipsScroll.visibility; val homeWas = homeSheet.visibility
         chipsScroll.visibility = if (nav || planning || searching) View.GONE else View.VISIBLE
-        homeSheet.visibility = if (nav || planning || searching || placeShown != null || (Places.recents().isEmpty() && t != Theme.TRAILBLAZER)) View.GONE else View.VISIBLE
+        homeSheet.visibility = if (nav || planning || searching || placeShown != null || (Places.recents().isEmpty() && Places.savedPlaces().isEmpty() && t != Theme.TRAILBLAZER)) View.GONE else View.VISIBLE
         if (chipsWas != chipsScroll.visibility || homeWas != homeSheet.visibility) lastHomeKey = ""
         if ((nav || planning) && suggestScroll.visibility == View.VISIBLE) closeSearch()
         recenterBtn.visibility = if (MapState.following && MapState.userBearing == null || planning) View.GONE else View.VISIBLE
@@ -1121,6 +1157,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             "style" -> renderStylePicker()
             "settings" -> renderSettings()
             "report" -> renderReport()
+            "trips" -> renderTrips()
         }
         val trip = NavEngine.lastTrip
         tripOverlay.visibility = if (trip != null) View.VISIBLE else View.GONE
@@ -1144,6 +1181,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     etaTraffic.text = if (delay >= 1) "+$delay min traffic" else ""
                     etaTraffic.setTextColor(readable(Color.rgb(255, 140, 90)))
                     etaSmall.text = "${NavEngine.formatDuration(NavEngine.remainingSeconds)} · ${NavEngine.formatDistance(NavEngine.remainingDistance)} · ${NavEngine.destinationName}"
+                    renderStops()
                 }
             }
         }
@@ -1180,15 +1218,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private fun showRecents() {
         val seq = ++querySeq
         lastResults = emptyList()
-        val rec = Places.recents()
-        renderResults(rec, if (rec.isEmpty()) "Type a place, address or business" else null, header = if (rec.isEmpty()) null else "RECENT", force = true)
+        val fav = Places.savedPlaces()
+        val rec = Places.recents().filter { r -> fav.none { Geo.distance(it.pos, r.pos) < 25 } }
+        if (fav.isNotEmpty()) renderSections(listOf("SAVED" to fav.take(6), "RECENT" to rec.take(4)))
+        else renderResults(rec, if (rec.isEmpty()) "Type a place, address or business" else null, header = if (rec.isEmpty()) null else "RECENT", force = true)
         val near = LocationTracker.position ?: return
         Places.warmUp(near, force = true)
         io.execute {
             val around = try { Places.around(near) } catch (e: Exception) { emptyList() }
             if (around.isNotEmpty()) runOnUiThread {
                 if (seq != querySeq || isFinishing) return@runOnUiThread
-                renderSections(listOf("RECENT" to rec.take(4), "AROUND YOU" to around))
+                renderSections(listOfNotNull(("SAVED" to fav.take(6)).takeIf { fav.isNotEmpty() }, "RECENT" to rec.take(4), "AROUND YOU" to around))
             }
         }
     }
@@ -1470,6 +1510,29 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         sheetHost.removeAllViews()
         sheetHost.background = bg(panel, radius = 24f, topOnly = true)
         sheetHost.addView(sheetHeader("Report"))
+        // marking a camera works without the shared database: it's kept on this phone
+        sheetHost.addView(label("CAMERA HERE (saved on this phone)", 12f, bold = true).apply {
+            setTextColor(dim()); letterSpacing = 0.06f; setPadding((4 * d).toInt(), (4 * d).toInt(), 0, (6 * d).toInt())
+        })
+        sheetHost.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            for ((k, glyph, title) in listOf(Triple("speed", "📷", "Speed camera"), Triple("redlight", "🚦", "Red-light camera"))) {
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+                    minimumHeight = (60 * d).toInt()
+                    background = bg(Color.argb(28, Color.red(ink), Color.green(ink), Color.blue(ink)), dim(60), 1f, 16f)
+                    addView(label(glyph, 24f)); addView(label("  $title", 15f, bold = true).apply { setTextColor(ink) })
+                    setOnClickListener {
+                        val ok = Alerts.markCamera(k)
+                        Toast.makeText(this@MainActivity, if (ok) "$title marked: you'll be warned here" else "Waiting for your location", Toast.LENGTH_SHORT).show()
+                        if (ok) closeSheet()
+                    }
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (k == "speed") marginEnd = (10 * d).toInt() })
+            }
+        })
+        sheetHost.addView(label("DRIVER REPORTS", 12f, bold = true).apply {
+            setTextColor(dim()); letterSpacing = 0.06f; setPadding((4 * d).toInt(), (16 * d).toInt(), 0, 0)
+        })
         if (!Alerts.reportsReady) {
             sheetHost.addView(label("Reports are shared with other GameMap drivers through a small free online database, which isn't set up yet.", 15f).apply {
                 setTextColor(ink); setPadding((4 * d).toInt(), (6 * d).toInt(), 0, (12 * d).toInt())
@@ -1547,6 +1610,14 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         ) + group("Alerts",
             switchRow("Speed cameras", Alerts.camerasOn) { Alerts.camerasOn = it },
             switchRow("Red light cameras", Alerts.redLightOn) { Alerts.redLightOn = it },
+            settingRow("Cameras you marked", "${Alerts.myCameras().size}") {
+                val n = Alerts.myCameras().size
+                AlertDialog.Builder(this).setTitle("Cameras you marked")
+                    .setMessage(if (n == 0) "None yet. While driving, tap ⚠ › Speed camera or Red-light camera to mark one where you are."
+                        else "$n camera${if (n == 1) "" else "s"} saved on this phone. GameMap warns you before each one.")
+                    .apply { if (n > 0) setNeutralButton("Delete all") { _, _ -> Alerts.clearMyCameras(); showSettings() } }
+                    .setPositiveButton("OK", null).show()
+            },
             switchRow("Accidents & roadworks", Alerts.incidentsOn) { Alerts.incidentsOn = it },
             settingRow("Driver reports", if (Alerts.reportsReady) "On" else "Set up") { reportsSetup() },
         ) + group("Map",
@@ -1559,6 +1630,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             settingRow("Star ratings & reviews", if (Reviews.enabled) "Google key set" else "Off: Reviews opens Google Maps") { chooseGoogleKey() },
         ) + group("App",
             settingRow("Explorer profile", "Level ${Explorer.level} · ${Explorer.xp} XP") { showProfile() },
+            settingRow("Trip history", "${Explorer.history().size} trips") { openSheet("trips") },
             settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) },
             settingRow("About & map credits", null) { showAbout() },
         )).forEach { body.addView(it) }
@@ -1619,6 +1691,58 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             .setSingleChoiceItems(modes.map { it.label }.toTypedArray(), MapState.lightMode.ordinal) { dlg, m ->
                 MapState.setLightMode(modes[m]); dlg.dismiss()
             }.show()
+    }
+
+    private var tripsKey = ""
+
+    /** Past trips, newest first, with totals at the top. */
+    private fun renderTrips() {
+        val list = Explorer.history()
+        val key = "${list.size}|${list.firstOrNull()?.arrivedAt}|${theme.name}|${MapState.dark}"
+        if (key == tripsKey && sheetHost.childCount > 0) return
+        tripsKey = key
+        sheetHost.removeAllViews()
+        sheetHost.background = bg(panel, radius = 22f, topOnly = true)
+        sheetHost.addView(sheetHeader("Trip history"))
+        val p = (12 * d).toInt()
+        val km = list.sumOf { it.meters } / 1000
+        val hours = list.sumOf { it.seconds } / 3600.0
+        val saved = list.sumOf { it.savedSeconds } / 60
+        sheetHost.addView(label(
+            if (list.isEmpty()) "Your finished trips will show here."
+            else "${list.size} trips · ${NavEngine.formatDistance(km * 1000)} · ${"%.1f".format(hours)} h driving" +
+                (if (saved > 0) " · $saved min saved dodging traffic" else ""), 15f, bold = true,
+        ).apply { setTextColor(readable(accent)); setPadding(0, p / 2, 0, p) })
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val day = java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.getDefault())
+        var lastDay = ""
+        for (t in list) {
+            val dLabel = day.format(java.util.Date(t.arrivedAt))
+            if (dLabel != lastDay) {
+                lastDay = dLabel
+                body.addView(label(dLabel.uppercase(), 12f, bold = true).apply { setTextColor(dim()); letterSpacing = 0.06f; setPadding(0, p, 0, p / 3) })
+            }
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(p, p * 3 / 4, p, p * 3 / 4)
+                background = bg(dim(22), radius = 14f)
+            }
+            row.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label(t.place, 16f, bold = true).apply { setTextColor(ink); maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
+                addView(label("${NavEngine.clock(t.arrivedAt - t.seconds * 1000L)} → ${NavEngine.clock(t.arrivedAt)} · " +
+                    "${NavEngine.formatDuration(t.seconds.toDouble())} · ${NavEngine.formatDistance(t.meters)}", 13f).apply { setTextColor(dim()) })
+            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            row.addView(label("+${t.xp} XP", 14f, bold = true).apply { setTextColor(readable(accent)) })
+            body.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { bottomMargin = p / 2 })
+        }
+        if (list.isNotEmpty()) body.addView(pill("Clear history") {
+            AlertDialog.Builder(this).setMessage("Delete all ${list.size} trips from the history? Your XP stays.")
+                .setPositiveButton("Delete") { _, _ -> Explorer.clearHistory(); tripsKey = ""; refreshChrome() }
+                .setNegativeButton("Cancel", null).show()
+        }.apply { setTextColor(dim()) })
+        sheetHost.addView(ScrollView(this).apply { addView(body) },
+            LinearLayout.LayoutParams(MATCH_PARENT, minOf((resources.displayMetrics.heightPixels * 0.62f).toInt(), (560 * d).toInt())))
     }
 
     private fun showProfile() {

@@ -36,6 +36,31 @@ object Explorer {
 
     private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
 
+    // ---- trip history (newest first, last 200 trips) ----
+
+    fun history(): List<Trip> {
+        if (!::appContext.isInitialized) return emptyList()
+        return try {
+            val a = org.json.JSONArray(prefs().getString("tripHistory", "[]"))
+            (0 until a.length()).map { i ->
+                val o = a.getJSONObject(i)
+                Trip(o.getString("p"), o.getLong("t"), o.getInt("s"), o.getDouble("m"), o.optInt("v"), o.optInt("x"), o.optInt("l"), o.optInt("b"))
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    fun record(t: Trip) {
+        if (!::appContext.isInitialized || t.meters < 200) return // not a trip, just a test
+        val a = org.json.JSONArray()
+        a.put(org.json.JSONObject().put("p", t.place).put("t", t.arrivedAt).put("s", t.seconds).put("m", t.meters)
+            .put("v", t.savedSeconds).put("x", t.xp).put("l", t.landmarks).put("b", t.levelBefore))
+        for (old in history().take(199)) a.put(org.json.JSONObject().put("p", old.place).put("t", old.arrivedAt).put("s", old.seconds)
+            .put("m", old.meters).put("v", old.savedSeconds).put("x", old.xp).put("l", old.landmarks).put("b", old.levelBefore))
+        prefs().edit().putString("tripHistory", a.toString()).apply()
+    }
+
+    fun clearHistory() { if (::appContext.isInitialized) prefs().edit().remove("tripHistory").apply() }
+
     // ------------------------------------------------------------------ XP & levels
 
     val xp: Int get() = if (::appContext.isInitialized) prefs().getInt("xp", 0) else 0

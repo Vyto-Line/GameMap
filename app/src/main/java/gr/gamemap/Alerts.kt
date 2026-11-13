@@ -68,10 +68,47 @@ object Alerts {
     @Volatile private var coveredAt = 0L
     private val loading = ConcurrentHashMap.newKeySet<String>()
 
+    // ---- cameras the driver marked (kept on this phone only) ----
+
+    @Volatile private var mine: List<Camera>? = null
+
+    fun myCameras(): List<Camera> {
+        mine?.let { return it }
+        if (!ready) return emptyList()
+        val list = try {
+            val a = JSONArray(prefs().getString("myCameras", "[]"))
+            (0 until a.length()).map { i ->
+                val o = a.getJSONObject(i)
+                Camera(LatLng(o.getDouble("lat"), o.getDouble("lon")), null,
+                    if (o.has("d")) o.getDouble("d").toFloat() else null, o.optString("k", "speed"))
+            }
+        } catch (e: Exception) { emptyList() }
+        mine = list
+        return list
+    }
+
+    private fun saveMine(list: List<Camera>) {
+        val a = JSONArray()
+        for (c in list) a.put(JSONObject().put("lat", c.pos.lat).put("lon", c.pos.lon).put("k", c.kind).apply { c.direction?.let { put("d", it.toDouble()) } })
+        prefs().edit().putString("myCameras", a.toString()).apply()
+        mine = list
+        changed.fire()
+    }
+
+    /** "There's a camera here": marks it where the car is now, facing the way it drives. */
+    fun markCamera(kind: String): Boolean {
+        val p = LocationTracker.position ?: return false
+        val heading = LocationTracker.heading.takeIf { LocationTracker.speedMps > 2f }
+        saveMine(myCameras().filterNot { Geo.distance(it.pos, p) < 30 } + Camera(p, null, heading, kind))
+        return true
+    }
+
+    fun clearMyCameras() = saveMine(emptyList())
+
     /** Cameras around [p] (the caller filters by distance). Never waits for the network. */
     fun cameras(p: LatLng): List<Camera> {
         if (!camerasOn) return emptyList()
-        val all = camerasRaw(p)
+        val all = camerasRaw(p) + myCameras()
         return if (redLightOn) all else all.filter { !it.redLight }
     }
 

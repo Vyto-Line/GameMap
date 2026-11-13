@@ -182,6 +182,8 @@ class MapRenderer(private val car: Boolean = false) {
         if (MapState.showPlaces && !NavEngine.planning) {
             pois.draw(c, camera!!, zoom, w, h, d, if (NavEngine.active) NAV_PLACES else null, selectedPlace?.pos)
         }
+        // stops on the way: amber pins
+        for (st in NavEngine.stops) { val (sx, sy) = toScreen(st.pos, camera!!); drawDroppedPin(c, sx, sy, d, Color.rgb(245, 159, 0)) }
         selectedPlace?.takeIf { it.icon == "📍" }?.let { pin ->
             val (sx, sy) = toScreen(pin.pos, camera!!)
             drawDroppedPin(c, sx, sy, d)
@@ -1215,13 +1217,22 @@ class MapRenderer(private val car: Boolean = false) {
         text.textAlign = Paint.Align.CENTER; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 22 * d; text.color = ink
         c.drawText("✕", x.centerX(), x.centerY() + 8 * d, text)
         carHits += x to "placeclose"
-        // Go
-        val go = RectF(box.left + 18 * d, box.bottom - 18 * d - 58 * d, box.right - 18 * d, box.bottom - 18 * d)
+        // Go (or, while navigating: Add stop | Go instead)
+        val navigating = NavEngine.active && !NavEngine.arrived
+        val gy0 = box.bottom - 18 * d - 58 * d; val gy1 = box.bottom - 18 * d
+        val go = if (navigating) RectF(box.left + 18 * d, gy0, box.centerX() - 6 * d, gy1) else RectF(box.left + 18 * d, gy0, box.right - 18 * d, gy1)
         glassButton(c, go, d, t, withAlpha(t.route, 240))
         text.textSize = 20 * d
         text.color = if (Ui.contrast(Color.WHITE, t.route) >= 3) Color.WHITE else Color.BLACK
-        c.drawText(if (NavEngine.active) "Go here instead" else "Go", go.centerX(), go.centerY() + 7 * d, text)
-        carHits += go to "placego"
+        c.drawText(if (navigating) "＋ Add stop" else "Go", go.centerX(), go.centerY() + 7 * d, text)
+        carHits += go to if (navigating) "placestop" else "placego"
+        if (navigating) {
+            val alt = RectF(box.centerX() + 6 * d, gy0, box.right - 18 * d, gy1)
+            glassButton(c, alt, d, t)
+            text.color = glassInk(t); text.textSize = 18 * d
+            c.drawText("Go instead", alt.centerX(), alt.centerY() + 6 * d, text)
+            carHits += alt to "placego"
+        }
         text.textAlign = Paint.Align.LEFT
         text.typeface = t.typeface
     }
@@ -1554,7 +1565,7 @@ class MapRenderer(private val car: Boolean = false) {
     val compassBounds = RectF()
 
     /** A dropped pin: its tip on the point. */
-    private fun drawDroppedPin(c: Canvas, x: Float, y: Float, d: Float) {
+    private fun drawDroppedPin(c: Canvas, x: Float, y: Float, d: Float, color: Int = Color.rgb(232, 89, 12)) {
         val r = 13 * d
         path.reset()
         path.moveTo(x, y)
@@ -1563,7 +1574,7 @@ class MapRenderer(private val car: Boolean = false) {
         path.cubicTo(x + r * 1.3f, y - r * 1.6f, x + r * 0.4f, y - r * 1.2f, x, y)
         path.close()
         fill.color = Color.argb(70, 0, 0, 0); c.drawCircle(x, y, 4 * d, fill)
-        fill.color = Color.rgb(232, 89, 12); c.drawPath(path, fill)
+        fill.color = color; c.drawPath(path, fill)
         stroke.color = Color.WHITE; stroke.strokeWidth = 2.5f * d; c.drawPath(path, stroke)
         fill.color = Color.WHITE; c.drawCircle(x, y - r * 2.4f, r * 0.5f, fill)
     }
