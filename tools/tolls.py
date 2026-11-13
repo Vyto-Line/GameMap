@@ -125,7 +125,11 @@ def main():
         if price is None:
             missed.append(names.strip() or f"(no name) {b['lat']:.4f},{b['lon']:.4f}")
             continue
-        out.append({"n": label, "p": price, "lat": round(b["lat"], 6), "lon": round(b["lon"], 6)})
+        side = ramp or (label != "Αττική Οδός" and not any(w in ln for w in ("metop", "main")) and
+                        next((m is None for st, (m, sp) in STEMS if st and st in ln), False))
+        item = {"n": label, "p": price, "lat": round(b["lat"], 6), "lon": round(b["lon"], 6)}
+        if side: item["s"] = 1  # a side (ramp) station: only counts when the route goes through it
+        out.append(item)
     os.makedirs("out/tolls", exist_ok=True)
     json.dump(out, open("out/tolls/GR.json", "w"), ensure_ascii=False, separators=(",", ":"))
     print(f"{len(booths)} booths, {len(out)} priced, {len(missed)} without a match")

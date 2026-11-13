@@ -10,7 +10,7 @@ import java.io.File
  * warns about the next one while driving.
  */
 object Tolls {
-    class Station(val name: String, val price: Double, val pos: LatLng)
+    class Station(val name: String, val price: Double, val pos: LatLng, val side: Boolean = false)
     /** A toll on a route: [along] metres from the route's start. */
     class OnRoute(val name: String, val price: Double, val along: Double, val pos: LatLng)
 
@@ -27,7 +27,7 @@ object Tolls {
 
     private fun parse(json: String): List<Station> = try {
         val a = JSONArray(json)
-        (0 until a.length()).map { val o = a.getJSONObject(it); Station(o.getString("n"), o.getDouble("p"), LatLng(o.getDouble("lat"), o.getDouble("lon"))) }
+        (0 until a.length()).map { val o = a.getJSONObject(it); Station(o.getString("n"), o.getDouble("p"), LatLng(o.getDouble("lat"), o.getDouble("lon")), o.optInt("s") == 1) }
     } catch (e: Exception) { emptyList() }
 
     /** Once a week from the data branch (in the background). */
@@ -55,9 +55,11 @@ object Tolls {
             if (s.pos.lat < minLat - 0.002 || s.pos.lat > maxLat + 0.002 || s.pos.lon < minLon - 0.002 || s.pos.lon > maxLon + 0.002) continue
             val (along, idx) = r.alongOf(s.pos, 0, r.points.size)
             val off = Geo.distanceToSegment(s.pos, r.points[idx], r.points[minOf(idx + 1, r.points.size - 1)])
-            if (off > 22) continue // a booth on a ramp we don't take, or across the road
-            // one plaza has a booth per lane / carriageway: count it once
-            if (out.any { it.name == s.name && kotlin.math.abs(it.along - along) < 3000 }) continue
+            // a main plaza spans the road (either carriageway); a side station sits on its ramp, so the
+            // route must go right through it (driving past on the motorway doesn't count)
+            if (off > (if (s.side) 7.0 else 25.0)) continue
+            // one plaza has several booths (lanes, carriageways, two names): count it once
+            if (out.any { (it.name == s.name && kotlin.math.abs(it.along - along) < 3000) || kotlin.math.abs(it.along - along) < 1500 }) continue
             // Attiki Odos charges once, at the entry
             if (s.name == "Αττική Οδός" && out.any { it.name == s.name }) continue
             out += OnRoute(s.name, s.price, along, s.pos)
