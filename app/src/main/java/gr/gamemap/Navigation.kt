@@ -541,7 +541,8 @@ object Places {
         val x = sound(greeklish(a.name)).filter { it.isLetterOrDigit() }
         val y = sound(greeklish(b.name)).filter { it.isLetterOrDigit() }
         if (x.isEmpty() || y.isEmpty()) return false
-        return x == y || (minOf(x.length, y.length) >= 5 && (x.startsWith(y) || y.startsWith(x)))
+        if (x == y) return true
+        return minOf(x.length, y.length) >= 4 && (x.startsWith(y) || y.startsWith(x)) && Geo.distance(a.pos, b.pos) < 150
     }
 
     /**
@@ -560,6 +561,8 @@ object Places {
             s -= 14 * Math.log10(1 + d / 1000) // 1 km −4, 10 km −15, 100 km −28
             if (area != null && d < 5000) s += 8
             if (src == SRC_TOMTOM || src == SRC_OPEN) s += 1 // richer data (address, entrance)
+            // "lidl" → the shop "Lidl …" before "Parking Lidl"
+            q.forms.firstOrNull()?.let { fs -> val t = OpenPlaces.searchText(p.name); if (fs.any { t.startsWith(" $it") }) s += 5 }
             all += C(p, s, if (isAddr && q.number != null) 1.0 else fit)
         }
         all.sortByDescending { it.score }

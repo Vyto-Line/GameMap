@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object OpenPlaces {
     private const val BASE = "https://raw.githubusercontent.com/Vyto-Line/GameRoute/data/places/"
-    private const val MAX_CELLS = 6
+    private const val MAX_CELLS = 9
     private const val MONTH = 30L * 86_400_000
 
     /** One square: the raw lines, and per place a search text (by sound, both scripts). */
@@ -46,7 +46,7 @@ object OpenPlaces {
     }
 
     private fun load(key: String, download: Boolean): Cell? {
-        cells[key]?.let { return it }
+        cells[key]?.let { order.remove(key); order += key; return it } // used again: kept longest
         missing[key]?.let { if (System.currentTimeMillis() - it < 6 * 3_600_000) return null }
         val f = File(dir, "$key.tsv.gz")
         val fresh = f.exists() && System.currentTimeMillis() - f.lastModified() < MONTH
@@ -118,15 +118,29 @@ object OpenPlaces {
                 val pos = LatLng(c.lat[i], c.lon[i])
                 val conf = f.getOrNull(6)?.toDoubleOrNull() ?: 0.5
                 val d = if (at != null) Geo.distance(at, pos) else 0.0
-                out += Place(f[0], f.getOrElse(5) { "" }, pos, icon(f.getOrElse(4) { "" })) to (if (all) 1.0 else 0.6) * (0.7 + conf * 0.3) - Math.log10(1 + d / 1000) * 0.15
+                out += Place(f[0], f.getOrElse(5) { "" }, pos, icon(f.getOrElse(4) { "" }, f[0])) to (if (all) 1.0 else 0.6) * (0.7 + conf * 0.3) - Math.log10(1 + d / 1000) * 0.15
             }
         }
         return out.sortedByDescending { it.second }.map { it.first }.distinctBy { Places.norm(it.name) + (it.pos.lat * 500).toInt() + (it.pos.lon * 500).toInt() }.take(limit)
     }
 
-    /** Overture's categories → the app's icons. */
-    fun icon(cat: String): String {
+    /** Overture's categories (and, where they're vague or missing, the name) → the app's icons. */
+    fun icon(cat: String, name: String = ""): String {
         val c = cat.lowercase()
+        if (c.isEmpty() || c == "restaurant" || c == "casual_eatery" || c == "food_and_beverage" || c == "shopping") {
+            val n = Places.norm(name)
+            val byName = when {
+                listOf("crep", "κρεπ", "waffle", "βαφλ", "gelat", "ice cream", "παγωτ", "ζαχαροπλ", "patisser", "bakery", "φουρν", "αρτοποι", "donut", "cake").any { it in n } -> "🍰"
+                listOf("coffee", "cafe", "καφε").any { it in n } -> "☕"
+                listOf("pharmac", "φαρμακ").any { it in n } -> "💊"
+                listOf("souvlak", "σουβλ", "gyro", "γυρο", "pizza", "πιτσ", "burger", "ταβερν", "taverna", "ψητοπωλ", "grill", "restaurant", "εστιατ", "sushi").any { it in n } -> "🍽"
+                listOf("super market", "supermarket", "σουπερ μαρκετ", "market").any { it in n } -> "🛒"
+                listOf("bar ", " bar", "μπαρ").any { it in " $n " } -> "🍸"
+                listOf("hotel", "ξενοδοχ", "rooms", "apartments", "suites").any { it in n } -> "🏨"
+                else -> null
+            }
+            if (byName != null) return byName
+        }
         return when {
             c.isEmpty() -> "📍"
             "charging" in c -> "🔌"
