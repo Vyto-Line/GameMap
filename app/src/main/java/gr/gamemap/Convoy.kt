@@ -208,7 +208,8 @@ object Convoy {
     @Volatile private var joinedAt = 0L
 
     /** Someone chose a (new) destination: waiting for me to accept or decline it. */
-    class Proposal(val place: Place, val from: String, val at: Long)
+    /** [place] null = they removed the destination (the convoy just shares where everyone is). */
+    class Proposal(val place: Place?, val from: String, val at: Long)
     @Volatile var proposal: Proposal? = null
         private set
     private val declined = java.util.Collections.synchronizedSet(HashSet<Long>())
@@ -220,9 +221,12 @@ object Convoy {
         val p = proposal ?: return
         proposal = null
         cancelNotification()
+        val wasOnIt = onConvoyRoute
         destination = p.place; destAt = p.at; saveDest()
         meReady = false
-        if (NavEngine.active && !NavEngine.arrived) { NavEngine.start(appContext, p.place); MapState.recenter() }
+        // a new place: a route there replaces mine. Removed: my route stays (I end it if I want)
+        if (p.place != null && NavEngine.active && !NavEngine.arrived) { NavEngine.start(appContext, p.place); MapState.recenter() }
+        else if (p.place == null && wasOnIt) publish(hello(myState()))
         else publish(hello("ready"))
         changed.fire()
     }
@@ -247,8 +251,8 @@ object Convoy {
                 android.app.PendingIntent.FLAG_IMMUTABLE)
             val n = androidx.core.app.NotificationCompat.Builder(appContext, "convoy")
                 .setSmallIcon(android.R.drawable.ic_menu_directions)
-                .setContentTitle(L.t("${p.from} chose where the convoy goes"))
-                .setContentText(L.t("${p.place.name}: tap to accept or decline"))
+                .setContentTitle(L.t(if (p.place == null) "${p.from} removed the destination" else "${p.from} chose where the convoy goes"))
+                .setContentText(L.t("${p.place?.name ?: L.t("No destination")}: tap to accept or decline"))
                 .setContentIntent(open).setAutoCancel(true)
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
                 .build()
@@ -261,6 +265,17 @@ object Convoy {
     }
 
     private const val NOTE_ID = 31
+
+    /** No destination: the convoy just shares where everyone is (anyone can choose one later). */
+    fun clearDestination() {
+        if (code == null || destination == null) return
+        destination = null; destAt = System.currentTimeMillis()
+        proposal = null; cancelNotification()
+        meReady = false
+        saveDest()
+        publish(hello(myState()))
+        changed.fire()
+    }
 
     /** Sets or changes where the convoy goes; everyone gets it with the next update. */
     fun setDestination(dest: Place) {
@@ -315,6 +330,7 @@ object Convoy {
         val o = JSONObject().put("t", "pos").put("id", myId).put("n", myName.ifBlank { "Driver" })
             .put("st", state).put("ts", System.currentTimeMillis())
         destination?.let { o.put("dn", it.name).put("da", it.address).put("dlat", it.pos.lat).put("dlon", it.pos.lon).put("dt", destAt) }
+            ?: if (destAt > 0) o.put("dt", destAt).put("dx", true) else null // removed (and when)
         LocationTracker.position?.let { o.put("lat", it.lat).put("lon", it.lon).put("h", LocationTracker.heading.toDouble()) }
         o.put("s", Math.round(LocationTracker.speedMps * 3.6f))
         if (meReady && state == "ready") o.put("rd", true).put("ra", meReadyAt)
@@ -434,6 +450,10 @@ object Convoy {
                     main.post { proposed.fire(); changed.fire() }
                 }
             }
+        } else if (o.optBoolean("dx") && id != myId && destination != null && dt > destAt && dt !in declined && proposal?.at != dt) {
+            // they removed the destination: ask too (my route to it stays either way)
+            proposal = Proposal(null, o.optString("n", members[id]?.name ?: "Driver"), dt)
+            main.post { proposed.fire(); changed.fire() }
         }
         if (id == myId) { soon(); return }
         if (o.optString("t") == "bye") { members[id]?.state = "left"; members.remove(id); main.post { changed.fire() }; return }

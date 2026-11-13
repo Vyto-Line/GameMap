@@ -67,7 +67,20 @@ class ConvoyCreateTest {
         File(out, "create_7_car_proposal.png").outputStream().use { cb.compress(Bitmap.CompressFormat.PNG, 100, it) }
         val before = Convoy.destination?.name
         Convoy.accept()
-        File(out, "convoycreate.txt").writeText("proposal: before=$before after accept=${Convoy.destination?.name}\n" + "colours all different: ${colours.distinct().size == colours.size} (${colours.size})\n" +
+        val afterAccept = Convoy.destination?.name
+        // option B's None: I remove it, and what I tell the others
+        Convoy.clearDestination()
+        val hello = Convoy::class.java.getDeclaredMethod("hello", String::class.java).apply { isAccessible = true }.invoke(Convoy, "ready") as org.json.JSONObject
+        val mine = "after None: destination=${Convoy.destination?.name}, message says removed=${hello.optBoolean("dx")} dt=${hello.optLong("dt") > 0}"
+        // someone else removes it: I'm asked; OK removes it for me too
+        Convoy.setDestination(Place("Acropolis Museum", "", LatLng(37.9685, 23.7285)))
+        take.invoke(Convoy, org.json.JSONObject().put("t", "pos").put("id", nikos.id).put("n", "Nikos").put("st", "ready")
+            .put("ts", System.currentTimeMillis() + 1).put("dt", System.currentTimeMillis() + 9000).put("dx", true))
+        val asked = Convoy.proposal?.let { "asked: from ${it.from}, removal=${it.place == null}" } ?: "NOT asked"
+        car.draw(Canvas(cb), 1920, 720, android.graphics.Rect(0, 0, 1920, 720), 1.6f, true)
+        File(out, "create_8_car_removed.png").outputStream().use { cb.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        Convoy.accept()
+        File(out, "convoycreate.txt").writeText("proposal: before=$before after accept=$afterAccept\n$mine\n$asked; after OK: destination=${Convoy.destination?.name}\n" + "colours all different: ${colours.distinct().size == colours.size} (${colours.size})\n" +
             "destination: ${Convoy.destination?.name}\n")
         Convoy.leave(quiet = true)
     }

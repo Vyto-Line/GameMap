@@ -1314,14 +1314,14 @@ class MapRenderer(private val car: Boolean = false) {
         panel(c, r, d, t, outline = true)
         text.textAlign = Paint.Align.LEFT; text.typeface = Typeface.DEFAULT_BOLD
         text.textSize = 12 * d; text.color = Ui.onPanel(t, t.route, 3.0)
-        c.drawText(ellipsize(gr.gamemap.L.t("${p.from.uppercase()} CHOSE WHERE THE CONVOY GOES"), w - 170 * d), r.left + 14 * d, r.top + 22 * d, text)
+        c.drawText(ellipsize(gr.gamemap.L.t(if (p.place == null) "${p.from.uppercase()} REMOVED THE DESTINATION" else "${p.from.uppercase()} CHOSE WHERE THE CONVOY GOES"), w - 170 * d), r.left + 14 * d, r.top + 22 * d, text)
         text.textSize = 17 * d; text.color = Ui.ink(t)
-        c.drawText(ellipsize(p.place.name, w - 170 * d), r.left + 14 * d, r.top + 47 * d, text)
+        c.drawText(ellipsize(p.place?.name ?: gr.gamemap.L.t("Just share where we all are"), w - 170 * d), r.left + 14 * d, r.top + 47 * d, text)
         val go = RectF(r.right - 150 * d, r.top + 10 * d, r.right - 62 * d, r.bottom - 10 * d)
         fill.color = t.route; c.drawRoundRect(go, 12 * d, 12 * d, fill)
         text.textAlign = Paint.Align.CENTER; text.textSize = 17 * d
         text.color = if (Ui.contrast(Color.WHITE, t.route) >= 3) Color.WHITE else Color.BLACK
-        c.drawText(gr.gamemap.L.t("Go"), go.centerX(), go.centerY() + 6 * d, text)
+        c.drawText(gr.gamemap.L.t(if (p.place == null) "OK" else "Go"), go.centerX(), go.centerY() + 6 * d, text)
         val no = RectF(r.right - 54 * d, r.top + 10 * d, r.right - 10 * d, r.bottom - 10 * d)
         fill.color = withAlpha(Ui.ink(t), 40); c.drawRoundRect(no, 12 * d, 12 * d, fill)
         text.color = Ui.ink(t); c.drawText("✕", no.centerX(), no.centerY() + 6 * d, text)

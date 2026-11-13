@@ -1887,7 +1887,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         closeSearch()
         search.setText("")
         if (key == "convoy") {
+            val wasOnIt = Convoy.onConvoyRoute
             Convoy.setDestination(pl)
+            if (wasOnIt) { NavEngine.start(this, pl); MapState.recenter() }
             openSheet("convoy")
         } else if (key != null) {
             Places.save(key, pl)
@@ -2437,6 +2439,35 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var convoyKey = ""
     private var proposalAsked = 0L
 
+    /** Change ▾ on the convoy's destination: another place, or None (just share where we all are). */
+    private fun showDestinationMenu(anchor: View) {
+        val p = (14 * d).toInt()
+        lateinit var pop: android.widget.PopupWindow
+        fun item(icon: String, title: String, sub: String?, onClick: () -> Unit) = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(p, p * 3 / 4, p * 3 / 2, p * 3 / 4); minimumHeight = (52 * d).toInt(); isClickable = true
+            background = android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(dim(60)), null, null)
+            addView(label(icon, 18f).apply { setPadding(0, 0, p, 0) })
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label(title, 15f, bold = true).apply { setTextColor(ink) })
+                if (sub != null) addView(label(sub, 12.5f).apply { setTextColor(dim()) })
+            })
+            setOnClickListener { pop.dismiss(); onClick() }
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = bg(panel, accent, 1.5f, 14f); elevation = 16 * d
+            setPadding(0, p / 3, 0, p / 3)
+            addView(item("📍", "Choose another place", null) { closeSheet(); startPicking("convoy") })
+            addView(View(context).apply { setBackgroundColor(dim(50)) }, LinearLayout.LayoutParams(MATCH_PARENT, maxOf(1, d.toInt())).apply { marginStart = p; marginEnd = p })
+            addView(item("🚫", "None", "Just share where we all are") { Convoy.clearDestination(); convoyKey = ""; refreshChrome() })
+        }
+        L.translateTree(box)
+        pop = android.widget.PopupWindow(box, (280 * d).toInt(), WRAP_CONTENT, true).apply { elevation = 16 * d; isOutsideTouchable = true }
+        pop.showAsDropDown(anchor, -(200 * d).toInt(), 0, Gravity.END)
+    }
+
     /** Someone in the convoy chose a (new) destination: go there too? */
     private fun askProposal() {
         val p = Convoy.proposal ?: return
@@ -2444,9 +2475,23 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         proposalAsked = p.at
         Convoy.cancelNotification()
         val driving = NavEngine.active && !NavEngine.arrived
+        val place = p.place
+        if (place == null) {
+            // they removed the destination
+            val mine = Convoy.destination?.takeIf { Convoy.onConvoyRoute }
+            AlertDialog.Builder(this)
+                .setTitle("${p.from} removed the destination")
+                .setMessage(L.t("The convoy now just shares where everyone is.") +
+                    (if (mine != null) "\n\n" + L.t("You're driving to ${mine.name}: your route stays unless you end it.") else ""))
+                .setPositiveButton("OK, remove") { _, _ -> Convoy.accept(); refreshChrome() }
+                .setNegativeButton("Keep mine") { _, _ -> Convoy.decline() }
+                .setCancelable(false)
+                .showT()
+            return
+        }
         AlertDialog.Builder(this)
             .setTitle("${p.from} chose where the convoy goes")
-            .setMessage(p.place.name + (if (p.place.address.isNotBlank()) "\n" + p.place.address else "") +
+            .setMessage(place.name + (if (place.address.isNotBlank()) "\n" + place.address else "") +
                 (if (driving) "\n\n" + L.t("Your route will change to it.") else ""))
             .setPositiveButton(if (driving) "Go there" else "Accept") { _, _ -> Convoy.accept(); refreshChrome() }
             .setNegativeButton("Not now") { _, _ -> Convoy.decline() }
@@ -2563,10 +2608,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(label(if (dest == null) "No destination yet" else "🏁  ${dest.name}", 15f, bold = dest != null).apply {
                 setTextColor(if (dest == null) dim() else ink); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-            if (!NavEngine.active) addView(pill(if (dest == null) "📍 Choose" else "Change") { closeSheet(); startPicking("convoy") }.apply {
-                textSize = 14f
-                if (dest == null) { setTextColor(onAccent(accent)); background = bg(accent, radius = 18f) } else setTextColor(readable(accent))
+            if (dest == null) addView(pill("📍 Choose") { closeSheet(); startPicking("convoy") }.apply {
+                textSize = 14f; setTextColor(onAccent(accent)); background = bg(accent, radius = 18f)
             })
+            else addView(pill("Change ▾") { showDestinationMenu(this) }.apply { textSize = 14f; setTextColor(readable(accent)) })
         })
         // progress line + one row per person
         sheetHost.addView(object : View(this) {
