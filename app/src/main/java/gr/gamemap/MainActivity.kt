@@ -574,6 +574,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
         chip("⛽ Fuel") { showFuel() }
         chip("🍽 Food") { showNearby("FOOD NEARBY", listOf("restaurant", "fast_food", "cafe")) }
+        chip("👥 Convoy") { openSheet("convoy") }
         chip("🅿 Parking") { showNearby("PARKING NEARBY", listOf("parking")) }
     }
 
@@ -1585,7 +1586,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         homeSheet.visibility = if (nav || planning || searching || placeShown != null || (Places.recents().isEmpty() && Places.savedPlaces().isEmpty() && Parked.get() == null && t != Theme.TRAILBLAZER)) View.GONE else View.VISIBLE
         if (chipsWas != chipsScroll.visibility || homeWas != homeSheet.visibility) lastHomeKey = ""
         if ((nav || planning) && suggestScroll.visibility == View.VISIBLE) closeSearch()
-        recenterBtn.visibility = if (MapState.following && MapState.userBearing == null || planning) View.GONE else View.VISIBLE
+        val v = MapState.phone
+        recenterBtn.visibility = if ((v.following && v.userBearing == null && !v.overview) || planning) View.GONE else View.VISIBLE
         muteBtn.visibility = if (nav) View.VISIBLE else View.GONE
         muteBtn.text = if (Voice.muted) "🔇" else "🔊"
         // while driving only three: sound, report, ☰ (style, traffic and overview live in ☰)
@@ -2415,16 +2417,46 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 addView(pill("Edit") { editConvoyName() }.apply { textSize = 14f; setTextColor(readable(accent)) })
             }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p / 2 })
             sheetHost.addView(label("Drive somewhere together: everyone sees the others on the map with their speed and arrival time. " +
-                "Start one from a place or a route, or join with a code.", 14f).apply { setTextColor(dim()); setPadding(0, p, 0, p) })
+                "To start one, open a place or a route and tap Convoy.", 14f).apply { setTextColor(dim()); setPadding(0, p, 0, p) })
+            sheetHost.addView(label("JOIN WITH A CODE", 12f, bold = true).apply { setTextColor(dim()); letterSpacing = 0.08f; setPadding(p / 3, 0, 0, p / 2) })
+            lateinit var joinBtn: TextView
             val input = EditText(this).apply {
-                hint = "Code or invite link"; setSingleLine(); setTextColor(ink); setHintTextColor(dim(140))
-                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-                textSize = 20f; letterSpacing = 0.1f
+                hint = "K7P 2QX"; setSingleLine(); setTextColor(ink); setHintTextColor(dim(110))
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
+                    android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                textSize = 30f; letterSpacing = 0.18f; typeface = Typeface.MONOSPACE; gravity = Gravity.CENTER
+                background = bg(dim(22), dim(90), 1.5f, 14f)
+                val q = (12 * d).toInt(); setPadding(q, q, q, q)
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_GO
+                setOnEditorActionListener { v, _, _ -> joinConvoy(v.text.toString()); true }
+                addTextChangedListener(object : android.text.TextWatcher {
+                    private var busy = false
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                    override fun afterTextChanged(e: android.text.Editable) {
+                        if (busy) return
+                        val raw = e.toString()
+                        // a pasted link stays as it is; a typed code is shown as "K7P 2QX"
+                        if (!raw.contains("/") && !raw.contains(".")) {
+                            val code = raw.uppercase().filter { it.isLetterOrDigit() }.take(6)
+                            val pretty = if (code.length > 3) code.take(3) + " " + code.drop(3) else code
+                            if (pretty != raw) { busy = true; e.replace(0, e.length, pretty); busy = false }
+                        }
+                        val ready = raw.contains("/") || raw.filter { it.isLetterOrDigit() }.length >= 6
+                        joinBtn.alpha = if (ready) 1f else 0.45f; joinBtn.isEnabled = ready
+                    }
+                })
             }
-            sheetHost.addView(input)
-            sheetHost.addView(pill("Join") { joinConvoy(input.text.toString()) }.apply {
-                setTextColor(onAccent(accent)); background = bg(accent, radius = 14f)
-            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p })
+            sheetHost.addView(input, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            joinBtn = pill("Join") { joinConvoy(input.text.toString()) }.apply {
+                setTextColor(onAccent(accent)); background = bg(accent, radius = 14f); alpha = 0.45f; isEnabled = false
+            }
+            sheetHost.addView(joinBtn, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p })
+            sheetHost.addView(pill("Paste an invite link") {
+                val clip = getSystemService(android.content.ClipboardManager::class.java)?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()
+                if (clip.isNullOrBlank()) Toast.makeText(this, L.t("Nothing to paste"), Toast.LENGTH_SHORT).show() else joinConvoy(clip)
+            }.apply { textSize = 14f; setTextColor(readable(accent)) }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            input.requestFocus()
             return
         }
         val dest = Convoy.destination
@@ -2479,7 +2511,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 .setPositiveButton("Leave") { _, _ -> Convoy.leave(); closeSheet() }.setNegativeButton("Stay", null).showT()
         }.apply { setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 22f) },
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
-        if (!NavEngine.active && dest != null) buttons.addView(pill("Start") { closeSheet(); NavEngine.start(this, dest) }.apply {
+        if (!NavEngine.active && dest != null) buttons.addView(pill("Start") { closeSheet(); NavEngine.start(this, dest); MapState.recenter() }.apply {
             setTextColor(onAccent(accent)); background = bg(accent, radius = 22f)
         }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.3f))
         sheetHost.addView(buttons)
