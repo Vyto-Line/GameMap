@@ -61,13 +61,15 @@ object LocationTracker : LocationListener {
      * left open in the background doesn't keep the GPS, network and voice busy.
      */
     fun start(ctx: Context, who: String = "phone") {
+        appCtx = ctx.applicationContext
         users += who
-        startUpdates(ctx)
+        if (started) updateMode() else startUpdates(ctx)
     }
 
     fun release(ctx: Context, who: String) {
         users -= who
-        if (users.isNotEmpty() || !started) return
+        if (users.isNotEmpty()) { updateMode(); return }
+        if (!started) return
         val lm = ctx.applicationContext.getSystemService(LocationManager::class.java) ?: return
         try { lm.removeUpdates(this) } catch (_: Exception) {}
         started = false
@@ -75,18 +77,46 @@ object LocationTracker : LocationListener {
 
     val inUse: Boolean get() = users.isNotEmpty()
 
+    /**
+     * Precise = GPS every second (navigating, or on the car screen). Otherwise the phone's
+     * battery-friendly fused location every 3 s / 5 m: plenty for a map you're looking at.
+     */
+    @Volatile var precise = false
+        private set
+    private var appCtx: Context? = null
+
+    /** Called when navigation starts/stops or the car connects/disconnects. */
+    fun updateMode() {
+        val want = NavEngine.active || NavEngine.planning || "car" in users || "nav" in users
+        if (want == precise && started) return
+        val ctx = appCtx ?: return
+        if (started) {
+            val lm = ctx.getSystemService(LocationManager::class.java)
+            try { lm?.removeUpdates(this) } catch (_: Exception) {}
+            started = false
+        }
+        if (users.isNotEmpty()) startUpdates(ctx)
+    }
+
     @SuppressLint("MissingPermission")
     private fun startUpdates(ctx: Context) {
         if (started || !hasPermission(ctx)) return
+        appCtx = ctx.applicationContext
         val lm = ctx.applicationContext.getSystemService(LocationManager::class.java) ?: return
         val looper = Looper.getMainLooper()
-        val providers = mutableListOf(LocationManager.GPS_PROVIDER)
-        providers += if (Build.VERSION.SDK_INT >= 31 && lm.allProviders.contains(LocationManager.FUSED_PROVIDER))
-            LocationManager.FUSED_PROVIDER else LocationManager.NETWORK_PROVIDER
-        for (p in providers) {
+        precise = NavEngine.active || NavEngine.planning || "car" in users || "nav" in users
+        val fused = if (Build.VERSION.SDK_INT >= 31 && lm.allProviders.contains(LocationManager.FUSED_PROVIDER))
+            LocationManager.FUSED_PROVIDER else null
+        val plan: List<Triple<String, Long, Float>> = when {
+            precise -> listOfNotNull(Triple(LocationManager.GPS_PROVIDER, 1000L, 0f),
+                (fused ?: LocationManager.NETWORK_PROVIDER).let { Triple(it, 1000L, 0f) })
+            fused != null -> listOf(Triple(fused, 3000L, 5f))
+            else -> listOf(Triple(LocationManager.GPS_PROVIDER, 3000L, 5f), Triple(LocationManager.NETWORK_PROVIDER, 5000L, 10f))
+        }
+        for ((p, ms, m) in plan) {
             try {
                 if (lm.allProviders.contains(p)) {
-                    lm.requestLocationUpdates(p, 1000L, 0f, this, looper)
+                    lm.requestLocationUpdates(p, ms, m, this, looper)
                     if (last == null) lm.getLastKnownLocation(p)?.let { onLocationChanged(it) }
                 }
             } catch (_: Exception) {

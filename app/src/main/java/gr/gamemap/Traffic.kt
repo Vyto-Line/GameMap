@@ -86,7 +86,8 @@ object Traffic {
         val k = "$z/$x/$y"
         val t = tiles.get(k)
         val now = System.currentTimeMillis()
-        val stale = t == null || now - t.fetchedAt > REFRESH_MS
+        // fresher while navigating; just browsing the map, every 5 minutes is plenty
+        val stale = t == null || now - t.fetchedAt > (if (NavEngine.active) REFRESH_MS else 300_000L)
         val backoff = (failedAt[k] ?: 0) > now - 30_000
         if (stale && !backoff && inFlight.add(k)) {
             net.execute {

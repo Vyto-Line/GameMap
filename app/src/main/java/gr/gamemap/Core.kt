@@ -27,6 +27,8 @@ class GameMapApp : Application() {
         Fuel.init(this)
         Reviews.init(this)
         NavEngine.init(this)
+        // GPS precision follows navigation (precise while navigating, battery-friendly otherwise)
+        NavEngine.changed += { LocationTracker.updateMode() }
         Voice.init(this)
         Explorer.init(this)
         Alerts.init(this)

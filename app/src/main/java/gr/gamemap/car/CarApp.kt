@@ -202,7 +202,7 @@ class CarMapSurface(private val ctx: CarContext) : SurfaceCallback {
         // Keep animating (gliding arrow, smooth zoom) at ~30 fps while something moves.
         if (renderer.animating) {
             rh.removeCallbacks(draw)
-            rh.postDelayed(draw, 33)
+            rh.postDelayed(draw, if (LocationTracker.speedMps > 8f) 33L else 50L) // 30 fps moving, 20 slow
         }
     }
 }

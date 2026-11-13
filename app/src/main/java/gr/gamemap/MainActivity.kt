@@ -134,7 +134,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         d = resources.displayMetrics.density
@@ -1022,7 +1021,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var lastLookKey = ""
     private var tripLook = ""
 
+    private var screenKept = false
+
     private fun refreshChrome() {
+        // the screen stays on only while a route is being followed or chosen; otherwise the
+        // phone dims and locks as usual (the biggest battery saver of all)
+        val keep = NavEngine.active || NavEngine.planning
+        if (keep != screenKept) {
+            screenKept = keep
+            if (keep) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
         val t = theme
         val lookKey = "${t.name}|${MapState.dark}"
         if (lookKey != lastLookKey) {
@@ -1749,7 +1758,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     override fun onResume() {
         super.onResume()
         val sm = getSystemService(SensorManager::class.java)
-        sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+        sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL, 200_000) }
     }
 
     override fun onPause() {
@@ -1911,7 +1920,9 @@ class GameMapView(ctx: Context) : View(ctx) {
         // full frame rate under the fingers; 30 fps is plenty for the gliding arrow and zooms
         // (a 120 Hz phone would otherwise draw the whole map 120 times a second while driving)
         if (renderer.animating) {
-            if (MapState.gesture) postInvalidateOnAnimation() else postInvalidateDelayed(33)
+            // slow or standing: 20 fps is enough and saves battery; 30 fps when really moving
+            if (MapState.gesture) postInvalidateOnAnimation()
+            else postInvalidateDelayed(if (LocationTracker.speedMps > 8f) 33 else 50)
         }
     }
 }

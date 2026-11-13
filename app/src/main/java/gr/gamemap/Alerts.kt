@@ -197,7 +197,7 @@ object Alerts {
     fun incidentsNear(p: LatLng): List<Incident> {
         if (!incidentsOn || !Traffic.active) return emptyList()
         val c = incCenter
-        val stale = System.currentTimeMillis() - incAt > 120_000
+        val stale = System.currentTimeMillis() - incAt > (if (NavEngine.active) 120_000 else 300_000)
         if (!incBusy && (c == null || Geo.distance(c, p) > 4000 || stale)) {
             incBusy = true
             net.execute {
