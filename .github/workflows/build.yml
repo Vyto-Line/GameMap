@@ -49,13 +49,16 @@ jobs:
           PLAY_KEYSTORE: ${{ secrets.PLAY_KEYSTORE }}
           PLAY_KEYSTORE_PASSWORD: ${{ secrets.PLAY_KEYSTORE_PASSWORD }}
         run: |
-          if [ -z "$PLAY_KEYSTORE" ]; then echo "No PLAY_KEYSTORE secret: skipping the Play bundle"; exit 0; fi
           export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          echo "$PLAY_KEYSTORE" | base64 -d > "$RUNNER_TEMP/upload.jks"
-          export PLAY_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          if [ -n "$PLAY_KEYSTORE" ]; then
+            echo "$PLAY_KEYSTORE" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            export PLAY_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          fi
           gradle bundlePlayRelease --no-daemon -PbuildNumber=${{ github.run_number }}
-          cp app/build/outputs/bundle/playRelease/*.aab ../out/GameRoute-play.aab
           rm -f "$RUNNER_TEMP/upload.jks"
+          # only a signed bundle can go to Play; without the key this step just checks the Play version builds
+          if [ -n "$PLAY_KEYSTORE" ]; then cp app/build/outputs/bundle/playRelease/*.aab ../out/GameRoute-play.aab
+          else echo "No PLAY_KEYSTORE secret: the Play bundle was built but not signed, so it isn't attached"; fi
       - name: Publish release
         if: github.event_name == 'push' || inputs.publish
         env:
