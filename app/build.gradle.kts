@@ -76,6 +76,8 @@ dependencies {
     implementation("androidx.car.app:app:1.4.0")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.1")
+    // MQTT: real-time convoy positions through a public broker
+    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
 }
