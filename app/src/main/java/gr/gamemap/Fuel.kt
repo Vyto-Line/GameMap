@@ -143,7 +143,7 @@ object Fuel {
         Triple("cng", "CNG", listOf("cng", "gnv")),
     )
     val plugKinds = listOf("type2" to "Type 2", "ccs" to "CCS", "chademo" to "CHAdeMO", "tesla" to "Tesla")
-    val brandList = listOf("EKO", "Shell", "BP", "Avin", "Aegean", "Revoil", "Elin", "Cyclon", "Jet Oil")
+    val brandList = listOf("EKO", "Shell", "BP", "Avin", "Aegean", "Revoil", "Elin", "Cyclon", "Jet Oil", "Silkoil", "AP")
 
     fun plugKind(t: String): String? = when {
         t.contains("CCS", true) || t.contains("Combo", true) -> "ccs"
