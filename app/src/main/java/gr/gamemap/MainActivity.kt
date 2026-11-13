@@ -572,9 +572,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 if (p == null) startPicking(k) else NavEngine.plan(this, p)
             }
         }
+        chip("👥 Convoy") { openSheet("convoy") }
         chip("⛽ Fuel") { showFuel() }
         chip("🍽 Food") { showNearby("FOOD NEARBY", listOf("restaurant", "fast_food", "cafe")) }
-        chip("👥 Convoy") { openSheet("convoy") }
         chip("🅿 Parking") { showNearby("PARKING NEARBY", listOf("parking")) }
     }
 
