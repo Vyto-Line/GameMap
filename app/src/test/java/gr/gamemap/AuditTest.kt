@@ -100,7 +100,13 @@ class AuditTest {
             looper.idle()
         }
 
-        // car: idle, driving, place card, convoy; light and dark
+        // the first-launch screens
+        MapState.setTheme(Theme.OPEN_WORLD); MapState.setLightMode(MapState.LightMode.LIGHT)
+        for (k in 0..2) { activity.showWelcome(k); shot("a_welcome_$k") }
+        back(); back(); activity.showWelcome(2)
+        // settings pages
+        activity.openSheetForTest("settings"); shot("a_settings_groups")
+                // car: idle, driving, place card, convoy; light and dark
         val w = 1920; val h = 720
         for ((mode, th) in listOf("light" to Theme.TRAILBLAZER, "dark" to Theme.NEON_NOIR)) {
             MapState.setTheme(th)

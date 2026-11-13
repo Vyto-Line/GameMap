@@ -233,9 +233,12 @@ class MapRenderer(private val car: Boolean = false) {
         drawSpeed(c, area, d, theme)
         if (car && hud) drawCarEta(c, area, d, theme)
         carHits.clear()
-        if (car && hud && carButtons && !NavEngine.planning && NavEngine.lastTrip == null) drawCarButtons(c, area, d, theme)
+        // the car's trip card steps aside after 30 s, or as soon as a place is tapped
+        val trip = NavEngine.lastTrip
+        if (trip !== tripSeen) { tripSeen = trip; tripSeenAt = System.currentTimeMillis() }
+        val carTrip = car && carButtons && trip != null && selectedPlace == null && System.currentTimeMillis() - tripSeenAt < 30_000
+        if (car && hud && carButtons && !NavEngine.planning && !carTrip) drawCarButtons(c, area, d, theme)
         bannerBottom = area.top.toFloat()
-        val carTrip = car && carButtons && NavEngine.lastTrip != null
         if (hud && !NavEngine.planning && NavEngine.offer == null && !carTrip) {
             // in the car: smaller, in the very top-left corner
             if (car) drawBanner(c, Rect(area.left, 0, area.right, area.bottom), d * 0.8f, theme, pad = 8 * d)
@@ -936,8 +939,10 @@ class MapRenderer(private val car: Boolean = false) {
 
     // ------------------------------------------------------------ car buttons drawn on the map
 
-    /** Draw GameMap's own see-through buttons on the car screen (hosts that report taps). */
+    /** Draw GameRoute's own buttons on the car screen (hosts that report taps). */
     var carButtons = false
+    private var tripSeen: Any? = null
+    private var tripSeenAt = 0L
     /** Where each car button is on screen, for the car's tap callback. */
     private val carHits = ArrayList<Pair<RectF, String>>()
     /** The buttons of the last finished frame (taps are read on another thread than drawing). */
@@ -968,7 +973,8 @@ class MapRenderer(private val car: Boolean = false) {
     private fun glassButton(c: Canvas, r: RectF, d: Float, t: Theme, fillCol: Int? = null) {
         // light styles: a more solid pane and dark icons, or white icons vanish on a bright map
         val light = glassLight(t)
-        val base = fillCol ?: Ui.panel(t).let { Color.argb(if (light) 215 else 140, Color.red(it), Color.green(it), Color.blue(it)) }
+        // solid: map icons must not show through the buttons
+        val base = fillCol ?: Ui.panel(t).let { Color.argb(248, Color.red(it), Color.green(it), Color.blue(it)) }
         fill.color = base
         stroke.color = if (light) Ui.onPanel(t, t.route, 3.0) else withAlpha(t.route, 230)
         stroke.strokeWidth = (if (light) 2.2f else 1.8f) * d
@@ -1010,8 +1016,14 @@ class MapRenderer(private val car: Boolean = false) {
                 p.lineTo(cx + h * 0.1f, cy + h * 0.85f); p.lineTo(cx - h * 0.45f, cy + h * 0.35f); p.lineTo(cx - h, cy + h * 0.35f); p.close()
                 if (id == "mute") { p.moveTo(cx + h * 0.45f, cy - h * 0.4f); p.quadTo(cx + h * 0.8f, cy, cx + h * 0.45f, cy + h * 0.4f) }
                 else { p.moveTo(cx + h * 0.4f, cy - h * 0.35f); p.lineTo(cx + h, cy + h * 0.35f); p.moveTo(cx + h, cy - h * 0.35f); p.lineTo(cx + h * 0.4f, cy + h * 0.35f) } }
-            "traffic" -> { val r = RectF(cx - h * 0.45f, cy - h, cx + h * 0.45f, cy + h); p.addRoundRect(r, h * 0.3f, h * 0.3f, Path.Direction.CW)
-                for (k in -1..1) p.addCircle(cx, cy + k * h * 0.58f, h * 0.15f, Path.Direction.CW) }
+            "traffic" -> { val r = RectF(cx - h * 0.5f, cy - h, cx + h * 0.5f, cy + h); p.addRoundRect(r, h * 0.35f, h * 0.35f, Path.Direction.CW)
+                // the three lights, filled in their own colours
+                val keep = iconPaint.color
+                iconPaint.style = Paint.Style.FILL
+                for ((k, col) in listOf(-1 to Color.rgb(240, 62, 62), 0 to Color.rgb(250, 176, 5), 1 to Color.rgb(47, 180, 90))) {
+                    iconPaint.color = col; c.drawCircle(cx, cy + k * h * 0.6f, h * 0.22f, iconPaint)
+                }
+                iconPaint.style = Paint.Style.STROKE; iconPaint.color = keep }
             "zoomin" -> { p.moveTo(cx - h * 0.8f, cy); p.lineTo(cx + h * 0.8f, cy); p.moveTo(cx, cy - h * 0.8f); p.lineTo(cx, cy + h * 0.8f) }
             "zoomout" -> { p.moveTo(cx - h * 0.8f, cy); p.lineTo(cx + h * 0.8f, cy) }
             "menu" -> { for (k in -1..1) { p.moveTo(cx - h * 0.8f, cy + k * h * 0.55f); p.lineTo(cx + h * 0.8f, cy + k * h * 0.55f) } }
@@ -1051,9 +1063,8 @@ class MapRenderer(private val car: Boolean = false) {
             val ms = minOf(56 * d, stripBottom - 8 * d).coerceAtLeast(40 * d)
             val cy = stripBottom / 2
             val r = RectF(x + size / 2 - ms / 2, cy - ms / 2, x + size / 2 + ms / 2, cy + ms / 2)
-            fill.color = Color.argb(235, 46, 46, 50)
-            c.drawOval(r, fill)
-            icon(c, "menu", r.centerX(), r.centerY(), ms * 0.42f, white)
+            glassButton(c, r, d, t)
+            icon(c, "menu", r.centerX(), r.centerY(), ms * 0.42f, ink)
             carHits += r to "menu"
         }
         // right: style, traffic / voice, report (below the ☰, whichever one is showing)
@@ -1083,7 +1094,7 @@ class MapRenderer(private val car: Boolean = false) {
             text.color = white
             c.drawText("End", r.left + 22 * d, r.centerY() + 6.5f * d, text)
             carHits += r to "end"
-        } else if (!NavEngine.active && NavEngine.lastTrip == null && selectedPlace == null) {
+        } else if (!NavEngine.active && selectedPlace == null) {
             // "Where to?" and saved places, top left (a place's card takes the corner when open)
             val r = RectF(a.left + 14 * d, 12 * d, a.left + 14 * d + 300 * d, 12 * d + 50 * d)
             glassButton(c, r, d, t)
@@ -1221,6 +1232,10 @@ class MapRenderer(private val car: Boolean = false) {
             text.textAlign = Paint.Align.LEFT; text.typeface = Typeface.DEFAULT_BOLD; text.textSize = 12.5f * d
             val w = text.measureText(label) + 14 * d
             val r = RectF(x + 12 * d, y - 26 * d, x + 12 * d + w, y - 6 * d)
+            // keep the tag on screen: flip to the left side near the right edge, below near the top
+            if (r.right > a.right - 6 * d) r.offset(-(w + 24 * d), 0f)
+            if (r.left < a.left + 6 * d) r.offset(a.left + 6 * d - r.left, 0f)
+            if (r.top < a.top + 6 * d) r.offset(0f, 32 * d)
             fill.color = if (m.stale) Color.GRAY else m.color; c.drawRoundRect(r, 10 * d, 10 * d, fill)
             text.color = Color.rgb(17, 20, 24)
             c.drawText(label, r.left + 7 * d, r.centerY() + 4.5f * d, text)
@@ -1387,7 +1402,10 @@ class MapRenderer(private val car: Boolean = false) {
                     (if (st.road.isNotBlank() && st.type != "arrive") st.road else st.text)
             }
         }
-        val detail = if (!NavEngine.arrived && !NavEngine.loading && NavEngine.error == null && step != null &&
+        // the small line ("Turn left", "Keep right") only when it adds something: never a bare
+        // "Continue" under a straight arrow
+        val plain = step != null && (step.type in setOf("continue", "new name", "depart") || step.direction == "straight")
+        val detail = if (!NavEngine.arrived && !NavEngine.loading && NavEngine.error == null && step != null && !plain &&
             step.road.isNotBlank() && step.type != "arrive") step.text.substringBefore(" onto ") else null
         val lanes = step?.lanes?.takeIf { NavEngine.distanceToNext < 900 && !NavEngine.loading }
         val mainH = if (detail != null) 96 * d else 80 * d
@@ -1527,7 +1545,7 @@ class MapRenderer(private val car: Boolean = false) {
         val mpp = Geo.metersPerPixel(center.lat, cam.world) / cam.scale
         val radius = kotlin.math.hypot(a.width().toDouble(), a.height().toDouble()) * mpp
         // the nearest few, so a busy city centre doesn't turn into a sea of markers
-        val list = Explorer.near(center, radius).sortedBy { Geo.distance(center, it.pos) }.take(30)
+        val list = Explorer.near(center, radius).sortedBy { Geo.distance(center, it.pos) }.take(10)
         if (list.isEmpty()) return
         val pulse = 0.35f
         text.textAlign = Paint.Align.CENTER

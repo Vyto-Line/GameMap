@@ -299,7 +299,9 @@ object Alerts {
     /** The reports database (Firebase Realtime Database URL), from Settings or built in. */
     val dbUrl: String
         get() = (if (ready) prefs().getString("reportsUrl", "") else "").orEmpty().ifBlank { BuildConfig.REPORTS_URL }.trimEnd('/')
-    val reportsReady get() = dbUrl.startsWith("https://")
+    /** Shared road reports are switched off until GameRoute runs its own server. */
+    const val REPORTS_ENABLED = false
+    val reportsReady get() = REPORTS_ENABLED && dbUrl.startsWith("https://")
 
     fun setDbUrl(u: String) {
         prefs().edit().putString("reportsUrl", u.trim()).apply()

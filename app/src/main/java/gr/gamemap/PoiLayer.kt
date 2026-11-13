@@ -179,7 +179,8 @@ class PoiLayer {
                 if (out.n >= MAX) break
                 if (only != null && poi.kind !in only) continue
                 // food, cafés and shops only close in: the busy centre stays readable
-                if (zoom < 17.0 && (poi.kind == Kind.FOOD || poi.kind == Kind.CAFE || poi.kind == Kind.SHOP)) continue
+                // busy kinds only up close (a city centre has a pharmacy on every corner)
+                if (zoom < 17.0 && (poi.kind == Kind.FOOD || poi.kind == Kind.CAFE || poi.kind == Kind.SHOP || poi.kind == Kind.PHARMACY)) continue
                 val wx = (Geo.x(poi.pos.lon, cam.world) - cam.px) * cam.scale
                 val wy = (Geo.y(poi.pos.lat, cam.world) - cam.py) * cam.scale
                 val sx = (cam.cx + wx * ca - wy * sa).toFloat()

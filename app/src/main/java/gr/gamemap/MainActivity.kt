@@ -129,6 +129,112 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    private lateinit var welcome: FrameLayout
+    private var welcomePage = 0
+    private var wantedPermissions = arrayOf<String>()
+
+    /** The three first-launch screens: what GameRoute is, why location, pick a look. */
+    internal fun showWelcome(page: Int = 0) {
+        welcomePage = page
+        welcome.removeAllViews()
+        welcome.visibility = View.VISIBLE
+        val light = !MapState.dark
+        val bgCol = if (light) Color.rgb(247, 250, 249) else Color.rgb(18, 22, 26)
+        val inkCol = if (light) Color.rgb(23, 50, 45) else Color.rgb(236, 240, 239)
+        val dimCol = if (light) Color.rgb(63, 95, 88) else Color.rgb(170, 184, 180)
+        val acc = Color.rgb(84, 104, 245)
+        welcome.setBackgroundColor(bgCol)
+        val sysTop = (ViewCompat.getRootWindowInsets(welcome)?.getInsets(WindowInsetsCompat.Type.systemBars())?.top ?: (24 * d).toInt())
+        val sysBottom = (ViewCompat.getRootWindowInsets(welcome)?.getInsets(WindowInsetsCompat.Type.systemBars())?.bottom ?: 0)
+        fun thumb(th: Theme) = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            val id = resources.getIdentifier("thumb_${th.name.lowercase()}_${if (light) "l" else "d"}", "drawable", packageName)
+            if (id != 0) setImageResource(id) else setBackgroundColor(th.lookFor(!light).style.land)
+            clipToOutline = true; outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            background = bg(Color.WHITE, radius = 12f)
+        }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val top = FrameLayout(this)
+        val pad = (26 * d).toInt()
+        when (page) {
+            0 -> top.addView(LinearLayout(this).apply {
+                // a tilted wall of map styles
+                orientation = LinearLayout.VERTICAL; rotation = -6f; scaleX = 1.15f; scaleY = 1.15f
+                val ths = Theme.entries.toList()
+                for (r in 0 until 3) addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    for (k in 0 until 3) addView(thumb(ths[(r * 3 + k) % ths.size]), LinearLayout.LayoutParams(0, (96 * d).toInt(), 1f).apply {
+                        val m = (4 * d).toInt(); setMargins(m, m, m, m)
+                    })
+                }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            }, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.CENTER))
+            1 -> {
+                top.addView(thumb(MapState.theme).apply { alpha = 0.9f; background = null; clipToOutline = false }, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+                top.addView(View(this).apply { background = bg(Color.argb(50, 84, 104, 245), radius = 60f, pill = true) },
+                    FrameLayout.LayoutParams((96 * d).toInt(), (96 * d).toInt(), Gravity.CENTER))
+                top.addView(View(this).apply { background = bg(acc, Color.WHITE, 4f, 20f, pill = true) },
+                    FrameLayout.LayoutParams((34 * d).toInt(), (34 * d).toInt(), Gravity.CENTER))
+            }
+            else -> top.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(pad - (4 * d).toInt(), 0, pad - (4 * d).toInt(), 0)
+                addView(label("PICK YOUR LOOK", 13f, bold = true).apply { setTextColor(acc); letterSpacing = 0.08f; setPadding((4 * d).toInt(), 0, 0, (8 * d).toInt()) })
+                val ths = Theme.entries.toList().take(6)
+                for (r in 0 until 2) addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    for (k in 0 until 3) {
+                        val th = ths[r * 3 + k]; val sel = th == MapState.theme
+                        addView(LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            background = bg(if (light) Color.WHITE else Color.rgb(30, 36, 42), if (sel) acc else Color.argb(60, 128, 128, 128), if (sel) 3f else 1f, 14f)
+                            val q = (3 * d).toInt(); setPadding(q, q, q, q)
+                            addView(thumb(th), LinearLayout.LayoutParams(MATCH_PARENT, (78 * d).toInt()))
+                            addView(label(th.title, 12f, bold = true).apply { setTextColor(inkCol); maxLines = 2; setPadding((4 * d).toInt(), (5 * d).toInt(), (2 * d).toInt(), (5 * d).toInt()) })
+                            setOnClickListener { MapState.setTheme(th); showWelcome(2) }
+                        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { val m = (4 * d).toInt(); setMargins(m, m, m, m) })
+                    }
+                }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+                addView(label("${Theme.entries.size - 6} more in Map style. Light or dark follows the sun.", 13f).apply {
+                    setTextColor(dimCol); gravity = Gravity.CENTER; setPadding(0, (10 * d).toInt(), 0, 0)
+                }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            }, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.CENTER))
+        }
+        top.clipChildren = true
+        col.addView(top, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+        val (title, body) = when (page) {
+            0 -> "Navigation that looks like your favourite games" to
+                "Turn-by-turn directions, live traffic and camera alerts, on a map styled like an open-world game. On your phone and in Android Auto."
+            1 -> "GameRoute needs your location" to
+                "To guide you turn by turn and warn you about cameras, even with the screen off or in Android Auto. Your location stays on your phone; only routes and searches go to the map services."
+            else -> "Pick your look" to "You can change it any time from the map, and give Android Auto a different one."
+        }
+        col.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(pad, (22 * d).toInt(), pad, 0)
+            addView(label(title, 27f, bold = true).apply { setTextColor(inkCol); typeface = MapState.theme.typeface })
+            addView(label(body, 16f).apply { setTextColor(dimCol); setPadding(0, (10 * d).toInt(), 0, 0); setLineSpacing(0f, 1.15f) })
+        })
+        val main = pill(when (page) { 0 -> "Next"; 1 -> "Allow location"; else -> "Start exploring" }) {
+            when (page) {
+                0 -> showWelcome(1)
+                1 -> { if (wantedPermissions.isNotEmpty()) permissions.launch(wantedPermissions); showWelcome(2) }
+                else -> {
+                    getSharedPreferences("gamemap", MODE_PRIVATE).edit().putBoolean("welcomeDone", true).apply()
+                    welcome.visibility = View.GONE; welcome.removeAllViews(); refreshChrome()
+                }
+            }
+        }.apply { setTextColor(Color.WHITE); textSize = 17f; background = bg(acc, radius = 27f, pill = true) }
+        col.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(pad, (20 * d).toInt(), pad, (18 * d).toInt() + sysBottom)
+            addView(main, LinearLayout.LayoutParams(MATCH_PARENT, (54 * d).toInt()))
+            if (page == 1) addView(pill("Not now") { showWelcome(2) }.apply { setTextColor(acc); textSize = 15f })
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, (14 * d).toInt(), 0, 0)
+                for (k in 0 until 3) addView(View(context).apply { background = bg(if (k == page) acc else Color.argb(90, 128, 128, 128), radius = 4f, pill = true) },
+                    LinearLayout.LayoutParams(((if (k == page) 22 else 8) * d).toInt(), (8 * d).toInt()).apply { marginStart = (3 * d).toInt(); marginEnd = (3 * d).toInt() })
+            })
+        })
+        welcome.addView(col, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { topMargin = sysTop })
+    }
+
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         LocationTracker.start(this)
     }
@@ -190,6 +296,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             addView(placeCard, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
             addView(sheetOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
             addView(tripOverlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            welcome = FrameLayout(context).apply { visibility = View.GONE; elevation = 40 * d; isClickable = true }
+            addView(welcome, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
         // keep the search box from grabbing focus (and opening suggestions) at launch
         root.isFocusableInTouchMode = true
@@ -224,9 +332,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    welcome.visibility == View.VISIBLE -> if (welcomePage > 0) showWelcome(welcomePage - 1)
                     tripOverlay.visibility == View.VISIBLE -> NavEngine.dismissTrip()
                     placeShown != null -> closePlace()
                     askCard.visibility == View.VISIBLE -> Alerts.clearAsk()
+                    sheetOverlay.visibility == View.VISIBLE && sheetKind == "settings" && settingsPage != null -> { settingsPage = null; refreshChrome() }
                     sheetOverlay.visibility == View.VISIBLE -> closeSheet()
                     suggestScroll.visibility == View.VISIBLE || pickFor != null -> closeSearch()
                     NavEngine.planning -> NavEngine.cancelPlan()
@@ -243,7 +353,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val wanted = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= 33) wanted += Manifest.permission.POST_NOTIFICATIONS
         if (LocationTracker.hasPermission(this)) LocationTracker.start(this)
-        permissions.launch(wanted.toTypedArray())
+        wantedPermissions = wanted.toTypedArray()
+        // first launch: the welcome screens explain things and ask for location on their second page
+        val underTest = Build.FINGERPRINT == "robolectric" // previews render the welcome screens on purpose
+        if (!underTest && !getSharedPreferences("gamemap", MODE_PRIVATE).getBoolean("welcomeDone", false)) showWelcome()
+        else permissions.launch(wantedPermissions)
 
         if (Updater.dueForCheck(this)) checkForUpdates(manual = false)
         CrashLog.note("phone app opened")
@@ -564,7 +678,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val r = NavEngine.route
             if (r.size > 1) MapState.phone.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last())
         }
-        navMenuBtn = fab("☰", "Settings") { showSettings() }
+        navMenuBtn = fab("☰", "More") { openSheet("quick") }
         reportBtn = fab("⚠", "Report") { openSheet("report") }
         trafficBtn = fab("🚦", "Traffic on the map") {
             Traffic.showLayer = !Traffic.showLayer
@@ -599,20 +713,22 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     /** "Via EKO ✕" under the arrival time while there are stops on the way. */
     private fun renderStops() {
-        val key = NavEngine.stops.joinToString { it.name } + theme.name
+        val key = NavEngine.stops.joinToString { it.name } + theme.name + MapState.dark
         if (key == stopsKey) return
         stopsKey = key
         stopsRow.removeAllViews()
         stopsRow.visibility = if (NavEngine.stops.isEmpty()) View.GONE else View.VISIBLE
         for (st in NavEngine.stops) stopsRow.addView(TextView(this).apply {
-            text = "↳ via ${st.name}  ✕"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(readable(accent)); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
-            setPadding(0, (4 * d).toInt(), 0, (2 * d).toInt())
+            text = "Stop: ${st.name}   ✕"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(ink); maxLines = 1; ellipsize = TextUtils.TruncateAt.MIDDLE
+            val q = (12 * d).toInt(); setPadding(q, (7 * d).toInt(), q, (7 * d).toInt())
+            background = bg(Color.argb(60, 255, 196, 0), radius = 18f)
+            contentDescription = "Stop at ${st.name}. Tap to remove"
             setOnClickListener {
                 AlertDialog.Builder(this@MainActivity).setMessage("Remove the stop at ${st.name}?")
                     .setPositiveButton("Remove") { _, _ -> NavEngine.removeStop(st) }.setNegativeButton("Keep", null).show()
             }
-        })
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = (6 * d).toInt() })
     }
 
     private fun buildNavCard() {
@@ -747,7 +863,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val stars = Reviews.stars(info?.rating ?: place.rating, info?.count ?: place.ratings)
         val fuel = infoFuel
         val reviewable = place.icon != "🛣" && place.icon != "🏙" && place.address != "Street" && place.address != "Area"
-        if (stars == null && fuel == null && !reviewable) return null
+        // nothing to show (no stars, no prices): no row at all, rather than a lone "Reviews"
+        if (stars == null && fuel == null) return null
         val p = (12 * d).toInt()
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -834,54 +951,73 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             near?.let { NavEngine.formatDistance(Geo.distance(it, pl.pos)) },
             placeEta,
         ).joinToString("  ·  ")
-        if (facts.isNotBlank()) placeCard.addView(label(facts, 15f, bold = true).apply { setTextColor(ink); setPadding(0, p, 0, 0) })
-        if (pl.extra.isNotBlank()) placeCard.addView(label(pl.extra, 14f).apply { setTextColor(readable(accent)); setPadding(0, p / 3, 0, 0) })
+        // facts on the left, Reviews › on the right (not for a dropped pin)
+        if (facts.isNotBlank() || !dropped) placeCard.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, p / 2, 0, 0)
+            addView(label(facts, 15f, bold = true).apply { setTextColor(ink) }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            if (!dropped) addView(label("Reviews ›", 14f, bold = true).apply {
+                setTextColor(readable(accent)); setPadding(p, p, 0, p); setOnClickListener { showReviews(pl) }
+            })
+        })
+        if (pl.extra.isNotBlank()) placeCard.addView(label(pl.extra, 14f).apply {
+            setTextColor(ink); setPadding(p, p / 2, p, p / 2); background = bg(dim(26), radius = 10f)
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p / 3 })
 
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p + p / 2, 0, 0) }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0) }
         val navigating = NavEngine.active && !NavEngine.arrived
         row.addView(pill(if (navigating) "＋  Add stop" else "➤  Go") {
             closePlace()
             if (navigating) NavEngine.addStop(pl) else NavEngine.start(this, pl)
         }.apply { setTextColor(if (Ui.contrast(Color.WHITE, accent) >= 3) Color.WHITE else Color.BLACK); background = bg(accent, radius = 26f) },
-            LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.4f).apply { marginEnd = p })
+            LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.6f).apply { marginEnd = p })
         row.addView(pill(if (navigating) "Go instead" else "Routes") {
             closePlace(); if (navigating) NavEngine.start(this, pl) else NavEngine.plan(this, pl)
         }.apply {
             setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 26f)
-        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
-        row.addView(pill("Share") { sharePlace(pl) }.apply {
-            setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 26f)
         }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         placeCard.addView(row)
-        run {
-            val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0) }
-            val savedNow = Places.isSaved(pl)
-            more.addView(pill(if (savedNow) "★ Saved" else "☆ Save") {
+        // one row of labelled icons for everything else
+        val savedNow = Places.isSaved(pl)
+        val actions = mutableListOf<Triple<Int, String, () -> Unit>>(
+            Triple(R.drawable.ic_act_star, if (savedNow) "Saved" else "Save") {
                 val on = Places.toggleSaved(pl)
                 Toast.makeText(this, if (on) "Saved: ${pl.name}" else "Removed from saved", Toast.LENGTH_SHORT).show()
                 showPlace(pl, dropped)
-            }.apply { textSize = 14f; setTextColor(if (savedNow) readable(accent) else ink); background = bg(dim(30), radius = 22f) },
-                LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })
-            for ((k, title) in listOf("home" to "Home", "work" to "Work")) {
-                more.addView(pill(title) {
-                    Places.save(k, pl); etaAskedAt = 0
-                    Toast.makeText(this, "${if (k == "home") "Home" else "Work"} saved: ${pl.name}", Toast.LENGTH_SHORT).show()
-                    closePlace()
-                }.apply { textSize = 14f; setTextColor(ink); background = bg(dim(30), radius = 22f) },
-                    LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (k == "home") marginEnd = p })
-            }
-            placeCard.addView(more)
-            if (!NavEngine.active) placeCard.addView(pill("👥  Convoy here") {
-                closePlace()
-                withConvoyName { Convoy.create(pl); inviteToConvoy(); openSheet("convoy") }
-            }.apply { textSize = 14f; setTextColor(ink); background = bg(dim(30), radius = 22f) },
-                LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p })
-            if (!dropped) placeCard.addView(pill("Reviews ›") { showReviews(pl) }.apply {
-                textSize = 14f; setTextColor(readable(accent)); gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            })
+            },
+            Triple(R.drawable.ic_act_share, "Share") { sharePlace(pl) },
+            Triple(R.drawable.ic_act_home, "Home") {
+                Places.save("home", pl); etaAskedAt = 0
+                Toast.makeText(this, "Home saved: ${pl.name}", Toast.LENGTH_SHORT).show(); closePlace()
+            },
+            Triple(R.drawable.ic_act_work, "Work") {
+                Places.save("work", pl); etaAskedAt = 0
+                Toast.makeText(this, "Work saved: ${pl.name}", Toast.LENGTH_SHORT).show(); closePlace()
+            },
+        )
+        if (!NavEngine.active) actions += Triple<Int, String, () -> Unit>(R.drawable.ic_act_convoy, "Convoy") {
+            closePlace(); withConvoyName { Convoy.create(pl); inviteToConvoy(); openSheet("convoy") }
         }
+        placeCard.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0)
+            for ((icon, title, act) in actions) addView(iconAction(icon, title, on = title == "Saved", onClick = act),
+                LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        })
         placeCard.visibility = View.VISIBLE
         homeSheet.visibility = View.GONE
+    }
+
+    /** A round icon with a small label under it (the place card's action row). */
+    private fun iconAction(icon: Int, title: String, on: Boolean = false, onClick: () -> Unit) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+        contentDescription = title
+        setOnClickListener { onClick() }
+        val tint = if (on) readable(accent) else ink
+        addView(android.widget.ImageView(context).apply {
+            setImageResource(icon); imageTintList = android.content.res.ColorStateList.valueOf(tint)
+            val q = (11 * d).toInt(); setPadding(q, q, q, q)
+            background = bg(if (on) Color.argb(50, Color.red(accent), Color.green(accent), Color.blue(accent)) else dim(30), radius = 23f)
+        }, LinearLayout.LayoutParams((46 * d).toInt(), (46 * d).toInt()))
+        addView(label(title, 12f, bold = true).apply { setTextColor(tint); setPadding(0, (4 * d).toInt(), 0, 0) })
     }
 
     private fun sharePlace(pl: Place) {
@@ -1177,10 +1313,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         recenterBtn.visibility = if (MapState.following && MapState.userBearing == null || planning) View.GONE else View.VISIBLE
         muteBtn.visibility = if (nav) View.VISIBLE else View.GONE
         muteBtn.text = if (Voice.muted) "🔇" else "🔊"
-        overviewBtn.visibility = if (nav && !MapState.overview && NavEngine.route.size > 1) View.VISIBLE else View.GONE
+        // while driving only three: sound, report, ☰ (style, traffic and overview live in ☰)
+        overviewBtn.visibility = View.GONE
+        styleBtn.visibility = if (nav) View.GONE else View.VISIBLE
         navMenuBtn.visibility = if (nav) View.VISIBLE else View.GONE
         reportBtn.visibility = if (planning) View.GONE else View.VISIBLE
-        trafficBtn.visibility = if (Traffic.key.isEmpty()) View.GONE else View.VISIBLE
+        trafficBtn.visibility = if (Traffic.key.isEmpty() || nav) View.GONE else View.VISIBLE
         trafficBtn.alpha = if (Traffic.showLayer) 1f else 0.45f
         val ask = Alerts.askAbout
         askCard.visibility = if (ask != null && !planning) View.VISIBLE else View.GONE
@@ -1223,6 +1361,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             "trips" -> renderTrips()
             "offline" -> renderOffline()
             "convoy" -> renderConvoy()
+            "quick" -> renderQuick()
         }
         val trip = NavEngine.lastTrip
         tripOverlay.visibility = if (trip != null) View.VISIBLE else View.GONE
@@ -1247,9 +1386,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     etaTraffic.setTextColor(readable(Color.rgb(255, 140, 90)))
                     etaSmall.text = "${NavEngine.formatDuration(NavEngine.remainingSeconds)} · ${NavEngine.formatDistance(NavEngine.remainingDistance)} · ${NavEngine.destinationName}"
                     renderStops()
-                    shareBtn.text = if (LiveShare.active) "● Live" else "Share"
+                    // Share always stays; in a convoy it shrinks to its icon to make room for 👥
                     convoyBtn.visibility = if (Convoy.active) View.VISIBLE else View.GONE
-                    shareBtn.visibility = if (Convoy.active) View.GONE else View.VISIBLE
+                    if (Convoy.active) {
+                        shareBtn.text = if (LiveShare.active) "●" else ""
+                        shareBtn.contentDescription = "Share your trip"
+                        val ic = getDrawable(R.drawable.ic_act_share)?.mutate()?.apply {
+                            setTint(ink); setBounds(0, 0, (22 * d).toInt(), (22 * d).toInt())
+                        }
+                        shareBtn.setCompoundDrawables(ic, null, null, null)
+                    } else {
+                        shareBtn.setCompoundDrawables(null, null, null, null)
+                        shareBtn.text = if (LiveShare.active) "● Live" else "Share"
+                    }
                     if (Convoy.active) {
                         convoyBtn.text = "👥 ${Convoy.members.size + 1}"
                         convoyBtn.contentDescription = "Convoy: ${Convoy.members.size + 1} drivers"
@@ -1441,6 +1590,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     // ------------------------------------------------------------------ bottom sheets
 
     private fun openSheet(kind: String) {
+        if (kind != sheetKind) settingsPage = null
         sheetKind = kind
         sheetOverlay.visibility = View.VISIBLE
         refreshChrome()
@@ -1507,8 +1657,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 clipToOutline = true
             }
             card.addView(img, LinearLayout.LayoutParams(MATCH_PARENT, (88 * d).toInt()))
-            card.addView(label(th.title, 13f, bold = true).apply {
-                setTextColor(ink); setPadding((6 * d).toInt(), (6 * d).toInt(), 0, (4 * d).toInt()); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            card.addView(label(th.title, 12f, bold = true).apply {
+                setTextColor(ink); setPadding((6 * d).toInt(), (6 * d).toInt(), (4 * d).toInt(), (4 * d).toInt()); maxLines = 2; ellipsize = TextUtils.TruncateAt.END
             })
             row?.addView(card, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply {
                 if (i % 3 != 2) marginEnd = (8 * d).toInt()
@@ -1567,6 +1717,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private fun group(title: String, vararg rows: View): List<View> {
         val head = label(title.uppercase(), 12f, bold = true).apply {
             setTextColor(dim(170)); letterSpacing = 0.08f; setPadding((6 * d).toInt(), (14 * d).toInt(), 0, (6 * d).toInt())
+            if (title.isBlank()) { text = ""; setPadding(0, (6 * d).toInt(), 0, 0) }
         }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1603,18 +1754,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (k == "speed") marginEnd = (10 * d).toInt() })
             }
         })
+        // road reports shared with other drivers: off until GameRoute has its own server
+        if (!Alerts.reportsReady) {
+            sheetHost.addView(label("Marked cameras stay on this phone and warn you every time you pass.", 13f).apply {
+                setTextColor(dim()); setPadding((4 * d).toInt(), (12 * d).toInt(), 0, (4 * d).toInt())
+            })
+            return
+        }
         sheetHost.addView(label("DRIVER REPORTS", 12f, bold = true).apply {
             setTextColor(dim()); letterSpacing = 0.06f; setPadding((4 * d).toInt(), (16 * d).toInt(), 0, 0)
         })
-        if (!Alerts.reportsReady) {
-            sheetHost.addView(label("Reports are shared with other GameRoute drivers through a small free online database, which isn't set up yet.", 15f).apply {
-                setTextColor(ink); setPadding((4 * d).toInt(), (6 * d).toInt(), 0, (12 * d).toInt())
-            })
-            sheetHost.addView(pill("Set up reports") { reportsSetup() }.apply {
-                setTextColor(onAccent(accent)); background = bg(accent, radius = 14f)
-            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-            return
-        }
         if (LocationTracker.position == null) {
             sheetHost.addView(label("Waiting for your location…", 15f).apply { setTextColor(dim()) })
         }
@@ -1645,78 +1794,136 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         })
     }
 
-    private fun reportsSetup() {
-        val input = EditText(this).apply {
-            hint = "https://…firebasedatabase.app"
-            setText(Alerts.dbUrl)
-            setSingleLine()
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Driver reports")
-            .setMessage("Paste the address of your Firebase Realtime Database (it ends in firebasedatabase.app). " +
-                "Everyone using the same address sees each other's reports.")
-            .setView(LinearLayout(this).apply {
-                val p = (20 * d).toInt(); setPadding(p, p / 2, p, 0); addView(input)
-            })
-            .setPositiveButton("Save") { _, _ -> Alerts.setDbUrl(input.text.toString()); refreshChrome() }
-            .setNegativeButton("Cancel", null)
-            .show()
+    /** ☰ while driving: the things that used to be separate round buttons, plus Settings. */
+    private fun renderQuick() {
+        sheetHost.removeAllViews()
+        sheetHost.background = bg(panel, radius = 24f, topOnly = true)
+        sheetHost.addView(sheetHeader("While driving"))
+        val rows = listOfNotNull(
+            if (NavEngine.route.size > 1) settingRow("Route overview", null) {
+                closeSheet()
+                val r = NavEngine.route
+                MapState.phone.showOverview(r.filterIndexed { i, _ -> i % 5 == 0 } + r.last())
+            } else null,
+            settingRow("Map style", theme.title) { openSheet("style") },
+            if (Traffic.key.isNotEmpty()) switchRow("Traffic on the map", Traffic.showLayer) { Traffic.showLayer = it } else null,
+            settingRow("Settings", null) { openSheet("settings") },
+        )
+        group("", *rows.toTypedArray()).forEach { sheetHost.addView(it) }
     }
 
     internal fun showSettings() = openSheet("settings")
     internal fun openReportForTest() = openSheet("report")
     internal fun openSheetForTest(kind: String) = openSheet(kind)
 
+    /** Which settings page is open: null = the list of groups. */
+    private var settingsPage: String? = null
+
+    private class SettingsGroup(val key: String, val title: String, val summary: String, val icon: Int, val tint: Int)
+
+    private fun settingsGroups() = listOf(
+        SettingsGroup("map", "Map", "Style, light or dark, Android Auto style, places, offline maps", R.drawable.ic_set_map, Color.rgb(59, 91, 219)),
+        SettingsGroup("nav", "Navigation", "Voice, faster routes, tolls and motorways, live traffic", R.drawable.ic_set_nav, Color.rgb(30, 158, 90)),
+        SettingsGroup("alerts", "Alerts", "Speed and red-light cameras, accidents, cameras you marked", R.drawable.ic_set_alert, Color.rgb(194, 65, 12)),
+        SettingsGroup("sharing", "Sharing", "Your name, convoy, live arrival", R.drawable.ic_set_share, Color.rgb(124, 58, 237)),
+        SettingsGroup("app", "App", "Trip history, explorer profile, privacy, about" + if (Updater.ENABLED) ", updates" else "", R.drawable.ic_set_app, Color.rgb(13, 110, 97)),
+        SettingsGroup("advanced", "Advanced", "Star ratings and reviews, welcome screens", R.drawable.ic_set_adv, Color.rgb(100, 100, 110)),
+    )
+
     private fun renderSettings() {
         sheetHost.removeAllViews()
         sheetHost.background = bg(panel, radius = 24f, topOnly = true)
-        sheetHost.addView(sheetHeader("Settings"))
+        val maxH = minOf((resources.displayMetrics.heightPixels * 0.72f).toInt(), (640 * d).toInt())
+        val page = settingsPage
         val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        if (page == null) {
+            sheetHost.addView(sheetHeader("Settings"))
+            for (g in settingsGroups()) body.addView(settingsEntry(g), LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (8 * d).toInt() })
+            body.addView(label("GameRoute build ${Updater.currentVersion(this)}", 12f).apply {
+                setTextColor(dim(150)); gravity = Gravity.CENTER; setPadding(0, (14 * d).toInt(), 0, (4 * d).toInt())
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            sheetHost.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            return
+        }
+        val g = settingsGroups().first { it.key == page }
+        sheetHost.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            addView(pill("‹") { settingsPage = null; refreshChrome() }.apply { setTextColor(ink); textSize = 24f; contentDescription = "Back to settings" })
+            addView(label(g.title, 22f, bold = true).apply { setTextColor(ink); typeface = theme.typeface }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(pill("✕") { closeSheet() }.apply { setTextColor(ink) })
+        })
         val voice = if (Voice.muted) "Off" else if (Voice.lang == Phrases.GREEK) "Ελληνικά" else "English"
-        (group("Driving",
-            settingRow("Spoken directions", voice) { chooseVoice() },
-            settingRow("Faster routes", if (NavEngine.autoSwitch) "Switch automatically" else "Ask me") { chooseAutoSwitch() },
-            switchRow("Avoid tolls", NavEngine.avoidTolls) { NavEngine.avoidTolls = it },
-            switchRow("Avoid motorways", NavEngine.avoidMotorways) { NavEngine.avoidMotorways = it },
-        ) + group("Traffic",
-            switchRow("Live traffic", Traffic.enabled) { Traffic.setEnabled(it) },
-            settingRow("TomTom key", if (Traffic.builtIn) "Built-in" else if (Traffic.key.isNotEmpty()) "Your own" else "None") { trafficSettings() },
-        ) + group("Alerts",
-            switchRow("Speed cameras", Alerts.camerasOn) { Alerts.camerasOn = it },
-            switchRow("Red light cameras", Alerts.redLightOn) { Alerts.redLightOn = it },
-            settingRow("Cameras you marked", "${Alerts.myCameras().size}") {
-                val n = Alerts.myCameras().size
-                AlertDialog.Builder(this).setTitle("Cameras you marked")
-                    .setMessage(if (n == 0) "None yet. While driving, tap ⚠ › Speed camera or Red-light camera to mark one where you are."
-                        else "$n camera${if (n == 1) "" else "s"} saved on this phone. GameRoute warns you before each one.")
-                    .apply { if (n > 0) setNeutralButton("Delete all") { _, _ -> Alerts.clearMyCameras(); showSettings() } }
-                    .setPositiveButton("OK", null).show()
-            },
-            switchRow("Accidents & roadworks", Alerts.incidentsOn) { Alerts.incidentsOn = it },
-            settingRow("Driver reports", if (Alerts.reportsReady) "On" else "Set up") { reportsSetup() },
-        ) + group("Map",
-            settingRow("Light / dark", MapState.lightMode.label) { chooseLightMode() },
-            settingRow("Units", if (MapState.imperial) "Miles" else "Kilometres") { MapState.setImperial(!MapState.imperial) },
-            settingRow("Android Auto style", MapState.carTheme?.title ?: "Same as phone") { chooseCarStyle() },
-            settingRow("Offline maps", Offline.areas().let { a -> if (a.isEmpty()) "None yet" else "${a.size} area${if (a.size == 1) "" else "s"} · ${Offline.size(a.sumOf { it.bytes })}" }) { openSheet("offline") },
-            switchRow("Places on the map (fuel, parking, food…)", MapState.showPlaces) { MapState.showPlaces = it },
-            switchRow("Car: dark map when headlights are on", MapState.followHeadlights) { MapState.followHeadlights = it },
-        ) + group("Places",
-            settingRow("Star ratings & reviews", if (Reviews.enabled) "Google key set" else "Off: Reviews opens Google Maps") { chooseGoogleKey() },
-        ) + group("App",
-            settingRow("Explorer profile", "Level ${Explorer.level} · ${Explorer.xp} XP") { showProfile() },
-            settingRow("Trip history", "${Explorer.history().size} trips") { openSheet("trips") },
-            settingRow("Convoy", if (Convoy.active) "On · ${Convoy.members.size + 1} drivers" else "Drive together") { openSheet("convoy") },
-            settingRow("Your name in convoys", Convoy.myName.ifBlank { "Not set" }) { editConvoyName { showSettings() } },
-            if (Updater.ENABLED) settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) }
-            else settingRow("Version", "build ${Updater.currentVersion(this)}") { showAbout() },
-            settingRow("About & map credits", null) { showAbout() },
-            settingRow("Privacy policy", null) {
-                try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://vyto-line.github.io/GameRoute/privacy/"))) } catch (_: Exception) {}
-            },
-        )).forEach { body.addView(it) }
-        sheetHost.addView(ScrollView(this).apply { addView(body) },
-            LinearLayout.LayoutParams(MATCH_PARENT, minOf((resources.displayMetrics.heightPixels * 0.72f).toInt(), (640 * d).toInt())))
+        val rows: List<View> = when (page) {
+            "map" -> listOf(
+                settingRow("Map style", theme.title) { openSheet("style") },
+                settingRow("Light / dark", MapState.lightMode.label) { chooseLightMode() },
+                settingRow("Android Auto style", MapState.carTheme?.title ?: "Same as phone") { chooseCarStyle() },
+                switchRow("Car: dark map when headlights are on", MapState.followHeadlights) { MapState.followHeadlights = it },
+                switchRow("Places on the map (fuel, parking, food…)", MapState.showPlaces) { MapState.showPlaces = it },
+                settingRow("Units", if (MapState.imperial) "Miles" else "Kilometres") { MapState.setImperial(!MapState.imperial) },
+                settingRow("Offline maps", Offline.areas().let { a -> if (a.isEmpty()) "None yet" else "${a.size} area${if (a.size == 1) "" else "s"} · ${Offline.size(a.sumOf { it.bytes })}" }) { openSheet("offline") },
+            )
+            "nav" -> listOf(
+                settingRow("Spoken directions", voice) { chooseVoice() },
+                settingRow("Faster routes", if (NavEngine.autoSwitch) "Switch automatically" else "Ask me") { chooseAutoSwitch() },
+                switchRow("Avoid tolls", NavEngine.avoidTolls) { NavEngine.avoidTolls = it },
+                switchRow("Avoid motorways", NavEngine.avoidMotorways) { NavEngine.avoidMotorways = it },
+                switchRow("Live traffic", Traffic.enabled) { Traffic.setEnabled(it) },
+            )
+            "alerts" -> listOf(
+                switchRow("Speed cameras", Alerts.camerasOn) { Alerts.camerasOn = it },
+                switchRow("Red light cameras", Alerts.redLightOn) { Alerts.redLightOn = it },
+                switchRow("Accidents & roadworks", Alerts.incidentsOn) { Alerts.incidentsOn = it },
+                settingRow("Cameras you marked", "${Alerts.myCameras().size}") {
+                    val n = Alerts.myCameras().size
+                    AlertDialog.Builder(this).setTitle("Cameras you marked")
+                        .setMessage(if (n == 0) "None yet. While driving, tap ⚠ › Speed camera or Red-light camera to mark one where you are."
+                            else "$n camera${if (n == 1) "" else "s"} saved on this phone. GameRoute warns you before each one.")
+                        .apply { if (n > 0) setNeutralButton("Delete all") { _, _ -> Alerts.clearMyCameras(); showSettings() } }
+                        .setPositiveButton("OK", null).show()
+                },
+            )
+            "sharing" -> listOf(
+                settingRow("Your name in convoys", Convoy.myName.ifBlank { "Not set" }) { editConvoyName { showSettings() } },
+                settingRow("Convoy", if (Convoy.active) "On · ${Convoy.members.size + 1} drivers" else "Drive together") { openSheet("convoy") },
+            )
+            "app" -> listOfNotNull(
+                settingRow("Trip history", "${Explorer.history().size} trips") { openSheet("trips") },
+                settingRow("Explorer profile", "Level ${Explorer.level} · ${Explorer.xp} XP") { showProfile() },
+                if (Updater.ENABLED) settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) } else null,
+                settingRow("Privacy policy", null) {
+                    try { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://vyto-line.github.io/GameRoute/privacy/"))) } catch (_: Exception) {}
+                },
+                settingRow("About & map credits", null) { showAbout() },
+            )
+            else -> listOf(
+                settingRow("Star ratings & reviews", if (Reviews.enabled) "Google key set" else "Off: Reviews opens Google Maps") { chooseGoogleKey() },
+                settingRow("Show the welcome screens again", null) { closeSheet(); showWelcome() },
+            )
+        }
+        group("", *rows.toTypedArray()).forEach { body.addView(it) }
+        sheetHost.addView(ScrollView(this).apply { addView(body) }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { height = WRAP_CONTENT })
+        body.post { (body.parent as? View)?.let { sv -> if (body.height > maxH) { sv.layoutParams.height = maxH; sv.requestLayout() } } }
+    }
+
+    /** One group in the settings list: coloured icon, name, what's inside, ›. */
+    private fun settingsEntry(g: SettingsGroup) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        val p = (12 * d).toInt(); setPadding(p, p, p, p)
+        background = bg(Color.argb(26, Color.red(ink), Color.green(ink), Color.blue(ink)), radius = 14f)
+        setOnClickListener { settingsPage = g.key; refreshChrome() }
+        val tint = Ui.onPanel(theme, g.tint, 3.0)
+        addView(android.widget.ImageView(context).apply {
+            setImageResource(g.icon); imageTintList = android.content.res.ColorStateList.valueOf(tint)
+            val q = (8 * d).toInt(); setPadding(q, q, q, q)
+            background = bg(Color.argb(40, Color.red(tint), Color.green(tint), Color.blue(tint)), radius = 12f)
+        }, LinearLayout.LayoutParams((40 * d).toInt(), (40 * d).toInt()).apply { marginEnd = (12 * d).toInt() })
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label(g.title, 16f, bold = true).apply { setTextColor(ink) })
+            addView(label(g.summary, 13f).apply { setTextColor(dim()) })
+        }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        addView(label("›", 22f).apply { setTextColor(dim()); setPadding((8 * d).toInt(), 0, 0, 0) })
     }
 
     private fun chooseGoogleKey() {
@@ -1842,7 +2049,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun renderConvoy() {
         val rows = Convoy.rows(accent)
-        val key = "${Convoy.code}|${Convoy.destination?.name}|${rows.joinToString { "${it.name}${it.kmh}${it.state}${it.eta / 60000}${(it.progress * 50).toInt()}" }}|${NavEngine.active}|${theme.name}|${MapState.dark}"
+        val key = "${Convoy.code}|${Convoy.myName}|${Convoy.destination?.name}|${rows.joinToString { "${it.name}${it.kmh}${it.state}${it.eta / 60000}${(it.progress * 50).toInt()}" }}|${NavEngine.active}|${theme.name}|${MapState.dark}"
         if (key == convoyKey && sheetHost.childCount > 0) return
         convoyKey = key
         sheetHost.removeAllViews()
@@ -1850,10 +2057,21 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val p = (12 * d).toInt()
         if (!Convoy.active) {
             sheetHost.addView(sheetHeader("Convoy"))
+            // your name first: it's what the others see
+            sheetHost.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(p, p / 3, p / 3, p / 3); background = bg(dim(22), radius = 14f)
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(label("YOUR NAME", 11f, bold = true).apply { setTextColor(dim()); letterSpacing = 0.08f })
+                    addView(label(Convoy.myName.ifBlank { "Not set yet" }, 17f, bold = true).apply { setTextColor(ink) })
+                }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(pill("Edit") { editConvoyName() }.apply { textSize = 14f; setTextColor(readable(accent)) })
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p / 2 })
             sheetHost.addView(label("Drive somewhere together: everyone sees the others on the map with their speed and arrival time. " +
-                "Start one from a route (the 👥 button), or paste an invite link here.", 14f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, p) })
+                "Start one from a place or a route, or join with a code.", 14f).apply { setTextColor(dim()); setPadding(0, p, 0, p) })
             val input = EditText(this).apply {
-                hint = "Code (like K7P 2QX) or invite link"; setSingleLine(); setTextColor(ink); setHintTextColor(dim(140))
+                hint = "Code or invite link"; setSingleLine(); setTextColor(ink); setHintTextColor(dim(140))
                 inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
                 textSize = 20f; letterSpacing = 0.1f
             }
@@ -1861,9 +2079,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             sheetHost.addView(pill("Join") { joinConvoy(input.text.toString()) }.apply {
                 setTextColor(onAccent(accent)); background = bg(accent, radius = 14f)
             }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p })
-            sheetHost.addView(label("Your name: ${Convoy.myName.ifBlank { "not set yet" }}  ·  Change", 13f, bold = true).apply {
-                setTextColor(readable(accent)); setPadding(0, p, 0, 0); setOnClickListener { editConvoyName() }
-            })
             return
         }
         val dest = Convoy.destination
@@ -2055,43 +2270,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             .setTitle("GameRoute build ${Updater.currentVersion(this)}")
             .setMessage("Map data and speed cameras © OpenStreetMap contributors\nVector tiles: OpenFreeMap\nTraffic, incidents, speed limits: TomTom\nRouting: OSRM (TomTom as backup)\nSearch: Photon (komoot), Nominatim\nVoice: your phone's text-to-speech")
             .setPositiveButton("OK", null).show()
-    }
-
-    private fun trafficSettings() {
-        val input = EditText(this).apply {
-            hint = if (Traffic.builtIn) "Built-in key in use (optional: your own)" else "Paste your TomTom API key"
-            setText(if (Traffic.builtIn) "" else Traffic.key)
-            setSingleLine()
-        }
-        val toggle = android.widget.CheckBox(this).apply {
-            text = "Show live traffic"
-            isChecked = Traffic.enabled
-        }
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val p = (20 * d).toInt()
-            setPadding(p, p / 2, p, 0)
-            addView(input); addView(toggle)
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Live traffic")
-            .setMessage(
-                "Traffic comes from TomTom. Their free plan (no credit card) covers 50,000 map " +
-                    "tiles a day, plenty for driving. Tap GET FREE KEY, sign up, create a key " +
-                    "and paste it here. Slow traffic and jams are drawn in your theme's colours, " +
-                    "and arrival times include traffic delays."
-            )
-            .setView(box)
-            .setPositiveButton("Save") { _, _ ->
-                Traffic.setKey(input.text.toString())
-                Traffic.setEnabled(toggle.isChecked)
-            }
-            .setNeutralButton("Get free key") { _, _ ->
-                startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
-                    android.net.Uri.parse("https://developer.tomtom.com/user/register")))
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     private fun checkForUpdates(manual: Boolean) {

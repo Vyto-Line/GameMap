@@ -37,8 +37,9 @@ object Traffic {
 
     /** A key typed into the app overrides the one built into the app. */
     private var userKey = ""
-    val key: String get() = userKey.ifEmpty { BuildConfig.TOMTOM_KEY }
-    val builtIn: Boolean get() = userKey.isEmpty() && BuildConfig.TOMTOM_KEY.isNotEmpty()
+    /** The built-in TomTom key (the "your own key" option was removed). */
+    val key: String get() = BuildConfig.TOMTOM_KEY
+    val builtIn: Boolean get() = BuildConfig.TOMTOM_KEY.isNotEmpty()
     var enabled = true
         private set
     val active get() = key.isNotEmpty() && enabled
