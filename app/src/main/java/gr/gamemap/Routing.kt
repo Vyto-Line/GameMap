@@ -110,7 +110,7 @@ object Osrm {
         // on a reroute: keep going the way the car faces, never a U-turn back to the old route
         if (heading != null) url += "&bearings=${heading.toInt().coerceIn(0, 359)},${if (reroute) 45 else 60}" + ";".repeat(pts.size - 1)
         if (reroute) url += "&continue_straight=true"
-        return parseAll(Http.get(url))
+        return parseAll(Http.get(url, timeout = 8000))
     }
 
     fun parseAll(json: String): List<RouteOption> {
@@ -171,6 +171,120 @@ object Osrm {
         }
         val via = summary.split(",").map { it.trim() }.filter { it.isNotBlank() }.distinct().take(2).joinToString(" & ")
         return RouteOption(pts, out, r.getDouble("distance"), r.getDouble("duration"), via, toll, motorway)
+    }
+}
+
+/**
+ * Asks OSRM first (free, with lanes); if it's down, slow or finds nothing, TomTom plans the route
+ * instead (traffic-aware), so a trip never fails just because one server is having a bad day.
+ */
+object Router {
+    /** Which service planned the last route ("OSRM" or "TomTom"), for the About screen and tests. */
+    @Volatile var lastSource = "OSRM"
+        private set
+
+    fun routes(from: LatLng, to: LatLng, alternatives: Boolean, heading: Float? = null, reroute: Boolean = false, via: List<LatLng> = emptyList()): List<RouteOption> {
+        val first = try { Osrm.routes(from, to, alternatives, heading, reroute, via).takeIf { it.isNotEmpty() } } catch (e: Exception) { null }
+        if (first != null) { lastSource = "OSRM"; return first }
+        if (!Traffic.active) throw RuntimeException("No route")
+        val backup = TomTomRoute.routes(from, to, alternatives && via.isEmpty(), heading, via)
+        if (backup.isEmpty()) throw RuntimeException("No route")
+        lastSource = "TomTom"
+        return backup
+    }
+}
+
+/** TomTom as a full router (the backup): geometry, turns, traffic and speed limits in one go. */
+object TomTomRoute {
+    fun routes(from: LatLng, to: LatLng, alternatives: Boolean, heading: Float?, via: List<LatLng>): List<RouteOption> {
+        val pts = listOf(from) + via + listOf(to)
+        var url = "https://api.tomtom.com/routing/1/calculateRoute/" + pts.joinToString(":") { "${it.lat},${it.lon}" } + "/json" +
+            "?key=${Traffic.key}&traffic=true&travelMode=car&routeRepresentation=polyline&instructionsType=coded" +
+            "&sectionType=traffic&sectionType=speedLimit&sectionType=tollRoad&sectionType=motorway"
+        if (alternatives) url += "&maxAlternatives=2"
+        if (heading != null) url += "&vehicleHeading=${heading.toInt().coerceIn(0, 359)}"
+        return parseAll(Http.get(url, timeout = 12000))
+    }
+
+    fun parseAll(json: String): List<RouteOption> {
+        val arr = JSONObject(json).optJSONArray("routes") ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { try { parse(arr.getJSONObject(it)) } catch (e: Exception) { null } }
+    }
+
+    /** TomTom maneuver code → our (type, direction), in OSRM's words so everything else stays the same. */
+    private fun maneuver(code: String, angle: Int): Pair<String, String> {
+        val side = if (angle < 0) "slight left" else "slight right"
+        return when (code) {
+            "DEPART" -> "depart" to "straight"
+            "ARRIVE", "ARRIVE_LEFT", "ARRIVE_RIGHT" -> "arrive" to "arrive"
+            "WAYPOINT_LEFT", "WAYPOINT_RIGHT", "WAYPOINT_REACHED" -> "waypoint" to "straight"
+            "KEEP_LEFT" -> "fork" to "slight left"
+            "KEEP_RIGHT" -> "fork" to "slight right"
+            "BEAR_LEFT" -> "turn" to "slight left"
+            "BEAR_RIGHT" -> "turn" to "slight right"
+            "TURN_LEFT" -> "turn" to "left"
+            "TURN_RIGHT" -> "turn" to "right"
+            "SHARP_LEFT" -> "turn" to "sharp left"
+            "SHARP_RIGHT" -> "turn" to "sharp right"
+            "MAKE_UTURN", "TRY_MAKE_UTURN" -> "turn" to "uturn"
+            "ENTER_MOTORWAY", "ENTER_FREEWAY", "ENTER_HIGHWAY", "ENTRANCE_RAMP" -> "on ramp" to side
+            "MOTORWAY_EXIT_LEFT" -> "off ramp" to "slight left"
+            "TAKE_EXIT", "MOTORWAY_EXIT_RIGHT" -> "off ramp" to (if (code == "TAKE_EXIT") side else "slight right")
+            "ROUNDABOUT_CROSS" -> "roundabout" to "straight"
+            "ROUNDABOUT_RIGHT" -> "roundabout" to "right"
+            "ROUNDABOUT_LEFT" -> "roundabout" to "left"
+            "ROUNDABOUT_BACK" -> "roundabout" to "uturn"
+            else -> "continue" to "straight" // STRAIGHT, FOLLOW, SWITCH_*_ROAD, TAKE_FERRY
+        }
+    }
+
+    private fun parse(r: JSONObject): RouteOption {
+        val pts = ArrayList<LatLng>()
+        val legs = r.getJSONArray("legs")
+        for (l in 0 until legs.length()) {
+            val p = legs.getJSONObject(l).getJSONArray("points")
+            for (i in 0 until p.length()) { val q = p.getJSONObject(i); pts += LatLng(q.getDouble("latitude"), q.getDouble("longitude")) }
+        }
+        val steps = ArrayList<NavStep>()
+        val names = HashMap<String, Double>()
+        val ins = r.optJSONObject("guidance")?.optJSONArray("instructions") ?: JSONArray()
+        for (i in 0 until ins.length()) {
+            val o = ins.getJSONObject(i)
+            val (type, dir) = maneuver(o.optString("maneuver"), o.optInt("turnAngleInDecimalDegrees", 0))
+            val road = o.optString("street").ifBlank { o.optString("roadNumbers").trim('[', ']', '"') }
+            val pt = o.getJSONObject("point")
+            val exit = if (type == "roundabout") o.optInt("roundaboutExitNumber", 0) else 0
+            // which roads the trip mostly uses, for the "via" line
+            if (i + 1 < ins.length() && road.isNotBlank()) {
+                val len = ins.getJSONObject(i + 1).optDouble("routeOffsetInMeters", 0.0) - o.optDouble("routeOffsetInMeters", 0.0)
+                names[road] = (names[road] ?: 0.0) + len
+            }
+            // TomTom repeats "continue" for every name change; keep them only when they name the road
+            if (type == "continue" && i > 0 && i + 1 < ins.length() && road.isBlank()) continue
+            steps += NavStep(type, dir, road, exit, LatLng(pt.getDouble("latitude"), pt.getDouble("longitude")), null)
+        }
+        val sum = r.getJSONObject("summary")
+        val travel = sum.getInt("travelTimeInSeconds")
+        val delay = sum.optInt("trafficDelayInSeconds", 0)
+        val secs = r.optJSONArray("sections") ?: JSONArray()
+        val types = (0 until secs.length()).map { secs.getJSONObject(it).optString("sectionType") }.toSet()
+        val via = names.entries.sortedByDescending { it.value }.take(2).joinToString(" & ") { it.key }
+        val out = RouteOption(pts, steps, sum.getDouble("lengthInMeters"), (travel - delay).coerceAtLeast(1).toDouble(), via,
+            hasToll = "TOLL_ROAD" in types, hasMotorway = "MOTORWAY" in types)
+        out.trafficSeconds = travel
+        out.delaySeconds = delay
+        val traffic = ArrayList<Stretch>(); val limits = ArrayList<Stretch>()
+        for (i in 0 until secs.length()) {
+            val sec = secs.getJSONObject(i)
+            val a = out.cum[sec.optInt("startPointIndex").coerceIn(0, pts.size - 1)]
+            val b = out.cum[sec.optInt("endPointIndex").coerceIn(0, pts.size - 1)]
+            when (sec.optString("sectionType")) {
+                "TRAFFIC" -> traffic += Stretch(a, b, sec.optInt("magnitudeOfDelay", 1), sec.optInt("delayInSeconds", 0))
+                "SPEED_LIMIT" -> sec.optInt("maxSpeedLimitInKmh", 0).takeIf { it > 0 }?.let { limits += Stretch(a, b, it) }
+            }
+        }
+        out.traffic = traffic; out.limits = limits
+        return out
     }
 }
 

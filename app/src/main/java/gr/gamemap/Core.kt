@@ -21,6 +21,7 @@ import kotlin.math.sqrt
 class GameMapApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        CrashLog.init(this)
         MapState.init(this)
         TileCache.init(this)
         Places.init(this)

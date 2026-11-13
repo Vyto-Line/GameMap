@@ -74,6 +74,7 @@ class GameMapCarAppService : CarAppService() {
 
 class GameMapSession : Session() {
     override fun onCreateScreen(intent: Intent): Screen {
+        gr.gamemap.CrashLog.note("Android Auto opened")
         // the car's night mode follows its headlights (or light sensor): dark map at night
         MapState.setCarNight(carContext.isDarkMode)
         lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {

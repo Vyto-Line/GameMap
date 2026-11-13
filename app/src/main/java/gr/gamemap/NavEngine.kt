@@ -184,6 +184,7 @@ object NavEngine {
 
     /** Shows the route choices to [place] (the preview), without starting. */
     fun plan(ctx: Context, place: Place) {
+        CrashLog.note("plan route")
         appContext = ctx.applicationContext
         if (active) stop()
         planning = true
@@ -208,7 +209,7 @@ object NavEngine {
         changed.fire()
         MapState.requestFit(listOf(from, place.pos))
         io.execute {
-            val routes = try { Osrm.routes(from, place.pos, alternatives = true, heading = heading()) } catch (e: Exception) { null }
+            val routes = try { Router.routes(from, place.pos, alternatives = true, heading = heading()) } catch (e: Exception) { null }
             main.post {
                 if (seq != planSeq || !planning) return@post
                 if (routes.isNullOrEmpty()) {
@@ -272,6 +273,7 @@ object NavEngine {
 
     /** Starts driving the chosen route. */
     fun startPlanned() {
+        CrashLog.note("start navigation (planned)")
         val place = planPlace ?: return
         val opt = options.getOrNull(selected)
         planning = false; planSeq++
@@ -286,6 +288,7 @@ object NavEngine {
 
     /** Starts navigation straight away (no preview). */
     fun start(ctx: Context, place: Place) {
+        CrashLog.note("start navigation")
         appContext = ctx.applicationContext
         planning = false; planSeq++
         begin(place)
@@ -368,6 +371,7 @@ object NavEngine {
     }
 
     fun stop() {
+        CrashLog.note("stop navigation")
         LiveShare.stop(if (arrived) "arrived" else "stopped")
         stops.clear()
         destination = null
@@ -432,6 +436,7 @@ object NavEngine {
     }
 
     private fun fetchRoute(reroute: Boolean = false) {
+        CrashLog.note(if (reroute) "reroute" else "fetch route")
         val dest = destination ?: return
         val from = LocationTracker.position
         if (from == null) {
@@ -448,14 +453,14 @@ object NavEngine {
         io.execute {
             val h = heading()
             val r = try {
-                val list = preferAllowed(Osrm.routes(from, dest, alternatives = reroute || wantsAlternatives, heading = h, reroute = reroute, via = stops.map { it.pos }))
+                val list = preferAllowed(Router.routes(from, dest, alternatives = reroute || wantsAlternatives, heading = h, reroute = reroute, via = stops.map { it.pos }))
                 if (reroute) pickForward(list, h, current) else list.firstOrNull()
             } catch (e: Exception) { null }
             main.post {
                 if (destination != dest) return@post
                 if (r == null) {
                     loading = false; error = "No route found"; changed.fire()
-                } else apply(r, announce = !reroute)
+                } else { CrashLog.note("route from ${Router.lastSource}"); apply(r, announce = !reroute) }
             }
         }
     }
@@ -568,7 +573,7 @@ object NavEngine {
                 changed.fire()
             }
             if (res == null || hasOffer || nearEnd) return@execute
-            val alts = try { Osrm.routes(pos, dest, alternatives = true, heading = heading(), via = stops.map { it.pos }) } catch (e: Exception) { null }
+            val alts = try { Router.routes(pos, dest, alternatives = true, heading = heading(), via = stops.map { it.pos }) } catch (e: Exception) { null }
                 ?: return@execute
             val now = System.currentTimeMillis()
             var bestAlt: RouteOption? = null

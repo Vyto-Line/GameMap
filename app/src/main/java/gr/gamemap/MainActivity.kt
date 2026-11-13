@@ -246,6 +246,24 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         permissions.launch(wanted.toTypedArray())
 
         if (Updater.dueForCheck(this)) checkForUpdates(manual = false)
+        CrashLog.note("phone app opened")
+        CrashLog.pending()?.let { offerCrashReport(it) }
+    }
+
+    /** After a crash: offer to send the saved report (shared like any text; nothing is sent by itself). */
+    private fun offerCrashReport(report: String) {
+        AlertDialog.Builder(this)
+            .setTitle("GameRoute closed unexpectedly")
+            .setMessage("A report of what happened was saved on your phone. Send it so the problem can be fixed?")
+            .setPositiveButton("Send report") { _, _ ->
+                CrashLog.clear()
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, "GameRoute crash report")
+                    .putExtra(Intent.EXTRA_TEXT, report)
+                try { startActivity(Intent.createChooser(send, "Send the report with…")) } catch (_: Exception) {}
+            }
+            .setNegativeButton("Not now") { _, _ -> CrashLog.clear() }
+            .show()
     }
 
     // ------------------------------------------------------------------ look helpers
@@ -2035,7 +2053,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private fun showAbout() {
         AlertDialog.Builder(this)
             .setTitle("GameRoute build ${Updater.currentVersion(this)}")
-            .setMessage("Map data and speed cameras © OpenStreetMap contributors\nVector tiles: OpenFreeMap\nTraffic, incidents, speed limits: TomTom\nRouting: OSRM\nSearch: Photon (komoot), Nominatim\nVoice: your phone's text-to-speech")
+            .setMessage("Map data and speed cameras © OpenStreetMap contributors\nVector tiles: OpenFreeMap\nTraffic, incidents, speed limits: TomTom\nRouting: OSRM (TomTom as backup)\nSearch: Photon (komoot), Nominatim\nVoice: your phone's text-to-speech")
             .setPositiveButton("OK", null).show()
     }
 
