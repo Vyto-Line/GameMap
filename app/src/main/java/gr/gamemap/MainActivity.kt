@@ -1769,6 +1769,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /** Change the name the convoy sees (Settings › Convoy, or the convoy screen). */
+    private fun editConvoyName(then: (() -> Unit)? = null) {
+        val input = EditText(this).apply {
+            hint = "Your name"; setSingleLine(); setText(Convoy.myName); setSelection(text.length)
+            filters = arrayOf(android.text.InputFilter.LengthFilter(16))
+        }
+        AlertDialog.Builder(this).setTitle("Your name in convoys").setMessage("Shown next to your arrow on the others' maps.")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ -> Convoy.myName = input.text.toString().ifBlank { "Driver" }; convoyKey = ""; refreshChrome(); then?.invoke() }
+            .setNegativeButton("Cancel", null).show()
+    }
+
     private fun withConvoyName(then: () -> Unit) {
         if (Convoy.myName.isNotBlank()) { then(); return }
         val input = EditText(this).apply { hint = "Your name"; setSingleLine() }
