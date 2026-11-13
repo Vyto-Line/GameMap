@@ -78,7 +78,7 @@ object LocationTracker : LocationListener {
     val inUse: Boolean get() = users.isNotEmpty()
 
     /**
-     * Precise = GPS every second (navigating, or on the car screen). Otherwise the phone's
+     * Precise = GPS every second (navigating, in a convoy, or on the car screen). Otherwise the phone's
      * battery-friendly fused location every 3 s / 5 m: plenty for a map you're looking at.
      */
     @Volatile var precise = false
@@ -87,7 +87,7 @@ object LocationTracker : LocationListener {
 
     /** Called when navigation starts/stops or the car connects/disconnects. */
     fun updateMode() {
-        val want = NavEngine.active || NavEngine.planning || "car" in users || "nav" in users
+        val want = NavEngine.active || NavEngine.planning || "car" in users || "nav" in users || Convoy.active
         if (want == precise && started) return
         val ctx = appCtx ?: return
         if (started) {
@@ -104,7 +104,7 @@ object LocationTracker : LocationListener {
         appCtx = ctx.applicationContext
         val lm = ctx.applicationContext.getSystemService(LocationManager::class.java) ?: return
         val looper = Looper.getMainLooper()
-        precise = NavEngine.active || NavEngine.planning || "car" in users || "nav" in users
+        precise = NavEngine.active || NavEngine.planning || "car" in users || "nav" in users || Convoy.active
         val fused = if (Build.VERSION.SDK_INT >= 31 && lm.allProviders.contains(LocationManager.FUSED_PROVIDER))
             LocationManager.FUSED_PROVIDER else null
         val plan: List<Triple<String, Long, Float>> = when {

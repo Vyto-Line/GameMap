@@ -305,8 +305,8 @@ object L {
             "Όταν το πατήσουν όλοι, ξεκινά αντίστροφη μέτρηση 3-2-1 σε κάθε κινητό και η διαδρομή ξεκινά μόνη της.",
         "Tap again if you're not ready after all. When everyone is, a 3-2-1 countdown starts on every phone and the route starts by itself." to
             "Πάτα ξανά αν τελικά δεν είσαι έτοιμος. Όταν είναι όλοι, ξεκινά αντίστροφη μέτρηση 3-2-1 σε κάθε κινητό και η διαδρομή ξεκινά μόνη της.",
-        "Positions update every 2 s while driving, end-to-end encrypted: only people with the code can see them." to
-            "Οι θέσεις ανανεώνονται κάθε 2 δευτ. στην οδήγηση, κρυπτογραφημένες από άκρο σε άκρο: μόνο όσοι έχουν τον κωδικό τις βλέπουν.",
+        "Positions update every second while moving, end-to-end encrypted: only people with the code can see them." to
+            "Οι θέσεις ανανεώνονται κάθε δευτερόλεπτο στην κίνηση, κρυπτογραφημένες από άκρο σε άκρο: μόνο όσοι έχουν τον κωδικό τις βλέπουν.",
         "Drive there as a convoy" to "Πάμε εκεί σαν κομβόι", "Convoy: go" to "Κομβόι: πάμε", "● Convoy" to "● Κομβόι",
         "You" to "Εσείς", "you" to "εσείς", "Driver" to "Οδηγός",
         "Shown next to your arrow on the others' maps." to "Εμφανίζεται δίπλα στο βελάκι σας στους χάρτες των άλλων.",

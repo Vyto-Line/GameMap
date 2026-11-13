@@ -56,7 +56,7 @@ function render() {
   document.getElementById("title").textContent = dest ? "To " + dest.n : "Convoy";
   const list = Object.values(people).filter(p => p.st !== "bye").sort((a, b) => (a.left ?? 1e9) - (b.left ?? 1e9));
   document.getElementById("rows").innerHTML = list.map(p => {
-    const stale = Date.now() - p.ts > (p.st === "driving" ? 25000 : 120000);
+    const stale = Date.now() - p.ts > (p.st === "driving" || (p.s || 0) >= 3 ? 25000 : 120000);
     const sub = p.st === "arrived" ? "arrived" : stale ? "no signal" : p.st === "ready" ? "not started" : (p.left >= 0 ? (p.left / 1000).toFixed(1) + " km to go" : "");
     return '<div class="row"><span class="dot" style="background:' + (stale ? "#aaa" : p.c) + '"></span><span class="n">' + esc(p.n) + '</span><span class="sub">' + sub +
       '</span><span class="s">' + (p.st === "arrived" ? "✓" : (p.s || 0) + " km/h") + '</span><span class="e">' + (p.eta ? clock(p.eta) : "–") + '</span></div>';

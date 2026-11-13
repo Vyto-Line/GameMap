@@ -39,8 +39,8 @@ object Convoy {
         @Volatile var readyAt = 0L
         /** 0 at the start … 1 at the destination. */
         val progress: Double get() = if (state == "arrived") 1.0 else if (total > 0 && left >= 0) (1 - left / total).coerceIn(0.0, 1.0) else 0.0
-        /** Updates come every ~2 s while driving (10 s when stopped), so 25 s without one = signal lost. */
-        val stale: Boolean get() = System.currentTimeMillis() - seen > (if (state == "driving") 25_000 else 150_000)
+        /** Updates come every second while moving (5 s when stopped), so 25 s without one = signal lost. */
+        val stale: Boolean get() = System.currentTimeMillis() - seen > (if (state == "driving" || kmh >= 3) 25_000 else 150_000)
         /** Time stamp of the newest update taken (older ones arriving late are ignored). */
         @Volatile var lastTs = 0L
 
@@ -56,7 +56,7 @@ object Convoy {
         /** Where they probably are now: carried on along the road (or their heading) at their speed. */
         fun predicted(now: Long): LatLng? {
             val p = pos ?: return null
-            if (state != "driving" || kmh < 3 || stale) return p
+            if (state == "arrived" || kmh < 3 || stale) return p
             val secs = ((now - fixAt) / 1000.0).coerceIn(0.0, 8.0)
             val metres = kmh / 3.6 * secs
             // on my route (same destination, usually the same roads): follow its bends;
@@ -86,7 +86,7 @@ object Convoy {
             return out
         }
 
-        val moving: Boolean get() = state == "driving" && kmh >= 3 && !stale
+        val moving: Boolean get() = state != "arrived" && kmh >= 3 && !stale
     }
 
     const val PAGE = "https://vyto-line.github.io/GameRoute/convoy/"
@@ -177,6 +177,7 @@ object Convoy {
         else e.remove("convoyDest")
         e.apply()
         listen(c)
+        main.post { LocationTracker.updateMode() } // GPS every second while in a convoy
         changed.fire()
     }
 
@@ -188,6 +189,7 @@ object Convoy {
         prefs().edit().remove("convoyCode").remove("convoyDest").apply()
         listener?.interrupt(); listener = null
         ConvoyLink.stop(if (quiet) null else myId)
+        main.post { LocationTracker.updateMode() }
         changed.fire()
     }
 
@@ -214,15 +216,17 @@ object Convoy {
     }
 
     /**
-     * On each location fix: every 2 s while moving, every 10 s when stopped, every 30 s when not
-     * navigating (the real-time line carries these; the ntfy backup gets one a minute).
+     * On each location fix (once a second in a convoy): sent every second while moving, every 5 s
+     * when stopped on a route, every 20 s otherwise (the real-time line carries these; the ntfy
+     * backup gets one a minute, plus changes such as arriving).
      */
     fun tick() {
         if (code == null) return
         val now = System.currentTimeMillis()
         val driving = NavEngine.active && !NavEngine.arrived
+        // moving: every second (with or without a route), so the others see you in real time
         val moving = LocationTracker.speedMps > 1.5f
-        val gap = when { driving && moving -> 2_000; driving -> 10_000; else -> 30_000 }
+        val gap = when { moving -> 1_000; driving -> 5_000; else -> 20_000 }
         if (meReady && goAt == 0L) main.post { checkGo() } // someone at the start may have dropped out
         if (now - sentAt < gap) return
         publish(hello(if (NavEngine.arrived) "arrived" else if (driving) "driving" else "ready"))
@@ -241,6 +245,7 @@ object Convoy {
     }
 
     @Volatile private var ntfyAt = 0L
+    @Volatile private var ntfyState = ""
 
     private fun publish(o: JSONObject, topic: String? = code) {
         val t = topic ?: return
@@ -248,9 +253,10 @@ object Convoy {
         sentAt = now
         // ntfy (backup, and the web page's fallback) allows 250 messages a day: one a minute,
         // plus anything that matters at once (arrived, left, a name change)
-        val important = o.optString("t") == "bye" || o.optString("st") != "driving"
+        val st = o.optString("t") + o.optString("st") + o.optBoolean("rd") + o.optString("n")
+        val important = o.optString("t") == "bye" || st != ntfyState
         val viaNtfy = important || now - ntfyAt > 60_000
-        if (viaNtfy) ntfyAt = now
+        if (viaNtfy) { ntfyAt = now; ntfyState = st }
         sender.execute {
             val sealed = try { Seal.seal(Seal.convoyKey(t), o.toString()) } catch (e: Exception) { return@execute }
             if (t == code) ConvoyLink.publish(myId, sealed)

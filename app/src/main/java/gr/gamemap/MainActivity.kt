@@ -2549,7 +2549,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             setTextColor(readable(accent)); gravity = Gravity.CENTER; setPadding(0, p, 0, 0)
             setOnClickListener { closeSheet(); NavEngine.start(this@MainActivity, dest!!); MapState.recenter() }
         })
-        sheetHost.addView(label("Positions update every 2 s while driving, end-to-end encrypted: only people with the code can see them.", 12f).apply {
+        sheetHost.addView(label("Positions update every second while moving, end-to-end encrypted: only people with the code can see them.", 12f).apply {
             setTextColor(dim()); setPadding(0, p, 0, 0)
         })
     }

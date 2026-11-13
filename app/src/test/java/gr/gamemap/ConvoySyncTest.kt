@@ -14,8 +14,8 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 /**
- * A friend drives the route at 50 km/h and reports through the real brokers every 2 s (like the
- * app); this phone listens. Measures how late updates arrive, whether the drawn arrow moves
+ * A friend drives the route at 50 km/h and reports through the real brokers every second (like the
+ * app), driving freely without a route; this phone listens. Measures how late updates arrive, whether the drawn arrow moves
  * smoothly (no jumps between frames) and whether the speed shown matches what they sent.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -46,12 +46,12 @@ class ConvoySyncTest {
         while (System.currentTimeMillis() - t0 < 30_000) {
             val now = System.currentTimeMillis()
             val m = (now - t0) / 1000.0 * speed + 50
-            if (now - lastSent >= 2000) {
+            if (now - lastSent >= 1000) {
                 lastSent = now
                 var i = 0
                 while (i < r.points.size - 2 && r.cum[i + 1] < m) i++
                 val p = Geo.lerp(r.points[i], r.points[i + 1], ((m - r.cum[i]) / maxOf(r.cum[i + 1] - r.cum[i], 0.1)).coerceIn(0.0, 1.0))
-                val o = JSONObject().put("t", "pos").put("id", "friend1").put("n", "Nikos").put("st", "driving").put("ts", now)
+                val o = JSONObject().put("t", "pos").put("id", "friend1").put("n", "Nikos").put("st", "ready").put("ts", now)
                     .put("lat", p.lat).put("lon", p.lon).put("h", Geo.bearing(r.points[i], r.points[i + 1]).toDouble()).put("s", 50)
                     .put("left", r.length - m).put("tot", r.length)
                 friend.publish(topic, MqttMessage(Seal.seal(key, o.toString()).toByteArray()).apply { qos = 0; isRetained = true })
@@ -71,7 +71,7 @@ class ConvoySyncTest {
             Thread.sleep(33) // ~30 frames a second
         }
         friend.publish(topic, MqttMessage(ByteArray(0)).apply { isRetained = true }); friend.disconnect()
-        log.append("updates received: ${lags.size} in 30 s (sent ${30 / 2})\n")
+        log.append("updates received: ${lags.size} in 30 s (sent 30)\n")
         log.append("delay: median ${lags.sorted().getOrNull(lags.size / 2)} ms, worst ${lags.maxOrNull()} ms\n")
         log.append("arrow: largest move between two frames ${"%.2f".format(maxStep)} m (driving moves ${"%.2f".format(speed * 0.033)} m per frame)\n")
         log.append("frames: $steps; moves over 1.5 m:\n$big")
