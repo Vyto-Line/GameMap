@@ -853,6 +853,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { if (k == "home") marginEnd = p })
             }
             placeCard.addView(more)
+            if (!NavEngine.active) placeCard.addView(pill("👥  Convoy here") {
+                closePlace()
+                withConvoyName { Convoy.create(pl); inviteToConvoy(); openSheet("convoy") }
+            }.apply { textSize = 14f; setTextColor(ink); background = bg(dim(30), radius = 22f) },
+                LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p })
             if (!dropped) placeCard.addView(pill("Reviews ›") { showReviews(pl) }.apply {
                 textSize = 14f; setTextColor(readable(accent)); gravity = Gravity.START or Gravity.CENTER_VERTICAL
             })
@@ -1684,6 +1689,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             settingRow("Explorer profile", "Level ${Explorer.level} · ${Explorer.xp} XP") { showProfile() },
             settingRow("Trip history", "${Explorer.history().size} trips") { openSheet("trips") },
             settingRow("Convoy", if (Convoy.active) "On · ${Convoy.members.size + 1} drivers" else "Drive together") { openSheet("convoy") },
+            settingRow("Your name in convoys", Convoy.myName.ifBlank { "Not set" }) { editConvoyName { showSettings() } },
             settingRow("Check for updates", "build ${Updater.currentVersion(this)}") { checkForUpdates(manual = true) },
             settingRow("About & map credits", null) { showAbout() },
         )).forEach { body.addView(it) }
@@ -1821,6 +1827,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             sheetHost.addView(pill("Join") { joinConvoy(input.text.toString()) }.apply {
                 setTextColor(onAccent(accent)); background = bg(accent, radius = 14f)
             }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = p })
+            sheetHost.addView(label("Your name: ${Convoy.myName.ifBlank { "not set yet" }}  ·  Change", 13f, bold = true).apply {
+                setTextColor(readable(accent)); setPadding(0, p, 0, 0); setOnClickListener { editConvoyName() }
+            })
             return
         }
         val dest = Convoy.destination
@@ -1863,7 +1872,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             row.addView(label(if (r.eta > 0) NavEngine.clock(r.eta) else "–", 15f, bold = true).apply { setTextColor(readable(Color.rgb(47, 180, 100))) })
             sheetHost.addView(row)
         }
-        if (Convoy.members.isEmpty()) sheetHost.addView(label("Nobody else yet: send the invite link.", 14f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, 0) })
+        if (Convoy.members.isEmpty()) sheetHost.addView(label("Nobody else yet: send the code or the invite link.", 14f).apply { setTextColor(dim()); setPadding(0, p / 2, 0, 0) })
+        sheetHost.addView(label("The others see you as \"${Convoy.myName.ifBlank { "Driver" }}\"  ·  Change name", 13f, bold = true).apply {
+            setTextColor(readable(accent)); setPadding(0, p / 2, 0, 0); setOnClickListener { editConvoyName() }
+        })
         val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, p, 0, 0) }
         buttons.addView(pill("🔗 Invite") { inviteToConvoy() }.apply { setTextColor(ink); background = bg(Color.TRANSPARENT, dim(120), 1.5f, 22f) },
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply { marginEnd = p })

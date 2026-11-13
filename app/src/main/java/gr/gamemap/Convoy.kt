@@ -80,6 +80,9 @@ object Convoy {
         Color.rgb(255, 107, 154), Color.rgb(255, 212, 59), Color.rgb(34, 211, 238), Color.rgb(151, 117, 250),
     )
 
+    /** A driver's colour comes from their id, so everyone in the convoy sees the same colours. */
+    fun colorOf(id: String): Int = palette[Math.floorMod(id.hashCode(), palette.size)]
+
     private lateinit var appContext: Context
     private fun prefs() = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE)
     val changed = Signal()
@@ -99,7 +102,11 @@ object Convoy {
     }
     var myName: String
         get() = prefs().getString("convoyName", "").orEmpty()
-        set(v) { prefs().edit().putString("convoyName", v.trim().take(16)).apply() }
+        set(v) {
+            prefs().edit().putString("convoyName", v.trim().take(16)).apply()
+            if (code != null) publish(hello(if (NavEngine.arrived) "arrived" else if (NavEngine.active) "driving" else "ready"))
+            changed.fire()
+        }
 
     fun init(ctx: Context) {
         appContext = ctx.applicationContext
@@ -255,7 +262,7 @@ object Convoy {
         }
         if (id == myId) { main.post { changed.fire() }; return }
         if (o.optString("t") == "bye") { members[id]?.state = "left"; members.remove(id); main.post { changed.fire() }; return }
-        val m = members.getOrPut(id) { Member(id, o.optString("n", "Driver"), palette[members.size % palette.size]) }
+        val m = members.getOrPut(id) { Member(id, o.optString("n", "Driver"), colorOf(id)) }
         m.name = o.optString("n", m.name)
         if (o.has("lat")) {
             val now = System.currentTimeMillis()
@@ -281,7 +288,7 @@ object Convoy {
     internal fun debugStart(dest: Place) { code = "k7p2qx"; destination = dest; members.clear(); routeTotal = -1.0 }
 
     internal fun debugMember(name: String, pos: LatLng, kmh: Int, eta: Long, left: Double, total: Double, state: String) {
-        val m = Member("t-$name", name, palette[members.size % palette.size], pos, 0f, kmh, eta, left, total, state, 0, System.currentTimeMillis())
+        val m = Member("t-$name", name, colorOf("t-$name"), pos, 0f, kmh, eta, left, total, state, 0, System.currentTimeMillis())
         m.fixAt = System.currentTimeMillis()
         members[m.id] = m
         changed.fire()
