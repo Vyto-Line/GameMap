@@ -34,14 +34,16 @@ object Convoy {
     ) {
         /** 0 at the start … 1 at the destination. */
         val progress: Double get() = if (state == "arrived") 1.0 else if (total > 0 && left >= 0) (1 - left / total).coerceIn(0.0, 1.0) else 0.0
-        /** Updates come every ~15 s while driving (stopped too), so 45 s without one = signal lost. */
-        val stale: Boolean get() = System.currentTimeMillis() - seen > (if (state == "driving") 45_000 else 150_000)
+        /** Updates come every ~2 s while driving (10 s when stopped), so 25 s without one = signal lost. */
+        val stale: Boolean get() = System.currentTimeMillis() - seen > (if (state == "driving") 25_000 else 150_000)
+        /** Time stamp of the newest update taken (older ones arriving late are ignored). */
+        @Volatile var lastTs = 0L
 
         // ---- gliding between updates
-        @Volatile var fixAt = 0L          // when the last position arrived (phone clock)
-        @Volatile var blendFrom: LatLng? = null
-        @Volatile var blendAt = 0L
+        @Volatile var fixAt = 0L          // when the last position was measured (their clock ≈ ours)
         @Volatile var shown: LatLng? = null
+        @Volatile private var shownAt = 0L
+        @Volatile var shownHeading = 0f
         private var routeOf: Any? = null
         private var routeFix = -1L
         private var routeAt = -1.0
@@ -50,7 +52,7 @@ object Convoy {
         fun predicted(now: Long): LatLng? {
             val p = pos ?: return null
             if (state != "driving" || kmh < 3 || stale) return p
-            val secs = ((now - fixAt) / 1000.0).coerceIn(0.0, 18.0)
+            val secs = ((now - fixAt) / 1000.0).coerceIn(0.0, 8.0)
             val metres = kmh / 3.6 * secs
             // on my route (same destination, usually the same roads): follow its bends;
             // the route position is looked up once per update, not every frame
@@ -60,13 +62,21 @@ object Convoy {
             return Geo.offset(p, heading, metres.coerceAtMost(kmh / 3.6 * 6))
         }
 
-        /** The point to draw: eases from where it was drawn to the new estimate over ~1.5 s. */
+        /**
+         * The point to draw. The estimate moves on smoothly between updates; the drawn arrow follows
+         * it with a short lag (0.3 s), so a new update never makes it jump, only gently correct.
+         */
         fun display(now: Long): LatLng? {
             val target = predicted(now) ?: return null
-            val from = blendFrom ?: return target.also { shown = it }
-            val f = ((now - blendAt) / 1500.0).coerceIn(0.0, 1.0)
-            val e = f * f * (3 - 2 * f)
-            val out = if (f >= 1.0) target else LatLng(from.lat + (target.lat - from.lat) * e, from.lon + (target.lon - from.lon) * e)
+            val s = shown
+            val dt = (now - shownAt).coerceAtLeast(0)
+            shownAt = now
+            if (s == null || dt > 3000 || Geo.distance(s, target) > 300) {
+                shown = target; shownHeading = heading; return target
+            }
+            val k = 1 - kotlin.math.exp(-dt / 300.0)
+            val out = LatLng(s.lat + (target.lat - s.lat) * k, s.lon + (target.lon - s.lon) * k)
+            shownHeading = (shownHeading + Geo.angleDiff(shownHeading, heading) * k.toFloat() + 360f) % 360f
             shown = out
             return out
         }
@@ -171,6 +181,7 @@ object Convoy {
         code = null; destination = null; members.clear()
         prefs().edit().remove("convoyCode").remove("convoyDest").apply()
         listener?.interrupt(); listener = null
+        ConvoyLink.stop(if (quiet) null else myId)
         changed.fire()
     }
 
@@ -185,7 +196,7 @@ object Convoy {
             .put("st", state).put("ts", System.currentTimeMillis())
         destination?.let { o.put("dn", it.name).put("da", it.address).put("dlat", it.pos.lat).put("dlon", it.pos.lon) }
         LocationTracker.position?.let { o.put("lat", it.lat).put("lon", it.lon).put("h", LocationTracker.heading.toDouble()) }
-        o.put("s", (LocationTracker.speedMps * 3.6f).toInt())
+        o.put("s", Math.round(LocationTracker.speedMps * 3.6f))
         if (NavEngine.active) {
             val left = NavEngine.remainingDistance
             if (routeTotal < left) routeTotal = left
@@ -195,12 +206,16 @@ object Convoy {
         return o
     }
 
-    /** On each location fix: an update every ~15 s while driving, every minute otherwise. */
+    /**
+     * On each location fix: every 2 s while moving, every 10 s when stopped, every 30 s when not
+     * navigating (the real-time line carries these; the ntfy backup gets one a minute).
+     */
     fun tick() {
         if (code == null) return
         val now = System.currentTimeMillis()
         val driving = NavEngine.active && !NavEngine.arrived
-        val gap = if (driving) 15_000 else 60_000
+        val moving = LocationTracker.speedMps > 1.5f
+        val gap = when { driving && moving -> 2_000; driving -> 10_000; else -> 30_000 }
         if (now - sentAt < gap) return
         publish(hello(if (NavEngine.arrived) "arrived" else if (driving) "driving" else "ready"))
     }
@@ -216,11 +231,21 @@ object Convoy {
         if (code != null) { sentAt = 0; tick() }
     }
 
+    @Volatile private var ntfyAt = 0L
+
     private fun publish(o: JSONObject, topic: String? = code) {
         val t = topic ?: return
-        sentAt = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        sentAt = now
+        // ntfy (backup, and the web page's fallback) allows 250 messages a day: one a minute,
+        // plus anything that matters at once (arrived, left, a name change)
+        val important = o.optString("t") == "bye" || o.optString("st") != "driving"
+        val viaNtfy = important || now - ntfyAt > 60_000
+        if (viaNtfy) ntfyAt = now
         sender.execute {
-            try { Http.post("https://ntfy.sh/" + Seal.convoyTopic(t), Seal.seal(Seal.convoyKey(t), o.toString()), "text/plain", timeout = 8000) } catch (_: Exception) {}
+            val sealed = try { Seal.seal(Seal.convoyKey(t), o.toString()) } catch (e: Exception) { return@execute }
+            if (t == code) ConvoyLink.publish(myId, sealed)
+            if (viaNtfy) try { Http.post("https://ntfy.sh/" + Seal.convoyTopic(t), sealed, "text/plain", timeout = 8000) } catch (_: Exception) {}
         }
     }
 
@@ -229,6 +254,13 @@ object Convoy {
     @Volatile private var listener: Thread? = null
 
     private fun listen(c: String) {
+        // the real-time line (MQTT); ntfy below stays as the backup
+        sender.execute {
+            val key = try { Seal.convoyKey(c) } catch (e: Exception) { return@execute }
+            ConvoyLink.start("gameroute/" + Seal.convoyTopic(c)) { msg ->
+                if (code == c) Seal.open(key, msg)?.let { try { take(JSONObject(it)) } catch (_: Exception) {} }
+            }
+        }
         listener?.interrupt()
         val t = Thread {
             var since = "12h"
@@ -267,13 +299,16 @@ object Convoy {
         if (id == myId) { main.post { changed.fire() }; return }
         if (o.optString("t") == "bye") { members[id]?.state = "left"; members.remove(id); main.post { changed.fire() }; return }
         val m = members.getOrPut(id) { Member(id, o.optString("n", "Driver"), colorOf(id)) }
+        // the same update comes over two brokers and ntfy, and late ones can overtake: newest wins
+        val ts = o.optLong("ts", 0)
+        if (ts != 0L && ts <= m.lastTs) return
+        if (ts != 0L) m.lastTs = ts
         m.name = o.optString("n", m.name)
         if (o.has("lat")) {
             val now = System.currentTimeMillis()
-            m.blendFrom = m.shown ?: m.predicted(now)
-            m.blendAt = now
             m.pos = LatLng(o.getDouble("lat"), o.getDouble("lon"))
-            m.fixAt = now
+            // measured when they sent it (phone clocks agree to a second or so); else: now
+            m.fixAt = if (ts in (now - 10_000)..now) ts else now
         }
         m.heading = o.optDouble("h", m.heading.toDouble()).toFloat()
         m.kmh = o.optInt("s", m.kmh)

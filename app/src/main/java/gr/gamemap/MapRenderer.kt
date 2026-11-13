@@ -925,7 +925,7 @@ class MapRenderer(private val car: Boolean = false) {
     private fun drawSpeed(c: Canvas, a: Rect, d: Float, t: Theme) {
         if (LocationTracker.last == null) return
         val imp = MapState.imperial
-        val kmh = (LocationTracker.speedMps * (if (imp) 2.23694f else 3.6f)).toInt()
+        val kmh = Math.round(LocationTracker.speedMps * (if (imp) 2.23694f else 3.6f))
         val limit = (if (NavEngine.active) NavEngine.speedLimit else null)?.let { if (imp) ((it * 0.621371 / 5).roundToInt() * 5) else it }
         val over = limit != null && kmh > limit + 4
         val pad = 14 * d
@@ -1290,7 +1290,7 @@ class MapRenderer(private val car: Boolean = false) {
             val p = m.display(now) ?: continue
             val (x, y) = toScreen(p, cam)
             if (x < -40 * d || y < -40 * d || x > a.right + 40 * d || y > a.bottom + 40 * d) continue
-            c.save(); c.translate(x, y); c.rotate(m.heading - bearing)
+            c.save(); c.translate(x, y); c.rotate(m.shownHeading - bearing)
             val s = 12 * d
             path.reset()
             path.moveTo(0f, -s * 1.2f); path.lineTo(s * 0.85f, s * 0.85f); path.lineTo(0f, s * 0.4f); path.lineTo(-s * 0.85f, s * 0.85f); path.close()

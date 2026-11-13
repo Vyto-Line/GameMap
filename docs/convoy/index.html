@@ -31,6 +31,7 @@
   <div class="note">No GameRoute yet? <a href="https://github.com/Vyto-Line/GameRoute/releases/latest">Get it here</a>, then open this link again.</div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
 <script>
 // Members post to a private ntfy.sh topic (a hash of the code in the link); this page follows it.
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -55,7 +56,7 @@ function render() {
   document.getElementById("title").textContent = dest ? "To " + dest.n : "Convoy";
   const list = Object.values(people).filter(p => p.st !== "bye").sort((a, b) => (a.left ?? 1e9) - (b.left ?? 1e9));
   document.getElementById("rows").innerHTML = list.map(p => {
-    const stale = Date.now() - p.ts > 120000;
+    const stale = Date.now() - p.ts > (p.st === "driving" ? 25000 : 120000);
     const sub = p.st === "arrived" ? "arrived" : stale ? "no signal" : p.st === "ready" ? "not started" : (p.left >= 0 ? (p.left / 1000).toFixed(1) + " km to go" : "");
     return '<div class="row"><span class="dot" style="background:' + (stale ? "#aaa" : p.c) + '"></span><span class="n">' + esc(p.n) + '</span><span class="sub">' + sub +
       '</span><span class="s">' + (p.st === "arrived" ? "✓" : (p.s || 0) + " km/h") + '</span><span class="e">' + (p.eta ? clock(p.eta) : "–") + '</span></div>';
@@ -81,7 +82,7 @@ async function take(m) {
   const plain = await openMsg(key, m.message); if (!plain) return;
   let d; try { d = JSON.parse(plain); } catch (e) { return; }
   if (!d.id) return;
-  if (people[d.id] && people[d.id].ts > d.ts) return;
+  if (people[d.id] && people[d.id].ts >= d.ts) return; // the same update arrives by several routes
   if (d.dlat && !dest) dest = { n: d.dn || "Destination", lat: d.dlat, lon: d.dlon };
   if (d.t === "bye") { if (people[d.id]) people[d.id].st = "bye"; if (marks[d.id]) { map.removeLayer(marks[d.id]); delete marks[d.id]; } render(); return; }
   const p = people[d.id] || (people[d.id] = { id: d.id, c: palette[Object.keys(people).length % palette.length] });
@@ -95,7 +96,15 @@ if (code.length >= 6) setup().then(() => {
   });
   const es = new EventSource("https://ntfy.sh/" + topic + "/sse");
   es.onmessage = e => { try { const m = JSON.parse(e.data); if (m.event === "message") feed(m); } catch (x) {} };
-  setInterval(render, 20000);
+  // the real-time line: the same encrypted updates every ~2 s through two public MQTT brokers
+  if (window.mqtt) for (const url of ["wss://broker.emqx.io:8084/mqtt", "wss://broker.hivemq.com:8884/mqtt"]) {
+    try {
+      const cl = mqtt.connect(url, { clean: true, reconnectPeriod: 3000, connectTimeout: 10000 });
+      cl.on("connect", () => cl.subscribe("gameroute/" + topic + "/+"));
+      cl.on("message", (t, payload) => { const txt = new TextDecoder().decode(payload); if (txt) feed({ message: txt }); });
+    } catch (e) {}
+  }
+  setInterval(render, 5000);
 }); else document.getElementById("title").textContent = "This link is missing its code";
 </script>
 </body>
