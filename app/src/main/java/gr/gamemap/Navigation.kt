@@ -1138,7 +1138,10 @@ object Places {
     fun saveFavourite(p: Place, label: String?, icon: String?) {
         val old = savedAt(p.pos)
         val s = Saved(old?.name ?: p.name, old?.address ?: p.address, old?.pos ?: p.pos, label?.trim()?.take(24)?.ifBlank { null }, icon)
-        writeSaved(listOf(s) + savedList().filterNot { Geo.distance(it.pos, s.pos) < 25 })
+        val list = savedList().toMutableList()
+        val i = list.indexOfFirst { Geo.distance(it.pos, s.pos) < 25 }
+        if (i >= 0) list[i] = s else list.add(0, s) // edited: stays where it was
+        writeSaved(list)
     }
 
     fun unsave(p: Place) = writeSaved(savedList().filterNot { Geo.distance(it.pos, p.pos) < 25 })

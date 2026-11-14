@@ -868,7 +868,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val isSaved = fav.any { it === pl }
             card.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                addView(label((if (pl.icon == "★") "★ " else "") + pl.name, 15f, bold = true).apply { setTextColor(ink); maxLines = 1; ellipsize = TextUtils.TruncateAt.END },
+                addView(label((if (pl.icon != "🕘" && Places.isSaved(pl)) "${pl.icon} " else "") + pl.name, 15f, bold = true).apply { setTextColor(ink); maxLines = 1; ellipsize = TextUtils.TruncateAt.END },
                     LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
                 if (!isSaved) addView(TextView(context).apply {
                     text = "✕"; textSize = 13f; setTextColor(dim(170)); gravity = Gravity.CENTER
