@@ -505,7 +505,8 @@ object Places {
         val q = Query(query)
         val tiles = localNamed(q, near).map { e -> Place(e.name, when (e.kind) { 0 -> "Area"; 2 -> "Street"; else -> "" }, e.pos, e.icon) }
         val open = try { OpenPlaces.search(q, near) } catch (e: Exception) { emptyList() }
-        return rank(q, near, null, listOf(open to SRC_OPEN, tiles to SRC_TILES)).take(8)
+        val mine = savedMatches(query)
+        return (mine + rank(q, near, null, listOf(open to SRC_OPEN, tiles to SRC_TILES)).filter { p -> mine.none { samePlace(it, p) || Geo.distance(it.pos, p.pos) < 25 } }).take(8)
     }
 
     // ---- ranking: what fits the words best, then what's nearest
@@ -683,8 +684,9 @@ object Places {
         }
         val ranked = rank(q, focus, area, listOf(open to SRC_OPEN, tom.orEmpty() to SRC_TOMTOM, tiles to SRC_TILES, osm to SRC_OSM))
         val out = ArrayList<Place>()
-        addr?.let { out += it }
-        for (p in ranked) if (out.none { samePlace(it, p) }) out += p
+        out += savedMatches(query) // "dad": my shortcut first
+        addr?.let { if (out.none { o -> Geo.distance(o.pos, it.pos) < 25 }) out += it }
+        for (p in ranked) if (out.none { samePlace(it, p) || Geo.distance(it.pos, p.pos) < 25 && Places.isSaved(it) }) out += p
         return out.take(10)
     }
 
@@ -1087,29 +1089,73 @@ object Places {
 
     // ---- saved places (favourites) ----
 
-    fun savedPlaces(): List<Place> {
+    /**
+     * A saved place. With a [label] ("Dad", "Gym") it's a shortcut: it shows by that name (and
+     * [icon]) on the home screen, in the car, and first in search when you type the label.
+     */
+    class Saved(val name: String, val address: String, val pos: LatLng, val label: String?, val icon: String?) {
+        fun place(): Place = if (label.isNullOrBlank()) Place(name, address, pos, icon ?: "★")
+            else Place(label, listOf(name, address).filter { it.isNotBlank() && it != label }.distinct().joinToString(", "), pos, icon ?: "★")
+    }
+
+    fun savedList(): List<Saved> {
         if (!::appContext.isInitialized) return emptyList()
         val raw = appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE).getString("favourites", "[]")
         return try {
             val a = JSONArray(raw)
             (0 until a.length()).map {
                 val o = a.getJSONObject(it)
-                Place(o.getString("n"), o.optString("a"), LatLng(o.getDouble("lat"), o.getDouble("lon")), "★")
+                Saved(o.getString("n"), o.optString("a"), LatLng(o.getDouble("lat"), o.getDouble("lon")),
+                    o.optString("l").ifBlank { null }, o.optString("i").ifBlank { null })
             }
         } catch (e: Exception) { emptyList() }
     }
 
-    fun isSaved(p: Place) = savedPlaces().any { Geo.distance(it.pos, p.pos) < 25 }
+    private fun writeSaved(list: List<Saved>) {
+        val a = JSONArray()
+        list.take(60).forEach { s ->
+            val o = JSONObject().put("n", s.name).put("a", s.address).put("lat", s.pos.lat).put("lon", s.pos.lon)
+            s.label?.let { o.put("l", it) }; s.icon?.let { o.put("i", it) }
+            a.put(o)
+        }
+        appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE).edit().putString("favourites", a.toString()).apply()
+        savedChanged.fire()
+    }
+
+    val savedChanged = Signal()
+
+    fun savedPlaces(): List<Place> = savedList().map { it.place() }
+
+    /** The saved place here, if any (within 25 m). */
+    fun savedAt(p: LatLng): Saved? = savedList().firstOrNull { Geo.distance(it.pos, p) < 25 }
+
+    /** The shortcuts with a label, in the order they were made. */
+    fun labelled(): List<Saved> = savedList().filter { !it.label.isNullOrBlank() }.reversed()
+
+    fun isSaved(p: Place) = savedAt(p.pos) != null
+
+    /** Saves [p] (or changes its label and icon if it's saved already). */
+    fun saveFavourite(p: Place, label: String?, icon: String?) {
+        val old = savedAt(p.pos)
+        val s = Saved(old?.name ?: p.name, old?.address ?: p.address, old?.pos ?: p.pos, label?.trim()?.take(24)?.ifBlank { null }, icon)
+        writeSaved(listOf(s) + savedList().filterNot { Geo.distance(it.pos, s.pos) < 25 })
+    }
+
+    fun unsave(p: Place) = writeSaved(savedList().filterNot { Geo.distance(it.pos, p.pos) < 25 })
 
     /** Saves or un-saves a place; returns true when it is saved now. */
     fun toggleSaved(p: Place): Boolean {
-        val now = savedPlaces()
-        val saved = now.any { Geo.distance(it.pos, p.pos) < 25 }
-        val list = if (saved) now.filterNot { Geo.distance(it.pos, p.pos) < 25 } else (listOf(p) + now).take(50)
-        val a = JSONArray()
-        list.forEach { a.put(JSONObject().put("n", it.name).put("a", it.address).put("lat", it.pos.lat).put("lon", it.pos.lon)) }
-        appContext.getSharedPreferences("gamemap", Context.MODE_PRIVATE).edit().putString("favourites", a.toString()).apply()
-        return !saved
+        if (isSaved(p)) { unsave(p); return false }
+        saveFavourite(p, null, null); return true
+    }
+
+    /** Saved places whose label (or name) is what was typed: they come first in search. */
+    fun savedMatches(query: String): List<Place> {
+        val q = Query(query)
+        if (q.words.isEmpty()) return emptyList()
+        return savedList().filter { s ->
+            (!s.label.isNullOrBlank() && nameScore(q, s.label) >= 0.99) || nameScore(q, s.name) >= 0.99
+        }.sortedBy { if (it.label.isNullOrBlank()) 1 else 0 }.map { it.place() }
     }
 
     /** Takes one place out of the recent searches (the ✕ next to it). */

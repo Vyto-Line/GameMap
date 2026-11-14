@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private lateinit var previewSub: TextView
     private lateinit var previewList: LinearLayout
     private lateinit var previewClose: TextView
+    private lateinit var previewSave: TextView
     private lateinit var previewBack: TextView
     private lateinit var trafficBtn: TextView
     private lateinit var laterBtn: TextView
@@ -578,6 +579,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 if (p == null) startPicking(k) else NavEngine.plan(this, p)
             }
         }
+        // your labels ("👤 Dad"): one tap to go, hold to edit
+        for (s in Places.labelled()) {
+            val pl = s.place()
+            val eta = Places.cachedEta(pl)?.let { " · ${NavEngine.formatDuration(it.seconds.toDouble())}" } ?: ""
+            chip("${s.icon ?: "★"} ${s.label}$eta", onLong = { showSaveDialog(pl) {} }) { NavEngine.plan(this, pl) }
+        }
         if (!Convoy.active) chip("👥 Convoy") { openSheet("convoy") }
         chip("⛽ Fuel") { showFuel() }
         chip("🍽 Food") { showNearby("FOOD NEARBY", listOf("restaurant", "fast_food", "cafe")) }
@@ -894,7 +901,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         // live ETAs for recents, home and work (once a minute at most; TomTom answers are cached 5 min)
         if (near != null && Traffic.active && System.currentTimeMillis() - etaAskedAt > 60_000) {
             etaAskedAt = System.currentTimeMillis()
-            val targets = (listOfNotNull(Places.saved("home"), Places.saved("work")) + rec).filter { Places.cachedEta(it) == null }
+            val targets = (listOfNotNull(Places.saved("home"), Places.saved("work")) + Places.labelled().map { it.place() } + rec).filter { Places.cachedEta(it) == null }
             if (targets.isNotEmpty()) io.execute {
                 var any = false
                 for (t in targets) if (Places.refreshEta(t, near) != null) any = true
@@ -1049,6 +1056,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         previewTitle = TextView(this).apply { textSize = 20f; typeface = Typeface.DEFAULT_BOLD }
         previewSub = TextView(this).apply { textSize = 13f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         previewClose = pill("✕") { NavEngine.cancelPlan() }
+        previewSave = pill("☆") { NavEngine.planPlace?.let { p -> showSaveDialog(p) { renderPreview() } } }.apply {
+            textSize = 20f; contentDescription = "Save this place"
+        }
         previewBack = pill("←") { NavEngine.cancelPlan(); search.requestFocus(); showSuggestions() }
         previewList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         laterBtn = pill("Leave later") { pickDeparture() }
@@ -1067,6 +1077,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     orientation = LinearLayout.VERTICAL
                     addView(previewTitle); addView(previewSub)
                 }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                addView(previewSave)
                 addView(previewClose)
             })
             addView(previewList, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = (8 * d).toInt() })
@@ -1263,9 +1274,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val savedNow = Places.isSaved(pl)
         val actions = mutableListOf<Triple<Int, String, () -> Unit>>(
             Triple(R.drawable.ic_act_star, if (savedNow) "Saved" else "Save") {
-                val on = Places.toggleSaved(pl)
-                Toast.makeText(this, L.t(if (on) "Saved: ${pl.name}" else "Removed from saved"), Toast.LENGTH_SHORT).show()
-                showPlace(pl, dropped)
+                showSaveDialog(pl) { showPlace(Places.savedAt(pl.pos)?.place() ?: pl, dropped) }
             },
             Triple(R.drawable.ic_act_share, "Share") { sharePlace(pl) },
             Triple(R.drawable.ic_act_home, "Home") {
@@ -1365,6 +1374,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val place = NavEngine.planPlace
         previewTitle.setTextColor(ink); previewTitle.typeface = theme.typeface
         previewSub.setTextColor(dim()); previewClose.setTextColor(ink); previewBack.setTextColor(ink)
+        val savedHere = place?.let { Places.isSaved(it) } == true
+        previewSave.text = if (savedHere) "★" else "☆"
+        previewSave.setTextColor(if (savedHere) readable(accent) else ink)
         previewTitle.text = when {
             NavEngine.planError != null -> NavEngine.planError
             NavEngine.planLoading -> "Finding routes…"
@@ -1645,7 +1657,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
         controls.visibility = if (planning || searching) View.GONE else View.VISIBLE
         val homeKey = "${t.name}|${MapState.dark}|${MapState.imperial}|$etaVersion|${Explorer.version}|${Explorer.xp}|${Places.recents().joinToString { it.name }}|" +
-            "${Places.saved("home")?.name}|${Places.saved("work")?.name}|${LocationTracker.position != null}|${Parked.get()?.at}|${Convoy.active}|${Convoy.members.size}"
+            "${Places.saved("home")?.name}|${Places.saved("work")?.name}|${LocationTracker.position != null}|${Parked.get()?.at}|${Convoy.active}|${Convoy.members.size}|${Places.labelled().joinToString { it.label + it.icon }}"
         if (homeKey != lastHomeKey) {
             lastHomeKey = homeKey
             if (chipsScroll.visibility == View.VISIBLE) renderChips()
@@ -1866,6 +1878,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (near != null) row.addView(TextView(this).apply {
             text = NavEngine.formatDistance(Geo.distance(near, pl.pos)); textSize = 13f; setTextColor(dim(170))
         })
+        if (!removable && pl.icon != "🛣" && pl.icon != "🏙") {
+            val saved = Places.isSaved(pl)
+            row.addView(TextView(this).apply {
+                text = if (saved) "★" else "☆"; textSize = 20f; gravity = Gravity.CENTER
+                setTextColor(if (saved) readable(accent) else dim(170))
+                contentDescription = if (saved) "Saved: edit" else "Save this place"
+                setOnClickListener { showSaveDialog(pl) { text = if (Places.isSaved(pl)) "★" else "☆"; setTextColor(if (Places.isSaved(pl)) readable(accent) else dim(170)) } }
+            }, LinearLayout.LayoutParams((44 * d).toInt(), (44 * d).toInt()))
+        }
         if (removable) row.addView(removeX("Remove from recent") {
             Places.removeRecent(pl)
             row.animate().alpha(0f).translationX(row.width * 0.3f).setDuration(180).withEndAction { showRecents() }.start()
@@ -2437,6 +2458,58 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     }
 
     private var convoyKey = ""
+
+    /**
+     * Save a place, with an optional label and icon ("👤 Dad"): labelled places become shortcuts
+     * on the home screen and in the car, and come first in search. Saved already: edit or remove.
+     */
+    private fun showSaveDialog(pl: Place, then: () -> Unit) {
+        val old = Places.savedAt(pl.pos)
+        val p = (16 * d).toInt()
+        val icons = listOf("★", "👤", "❤️", "👪", "🏋", "🍽", "☕", "🎓", "⚽", "🛒")
+        var icon = old?.icon ?: "★"
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(p + p / 2, p / 2, p + p / 2, 0) }
+        box.addView(label(old?.name ?: pl.name, 15f, bold = true).apply { setTextColor(ink) })
+        val addr = old?.address ?: pl.address
+        if (addr.isNotBlank()) box.addView(label(addr, 13f).apply { setTextColor(dim()); maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
+        box.addView(label("LABEL (OPTIONAL)", 11f, bold = true).apply { setTextColor(dim()); letterSpacing = 0.08f; setPadding(0, p, 0, p / 4) })
+        val input = EditText(this).apply {
+            hint = "e.g. Dad, Gym, Grandma"; setSingleLine(); setText(old?.label.orEmpty()); setSelection(text.length)
+            setTextColor(ink); setHintTextColor(dim(110))
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
+        }
+        box.addView(input)
+        box.addView(label("With a label it gets its own button on the home screen and in the car, and typing it in search finds it first.", 12f).apply {
+            setTextColor(dim()); setPadding(0, p / 4, 0, p / 2)
+        })
+        val iconRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun paintIcons() { for (i in 0 until iconRow.childCount) (iconRow.getChildAt(i) as TextView).let { v ->
+            val on = v.text == icon
+            v.background = if (on) bg(Color.argb(60, Color.red(accent), Color.green(accent), Color.blue(accent)), accent, 2f, 20f) else null
+        } }
+        for (e in icons) iconRow.addView(TextView(this).apply {
+            text = e; textSize = 20f; gravity = Gravity.CENTER
+            setOnClickListener { icon = e; paintIcons() }
+        }, LinearLayout.LayoutParams(0, (42 * d).toInt(), 1f))
+        paintIcons()
+        box.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(iconRow, LinearLayout.LayoutParams((icons.size * 42 * d).toInt(), WRAP_CONTENT)) })
+        val dlg = AlertDialog.Builder(this)
+            .setTitle(if (old != null) "Saved place" else "Save place")
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                val lab = input.text.toString().trim()
+                Places.saveFavourite(pl, lab.ifBlank { null }, icon.takeIf { it != "★" || lab.isNotBlank() })
+                Toast.makeText(this, L.t(if (lab.isNotBlank()) "Saved as $lab" else "Saved: ${pl.name}"), Toast.LENGTH_SHORT).show()
+                lastHomeKey = ""; refreshChrome(); then()
+            }
+            .setNegativeButton("Cancel", null)
+        if (old != null) dlg.setNeutralButton("Remove") { _, _ ->
+            Places.unsave(pl)
+            Toast.makeText(this, L.t("Removed from saved"), Toast.LENGTH_SHORT).show()
+            lastHomeKey = ""; refreshChrome(); then()
+        }
+        dlg.showT()
+    }
     private var proposalAsked = 0L
 
     /** Change ▾ on the convoy's destination: another place, or None (just share where we all are). */
