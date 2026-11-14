@@ -1,0 +1,8 @@
+labelled: 👤 Dad = Aigyptou 25, 🏋 Gym = Gym Plus
+saved list shows: ★ Mikel Coffee (Kolonaki), 🏋 Gym (Gym Plus, Kifisias 12), 👤 Dad (Aigyptou 25, Glyfada 165 62)
+"dad": instant first = 👤 Dad; full first = 👤 Dad
+"da": instant first = 👤 Dad; full first = 👤 Dad
+"gym": instant first = 🏋 Gym; full first = 🏋 Gym
+"mikel": instant first = ★ Mikel Coffee; full first = ★ Mikel Coffee
+after renaming: [Gym, Μπαμπάς]; original name kept: Aigyptou 25
+"babas" (Greeklish) first: Μπαμπάς
